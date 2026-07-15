@@ -146,6 +146,14 @@ serve(async (req) => {
       return jsonResponse({ error: 'Missing required fields' }, 400);
     }
 
+    if (!Array.isArray(brand_ids) || brand_ids.length === 0) {
+      return jsonResponse({ error: 'Select at least one brand' }, 400);
+    }
+
+    if (!Array.isArray(pages) || pages.length === 0) {
+      return jsonResponse({ error: 'Select at least one page permission' }, 400);
+    }
+
     const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,

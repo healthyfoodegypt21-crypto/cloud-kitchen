@@ -158,7 +158,7 @@ export default function UsersManagement() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.email || !form.password || !form.displayName || !form.role) {
-      toast.error('يرجى ملء جميع الحقول المطلوبة');
+      toast.error('يرجى اختيار الدور وملء جميع الحقول المطلوبة');
       return;
     }
     if (form.password.length < 6) {
@@ -167,6 +167,10 @@ export default function UsersManagement() {
     }
     if (form.brandIds.length === 0) {
       toast.error('يرجى اختيار علامة تجارية واحدة على الأقل');
+      return;
+    }
+    if (form.pages.length === 0) {
+      toast.error('يرجى اختيار صفحة واحدة على الأقل للمستخدم');
       return;
     }
 
@@ -282,6 +286,20 @@ export default function UsersManagement() {
       {!isEdit && (
         <>
           <div className="grid gap-1.5">
+            <Label>الدور *</Label>
+            <Select value={form.role} onValueChange={handleRoleChange}>
+              <SelectTrigger><SelectValue placeholder="اختر الدور أولًا" /></SelectTrigger>
+              <SelectContent>
+                {(Object.entries(ROLE_LABELS) as [AppRole, string][]).map(([val, label]) => (
+                  <SelectItem key={val} value={val}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              اختيار الدور يحدد صفحات مبدئية، ويمكنك تعديلها أدناه قبل إنشاء المستخدم.
+            </p>
+          </div>
+          <div className="grid gap-1.5">
             <Label>الاسم المعروض *</Label>
             <Input value={form.displayName} onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))} placeholder="اسم المستخدم" />
           </div>
@@ -292,17 +310,6 @@ export default function UsersManagement() {
           <div className="grid gap-1.5">
             <Label>كلمة المرور *</Label>
             <Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="6 أحرف على الأقل" />
-          </div>
-          <div className="grid gap-1.5">
-            <Label>الدور *</Label>
-            <Select value={form.role} onValueChange={handleRoleChange}>
-              <SelectTrigger><SelectValue placeholder="اختر الدور" /></SelectTrigger>
-              <SelectContent>
-                {(Object.entries(ROLE_LABELS) as [AppRole, string][]).map(([val, label]) => (
-                  <SelectItem key={val} value={val}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
         </>
       )}
@@ -322,7 +329,8 @@ export default function UsersManagement() {
         </div>
       </div>
       <div className="grid gap-1.5">
-        <Label className="flex items-center gap-1.5"><Eye className="h-3.5 w-3.5" /> صلاحيات الصفحات</Label>
+        <Label className="flex items-center gap-1.5"><Eye className="h-3.5 w-3.5" /> صلاحيات الصفحات *</Label>
+        <p className="text-xs text-muted-foreground">اختر الصفحات التي يستطيع المستخدم فتحها.</p>
         <div className="grid grid-cols-2 gap-2">
           {ALL_PAGES.map(page => (
             <label key={page.id} className="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border transition-colors hover:bg-muted">
