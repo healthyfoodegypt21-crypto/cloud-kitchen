@@ -19,11 +19,11 @@
 
 ### متغيرات البيئة
 
-يحتاج التطبيق إلى المتغيرات التالية داخل `.env.local`:
+يحتاج التطبيق إلى المتغيرات التالية داخل `.env` أو `.env.local` محليًا، أو داخل Vercel Project Settings عند النشر:
 
 ```env
 VITE_SUPABASE_URL=your-supabase-project-url
-VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-anon-key
+VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
 
 ### التثبيت

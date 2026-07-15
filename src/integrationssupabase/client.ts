@@ -3,15 +3,43 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+const logSupabaseEnv = () => {
+  console.log('SUPABASE_URL =', import.meta.env.VITE_SUPABASE_URL);
+  console.log('SUPABASE_KEY =', import.meta.env.VITE_SUPABASE_ANON_KEY);
+};
+
+if (import.meta.env.DEV) {
+  logSupabaseEnv();
+}
+
+const missingSupabaseEnvVars = [
+  !SUPABASE_URL ? 'VITE_SUPABASE_URL' : null,
+  !SUPABASE_ANON_KEY ? 'VITE_SUPABASE_ANON_KEY' : null,
+].filter((value): value is string => Boolean(value));
+
+if (missingSupabaseEnvVars.length > 0) {
+  if (!import.meta.env.DEV) {
+    logSupabaseEnv();
+  }
+
+  throw new Error(
+    `Missing Supabase environment variable(s): ${missingSupabaseEnvVars.join(', ')}. ` +
+      'Set them in Vercel Project Settings or a local .env/.env.local file.',
+  );
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+export const supabase = createClient<Database>(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  {
   auth: {
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
-  }
+  },
 });
