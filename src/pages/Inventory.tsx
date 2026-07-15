@@ -57,6 +57,7 @@ export default function Inventory() {
     setLines((current) => [...current, { ...line }]);
     setLine({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' });
   };
+  const linesForSubmission = () => line.itemId && number(line.quantity) > 0 ? [...lines, line] : lines;
 
   const startPurchaseRequest = (item: OperationalInventoryItem) => {
     const suggestedQuantity = Math.max(item.minStock - item.onHand, 1);
@@ -105,14 +106,16 @@ export default function Inventory() {
   };
 
   const submitPurchase = async () => {
-    if (lines.length === 0) { toast.error('أضف صنفًا واحدًا على الأقل للشراء'); return; }
-    const result = await invoke('inventory_submit_purchase_request', { _brand_id: brandId, _supplier_name: supplierName, _lines: lines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), unit_cost: number(entry.unitCost || '0'), location_name: entry.locationName, notes: entry.reason, batch_no: entry.batchNo, expiry_date: entry.expiryDate || null })), _notes: notes });
+    const submissionLines = linesForSubmission();
+    if (submissionLines.length === 0) { toast.error('اختر صنفًا وأدخل كمية صحيحة للشراء'); return; }
+    const result = await invoke('inventory_submit_purchase_request', { _brand_id: brandId, _supplier_name: supplierName, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), unit_cost: number(entry.unitCost || '0'), location_name: entry.locationName, notes: entry.reason, batch_no: entry.batchNo, expiry_date: entry.expiryDate || null })), _notes: notes });
     if (result) { toast.success('تم إرسال إشعار لمدير المخزن. لن يزداد المخزون قبل الاعتماد.'); reset(); }
   };
 
   const postWithdrawal = async () => {
-    if (lines.length === 0) { toast.error('أضف أصناف المسحوبات أولًا'); return; }
-    const result = await invoke('inventory_post_daily_withdrawal', { _brand_id: brandId, _lines: lines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), location_name: entry.locationName, reason: entry.reason || 'تشغيل المطبخ' })), _notes: notes });
+    const submissionLines = linesForSubmission();
+    if (submissionLines.length === 0) { toast.error('اختر صنفًا وأدخل كمية صحيحة للمسحوبات'); return; }
+    const result = await invoke('inventory_post_daily_withdrawal', { _brand_id: brandId, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), location_name: entry.locationName, reason: entry.reason || 'تشغيل المطبخ' })), _notes: notes });
     if (result) { toast.success(`تم تسجيل مسحوبات اليوم. الإجمالي ${formatEGPCurrency(Number(result.total_value))}`); reset(); }
   };
 
