@@ -18,6 +18,19 @@ export default function Login() {
   const [mode, setMode] = useState<'login' | 'setup'>('login');
   const [displayName, setDisplayName] = useState('');
 
+  const getFunctionErrorMessage = async (error: unknown) => {
+    const context = (error as { context?: unknown } | null)?.context;
+
+    if (context instanceof Response) {
+      const body = await context.clone().json().catch(() => null);
+      if (body && typeof body === 'object' && typeof body.error === 'string') {
+        return body.error;
+      }
+    }
+
+    return error instanceof Error ? error.message : undefined;
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) {
@@ -65,7 +78,13 @@ export default function Login() {
         return;
       }
 
-      toast.error(data?.error || error?.message || 'فشل إعداد الحساب');
+      const errorMessage = data?.error || await getFunctionErrorMessage(error);
+      if (errorMessage === 'Owner already exists. Use sign in.') {
+        setMode('login');
+        toast.error('يوجد حساب مالك بالفعل. سجّل الدخول باستخدام حساب المالك.');
+      } else {
+        toast.error(errorMessage || 'فشل إعداد الحساب');
+      }
       setLoading(false);
       return;
     }
