@@ -41,7 +41,7 @@ export function useOperationalInventory(brandId: string) {
       client.from('inventory_movements').select('id, item_id, movement_type, quantity, unit_cost, location_name, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(30),
       client.from('inventory_purchase_requests').select('id, request_no, supplier_name, status, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }),
       client.from('inventory_purchase_request_lines').select('id, purchase_request_id, item_id, quantity, unit_cost, location_name, notes, batch_no, expiry_date'),
-      client.from('inventory_daily_withdrawals').select('id, withdrawal_no, withdrawal_date, status, notes').eq('brand_id', brandId).order('withdrawal_date', { ascending: false }).limit(20),
+      client.from('inventory_daily_withdrawals').select('id, withdrawal_no, withdrawal_date, status, notes').eq('brand_id', brandId).order('withdrawal_date', { ascending: false }).limit(100),
       client.from('inventory_daily_withdrawal_lines').select('id, withdrawal_id, item_id, quantity, unit_cost, line_value, location_name, reason'),
       client.from('inventory_batches').select('id, item_id, batch_no, expiry_date, quantity_on_hand, unit_cost, status').eq('brand_id', brandId).in('status', ['available', 'reserved']).order('expiry_date', { ascending: true, nullsFirst: false }),
     ]);
