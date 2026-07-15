@@ -13,6 +13,7 @@ import { useBrands, type Brand } from '@/hooks/useBrands';
 import { useAuth } from '@/hooks/useAuth';
 import { useOperationalInventory } from '@/hooks/useOperationalInventory';
 import { supabase } from '@/integrations/supabase/client';
+import { hasPageAccess } from '@/lib/permissions';
 import { formatEGPCurrency } from '@/lib/utils';
 import type { OperationalInventoryItem } from '@/types/operationalInventory';
 
@@ -27,7 +28,7 @@ function itemCode(name: string) { return `${name.trim().replace(/\s+/g, '-').sli
 
 export default function Inventory() {
   const { brands, loading: brandsLoading } = useBrands();
-  const { role, isDemoMode } = useAuth();
+  const { role, isDemoMode, pagePermissions } = useAuth();
   const [brandId, setBrandId] = useState('');
   const [category, setCategory] = useState('all');
   const [query, setQuery] = useState('');
@@ -42,7 +43,7 @@ export default function Inventory() {
 
   useEffect(() => { if (brands[0] && !brandId) setBrandId(brands[0].id); }, [brands, brandId]);
   const { items, categories, movements, purchaseRequests, withdrawals, alerts, inventoryValue, loading, invoke } = useOperationalInventory(brandId);
-  const canManage = !isDemoMode && (role === 'owner' || role !== null);
+  const canManage = !isDemoMode && hasPageAccess(role, pagePermissions, 'inventory');
   const selectedItem = items.find((item) => item.id === line.itemId);
 
   const visibleItems = useMemo(() => items.filter((item) => (category === 'all' || item.category === category) && (!query.trim() || `${item.name} ${item.code}`.toLowerCase().includes(query.trim().toLowerCase()))), [category, items, query]);
