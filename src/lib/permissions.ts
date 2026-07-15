@@ -1,6 +1,6 @@
 import type { Database } from '@/integrations/supabase/types';
 
-type AppRole = Database['public']['Enums']['app_role'];
+type KnownAppRole = Database['public']['Enums']['app_role'];
 
 export type AppPageId =
   | 'dashboard'
@@ -27,13 +27,13 @@ export const ALL_PAGES: { id: AppPageId; label: string }[] = [
   { id: 'settings', label: 'الإعدادات' },
 ];
 
-export const DEFAULT_PAGES: Record<AppRole, AppPageId[]> = {
+export const DEFAULT_PAGES: Record<KnownAppRole, AppPageId[]> = {
   owner: ALL_PAGES.map((page) => page.id),
   call_center: ['dashboard', 'orders', 'customers', 'leaderboard', 'menu-packages', 'purchases', 'settings'],
   kitchen: ['orders', 'kitchen', 'inventory', 'purchases', 'settings'],
   delivery: ['orders', 'settings'],
 };
 
-export function hasPageAccess(role: AppRole | null, pagePermissions: string[], pageId: AppPageId) {
+export function hasPageAccess(role: string | null, pagePermissions: string[], pageId: AppPageId) {
   return role === 'owner' || pagePermissions.includes(pageId);
 }

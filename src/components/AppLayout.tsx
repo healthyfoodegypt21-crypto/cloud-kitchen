@@ -6,19 +6,19 @@ import { useState } from 'react';
 import BrandLogo from '@/components/BrandLogo';
 import { hasPageAccess, type AppPageId } from '@/lib/permissions';
 
-type NavItem = { to: string; label: string; icon: React.ElementType; roles: string[]; pageId: AppPageId; allowInDemo?: boolean };
+type NavItem = { to: string; label: string; icon: React.ElementType; pageId: AppPageId; allowInDemo?: boolean; ownerOnly?: boolean };
 
 const navItems: NavItem[] = [
-  { to: '/', label: 'لوحة التحكم', icon: LayoutDashboard, roles: ['owner', 'call_center'], pageId: 'dashboard', allowInDemo: true },
-  { to: '/orders', label: 'الطلبات', icon: ClipboardList, roles: ['owner', 'call_center', 'kitchen', 'delivery'], pageId: 'orders', allowInDemo: true },
-  { to: '/kitchen', label: 'المطبخ', icon: ChefHat, roles: ['owner', 'kitchen'], pageId: 'kitchen', allowInDemo: true },
-  { to: '/inventory', label: 'المخزون', icon: Boxes, roles: ['owner', 'kitchen'], pageId: 'inventory', allowInDemo: true },
-  { to: '/purchases', label: 'المشتريات', icon: ShoppingCart, roles: ['owner', 'call_center', 'kitchen'], pageId: 'purchases', allowInDemo: true },
-  { to: '/menu-packages', label: 'المنيو والباقات', icon: UtensilsCrossed, roles: ['owner', 'call_center'], pageId: 'menu-packages' },
-  { to: '/customers', label: 'العملاء', icon: Users, roles: ['owner', 'call_center'], pageId: 'customers', allowInDemo: true },
-  { to: '/leaderboard', label: 'لوحة الصدارة', icon: Trophy, roles: ['owner', 'call_center'], pageId: 'leaderboard', allowInDemo: true },
-  { to: '/users', label: 'المستخدمون', icon: Users, roles: ['owner'], pageId: 'users' },
-  { to: '/settings', label: 'الإعدادات', icon: Settings, roles: ['owner', 'call_center', 'kitchen', 'delivery'], pageId: 'settings' },
+  { to: '/', label: 'لوحة التحكم', icon: LayoutDashboard, pageId: 'dashboard', allowInDemo: true },
+  { to: '/orders', label: 'الطلبات', icon: ClipboardList, pageId: 'orders', allowInDemo: true },
+  { to: '/kitchen', label: 'المطبخ', icon: ChefHat, pageId: 'kitchen', allowInDemo: true },
+  { to: '/inventory', label: 'المخزون', icon: Boxes, pageId: 'inventory', allowInDemo: true },
+  { to: '/purchases', label: 'المشتريات', icon: ShoppingCart, pageId: 'purchases', allowInDemo: true },
+  { to: '/menu-packages', label: 'المنيو والباقات', icon: UtensilsCrossed, pageId: 'menu-packages' },
+  { to: '/customers', label: 'العملاء', icon: Users, pageId: 'customers', allowInDemo: true },
+  { to: '/leaderboard', label: 'لوحة الصدارة', icon: Trophy, pageId: 'leaderboard', allowInDemo: true },
+  { to: '/users', label: 'المستخدمون', icon: Users, pageId: 'users', ownerOnly: true },
+  { to: '/settings', label: 'الإعدادات', icon: Settings, pageId: 'settings' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -27,7 +27,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const visibleItems = navItems.filter((item) => role
-    && item.roles.includes(role)
+    && (!item.ownerOnly || role === 'owner')
     && (!isDemoMode || item.allowInDemo)
     && (isDemoMode || hasPageAccess(role, pagePermissions, item.pageId)));
 

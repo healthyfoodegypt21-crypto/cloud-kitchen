@@ -4,7 +4,7 @@ import type { User, Session } from '@supabase/supabase-js';
 import type { Database } from '@/integrations/supabase/types';
 import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseAvailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
 
-type AppRole = Database['public']['Enums']['app_role'];
+type AppRole = string;
 type AuthMode = 'session' | 'demo';
 
 const LOCAL_DEMO_AUTH_KEY = 'cloud_kitchen_demo_session';

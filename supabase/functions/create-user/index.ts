@@ -142,8 +142,13 @@ serve(async (req) => {
 
     // Default: create new user
     const { email, password, display_name, role, brand_ids, pages } = body;
-    if (!email || !password || !display_name || !role) {
+    const normalizedRole = typeof role === 'string' ? role.trim() : '';
+    if (!email || !password || !display_name || !normalizedRole) {
       return jsonResponse({ error: 'Missing required fields' }, 400);
+    }
+
+    if (normalizedRole.length > 80) {
+      return jsonResponse({ error: 'Role name must be 80 characters or fewer' }, 400);
     }
 
     if (!Array.isArray(brand_ids) || brand_ids.length === 0) {
@@ -166,7 +171,7 @@ serve(async (req) => {
     }
 
     try {
-      const roleInsert = await supabaseAdmin.from('user_roles').insert({ user_id: newUser.user.id, role });
+      const roleInsert = await supabaseAdmin.from('user_roles').insert({ user_id: newUser.user.id, role: normalizedRole });
       if (roleInsert.error) {
         throw new Error(`Failed to assign role: ${roleInsert.error.message}`);
       }

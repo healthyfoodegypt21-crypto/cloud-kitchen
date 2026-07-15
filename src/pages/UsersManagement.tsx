@@ -4,7 +4,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
@@ -15,24 +14,24 @@ import { useBrands } from '@/hooks/useBrands';
 import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
 import { ALL_PAGES, DEFAULT_PAGES, type AppPageId } from '@/lib/permissions';
 
-type AppRole = Database['public']['Enums']['app_role'];
+type KnownAppRole = Database['public']['Enums']['app_role'];
 
 interface UserWithRole {
   id: string;
   display_name: string;
-  role: AppRole | null;
+  role: string | null;
   brandIds: string[];
   pages: string[];
 }
 
-const ROLE_LABELS: Record<AppRole, string> = {
+const ROLE_LABELS: Record<KnownAppRole, string> = {
   owner: 'مالك',
   call_center: 'خدمة العملاء',
   kitchen: 'المطبخ',
   delivery: 'التوصيل',
 };
 
-const ROLE_COLORS: Record<AppRole, string> = {
+const ROLE_COLORS: Record<KnownAppRole, string> = {
   owner: 'bg-primary text-primary-foreground',
   call_center: 'bg-info text-info-foreground',
   kitchen: 'bg-warning text-warning-foreground',
@@ -130,10 +129,11 @@ export default function UsersManagement() {
   useEffect(() => { void fetchUsers(); }, []);
 
   const handleRoleChange = (role: string) => {
+    const normalizedRole = role.trim().toLowerCase() as KnownAppRole;
     setForm(f => ({
       ...f,
       role,
-      pages: DEFAULT_PAGES[role as AppRole] ?? [],
+      pages: DEFAULT_PAGES[normalizedRole] ?? f.pages,
     }));
   };
 
@@ -287,16 +287,9 @@ export default function UsersManagement() {
         <>
           <div className="grid gap-1.5">
             <Label>الدور *</Label>
-            <Select value={form.role} onValueChange={handleRoleChange}>
-              <SelectTrigger><SelectValue placeholder="اختر الدور أولًا" /></SelectTrigger>
-              <SelectContent>
-                {(Object.entries(ROLE_LABELS) as [AppRole, string][]).map(([val, label]) => (
-                  <SelectItem key={val} value={val}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Input value={form.role} onChange={e => handleRoleChange(e.target.value)} placeholder="مثال: كاشير، مشرف وردية، محاسب" />
             <p className="text-xs text-muted-foreground">
-              اختيار الدور يحدد صفحات مبدئية، ويمكنك تعديلها أدناه قبل إنشاء المستخدم.
+              اكتب أي مسمى وظيفي. للأدوار الافتراضية باللغة الإنجليزية مثل owner أو kitchen تُملأ الصفحات المبدئية تلقائيًا؛ ويمكنك تعديلها أدناه.
             </p>
           </div>
           <div className="grid gap-1.5">
@@ -386,7 +379,7 @@ export default function UsersManagement() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-foreground">{u.display_name}</span>
-                    {u.role && <Badge className={ROLE_COLORS[u.role]}>{ROLE_LABELS[u.role]}</Badge>}
+                    {u.role && <Badge className={ROLE_COLORS[u.role as KnownAppRole] ?? 'bg-secondary text-secondary-foreground'}>{ROLE_LABELS[u.role as KnownAppRole] ?? u.role}</Badge>}
                   </div>
                   <div className="flex gap-1 mt-1.5 flex-wrap">
                     {u.brandIds.map(bid => {
