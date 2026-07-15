@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type {
   DailyWithdrawal,
   InventoryAlert,
+  InventoryBatch,
   InventoryCategoryRecord,
   InventoryPurchaseRequest,
   OperationalInventoryItem,
@@ -21,6 +22,7 @@ export function useOperationalInventory(brandId: string) {
   const [movements, setMovements] = useState<OperationalMovement[]>([]);
   const [purchaseRequests, setPurchaseRequests] = useState<InventoryPurchaseRequest[]>([]);
   const [withdrawals, setWithdrawals] = useState<DailyWithdrawal[]>([]);
+  const [batches, setBatches] = useState<InventoryBatch[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -32,18 +34,19 @@ export function useOperationalInventory(brandId: string) {
 
     setLoading(true);
     const client = supabase as unknown as { from: (table: string) => any };
-    const [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, requestLinesRes, withdrawalsRes, withdrawalLinesRes] = await Promise.all([
+    const [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, requestLinesRes, withdrawalsRes, withdrawalLinesRes, batchesRes] = await Promise.all([
       client.from('items_master').select('id, brand_id, item_code, name, category, purchase_unit, min_stock, last_purchase_price, avg_cost, status, notes').eq('brand_id', brandId).order('name'),
       client.from('inventory_balances').select('item_id, on_hand, location_name').eq('brand_id', brandId),
       client.from('inventory_categories').select('id, code, name_ar, name_en, sort_order, is_active').eq('is_active', true).order('sort_order'),
       client.from('inventory_movements').select('id, item_id, movement_type, quantity, unit_cost, location_name, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(30),
       client.from('inventory_purchase_requests').select('id, request_no, supplier_name, status, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }),
-      client.from('inventory_purchase_request_lines').select('id, purchase_request_id, item_id, quantity, unit_cost, location_name, notes'),
+      client.from('inventory_purchase_request_lines').select('id, purchase_request_id, item_id, quantity, unit_cost, location_name, notes, batch_no, expiry_date'),
       client.from('inventory_daily_withdrawals').select('id, withdrawal_no, withdrawal_date, status, notes').eq('brand_id', brandId).order('withdrawal_date', { ascending: false }).limit(20),
       client.from('inventory_daily_withdrawal_lines').select('id, withdrawal_id, item_id, quantity, unit_cost, line_value, location_name, reason'),
+      client.from('inventory_batches').select('id, item_id, batch_no, expiry_date, quantity_on_hand, unit_cost, status').eq('brand_id', brandId).in('status', ['available', 'reserved']).order('expiry_date', { ascending: true, nullsFirst: false }),
     ]);
 
-    const firstError = [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, requestLinesRes, withdrawalsRes, withdrawalLinesRes].find((response) => response.error)?.error;
+    const firstError = [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, requestLinesRes, withdrawalsRes, withdrawalLinesRes, batchesRes].find((response) => response.error)?.error;
     if (firstError) {
       toast.error(firstError.message || 'تعذر تحميل بيانات المخزون');
       setLoading(false);
@@ -85,7 +88,7 @@ export function useOperationalInventory(brandId: string) {
       status: request.status as InventoryPurchaseRequest['status'], notes: String(request.notes ?? ''), createdAt: String(request.created_at),
       lines: requestLines.filter((line) => line.purchase_request_id === request.id).map((line) => ({
         id: String(line.id), itemId: String(line.item_id), itemName: itemNames.get(String(line.item_id)) ?? 'صنف', quantity: numeric(line.quantity),
-        unitCost: numeric(line.unit_cost), locationName: String(line.location_name), notes: String(line.notes ?? ''),
+        unitCost: numeric(line.unit_cost), locationName: String(line.location_name), notes: String(line.notes ?? ''), batchNo: String(line.batch_no ?? ''), expiryDate: line.expiry_date ? String(line.expiry_date) : null,
       })),
     })));
 
@@ -98,6 +101,10 @@ export function useOperationalInventory(brandId: string) {
       }));
       return { id: String(withdrawal.id), withdrawalNo: String(withdrawal.withdrawal_no), withdrawalDate: String(withdrawal.withdrawal_date), status: String(withdrawal.status), notes: String(withdrawal.notes ?? ''), lines, totalValue: lines.reduce((sum, line) => sum + line.lineValue, 0) };
     }));
+    setBatches(asRecords(batchesRes.data).map((batch) => ({
+      id: String(batch.id), itemId: String(batch.item_id), batchNo: String(batch.batch_no), expiryDate: batch.expiry_date ? String(batch.expiry_date) : null,
+      quantityOnHand: numeric(batch.quantity_on_hand), unitCost: numeric(batch.unit_cost), status: String(batch.status) as InventoryBatch['status'],
+    })));
     setLoading(false);
   }, [brandId]);
 
@@ -118,7 +125,8 @@ export function useOperationalInventory(brandId: string) {
     ...items.filter((item) => item.onHand <= item.minStock).map((item) => ({ id: `low-${item.id}`, type: 'low_stock' as const, title: `مخزون منخفض: ${item.name}`, description: `المتاح ${item.onHand} ${item.unit} مقابل حد ${item.minStock}.`, itemId: item.id })),
     ...items.filter((item) => item.averageCost <= 0).map((item) => ({ id: `cost-${item.id}`, type: 'missing_cost' as const, title: `تكلفة غير مسجلة: ${item.name}`, description: 'أضف سعر شراء أو رصيد افتتاحي لإظهار قيمة الصنف.', itemId: item.id })),
     ...purchaseRequests.filter((request) => request.status === 'pending_store_approval').map((request) => ({ id: `purchase-${request.id}`, type: 'purchase_pending' as const, title: 'شراء بانتظار الاعتماد', description: `${request.requestNo} — ${request.supplierName || 'بدون مورد'}.` })),
-  ], [items, purchaseRequests]);
+    ...batches.filter((batch) => batch.expiryDate && batch.quantityOnHand > 0 && new Date(batch.expiryDate).getTime() <= Date.now() + 7 * 24 * 60 * 60 * 1000).map((batch) => ({ id: `expiry-${batch.id}`, type: 'low_stock' as const, title: `صلاحية قريبة: ${items.find((item) => item.id === batch.itemId)?.name ?? 'صنف'}`, description: `دفعة ${batch.batchNo} تنتهي في ${batch.expiryDate}.`, itemId: batch.itemId })),
+  ], [batches, items, purchaseRequests]);
 
-  return { items, categories, movements, purchaseRequests, withdrawals, alerts, inventoryValue, loading, refresh, invoke };
+  return { items, categories, movements, purchaseRequests, withdrawals, batches, alerts, inventoryValue, loading, refresh, invoke };
 }

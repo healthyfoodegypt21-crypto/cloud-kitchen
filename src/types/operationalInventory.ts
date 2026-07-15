@@ -25,6 +25,16 @@ export type OperationalInventoryItem = {
   notes: string;
 };
 
+export type InventoryBatch = {
+  id: string;
+  itemId: string;
+  batchNo: string;
+  expiryDate: string | null;
+  quantityOnHand: number;
+  unitCost: number;
+  status: 'available' | 'reserved' | 'consumed' | 'expired' | 'damaged';
+};
+
 export type OperationalMovement = {
   id: string;
   itemId: string;
@@ -46,6 +56,8 @@ export type PurchaseRequestLine = {
   unitCost: number;
   locationName: string;
   notes: string;
+  batchNo: string;
+  expiryDate: string | null;
 };
 
 export type InventoryPurchaseRequest = {
