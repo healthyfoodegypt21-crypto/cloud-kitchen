@@ -18,7 +18,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
 import { usePurchases } from '@/hooks/usePurchases';
+import { supabase } from '@/integrations/supabase/client';
 import { cn, formatEGPCurrency } from '@/lib/utils';
+import { toast } from 'sonner';
 import { InventoryItem, INVENTORY_CATEGORY_LABELS, INVENTORY_CATEGORY_ORDER, INVENTORY_UNIT_LABELS, INVENTORY_UNIT_ORDER } from '@/types/inventory';
 import { ConfirmReceiptInput, RecordPurchaseInput } from '@/types/purchases';
 
@@ -27,6 +29,7 @@ type Props = {
   inventoryLoading: boolean;
   storageMode: 'local';
   fallbackReason: string;
+  brandOptions: { id: string; name: string }[];
 };
 
 const PAYMENT_METHOD_OPTIONS = [
@@ -156,10 +159,12 @@ function calculatePriceChange(currentPrice: number, previousPrice: number | null
   };
 }
 
-export default function Purchases({ inventoryItems, inventoryLoading, storageMode, fallbackReason }: Props) {
+export default function Purchases({ inventoryItems, inventoryLoading, storageMode, fallbackReason, brandOptions }: Props) {
   const { isDemoMode } = useAuth();
   const [periodDays, setPeriodDays] = useState('30');
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
+  const [itemRequestDialogOpen, setItemRequestDialogOpen] = useState(false);
+  const [itemRequest, setItemRequest] = useState({ brandId: '', name: '', productBrand: '', code: '', unit: 'kg', minStock: '0', notes: '' });
   const [quickBuyDialogOpen, setQuickBuyDialogOpen] = useState(false);
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
   const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
@@ -187,6 +192,22 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
     () => purchaseForm.purchasedQuantity * purchaseForm.purchasedUnitPrice,
     [purchaseForm.purchasedQuantity, purchaseForm.purchasedUnitPrice],
   );
+
+  useEffect(() => {
+    if (!itemRequest.brandId && brandOptions[0]) setItemRequest((current) => ({ ...current, brandId: brandOptions[0].id }));
+  }, [brandOptions, itemRequest.brandId]);
+
+  const submitItemRequest = async () => {
+    if (!itemRequest.brandId || !itemRequest.name.trim() || !itemRequest.code.trim()) { toast.error('اختر براند المطبخ وأدخل اسم الصنف والكود'); return; }
+    const { error } = await (supabase as any).rpc('inventory_submit_item_request', {
+      _brand_id: itemRequest.brandId, _item_name: itemRequest.name, _product_brand: itemRequest.productBrand, _item_code: itemRequest.code,
+      _category: 'other', _unit: itemRequest.unit, _min_stock: Number(itemRequest.minStock || 0), _notes: itemRequest.notes,
+    });
+    if (error) { toast.error(error.message); return; }
+    toast.success('تم إرسال طلب إضافة الصنف لمسؤول المخزن لاعتماده');
+    setItemRequestDialogOpen(false);
+    setItemRequest((current) => ({ ...current, name: '', productBrand: '', code: '', minStock: '0', notes: '' }));
+  };
 
   useEffect(() => {
     setPurchaseForm((current) => {
@@ -933,7 +954,7 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
                         placeholder="اكتب أول حرف من اسم الصنف أو الـ SKU"
                       />
                       <CommandList>
-                        <CommandEmpty>لا توجد أصناف مطابقة. يجب إضافة الصنف أولًا إلى المخزون قبل تسجيل عملية شراء له.</CommandEmpty>
+                        <CommandEmpty>لا توجد أصناف مطابقة.</CommandEmpty>
                         {filteredPurchaseItems.map((item) => (
                           <CommandItem
                             key={item.id}
@@ -956,6 +977,7 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
                     </Command>
                   </PopoverContent>
                 </Popover>
+                <Button type="button" variant="ghost" size="sm" className="text-primary" onClick={() => { setItemRequest((current) => ({ ...current, name: purchaseItemSearch })); setItemRequestDialogOpen(true); }}><Plus className="ml-1 h-4 w-4" />الصنف غير موجود؟ أرسل طلب إضافته لمسؤول المخزن</Button>
                 {selectedPurchaseItem ? (
                   <div className="grid gap-2 rounded-xl border bg-muted/30 p-3 text-sm md:grid-cols-2 xl:grid-cols-3">
                     <div>
@@ -1034,6 +1056,21 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
             </Accordion>
             <div className="sticky bottom-0 -mx-6 border-t bg-background px-6 pb-1 pt-4"><Button type="submit" className="w-full">إتمام وتسجيل عملية الشراء</Button></div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={itemRequestDialogOpen} onOpenChange={setItemRequestDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader><DialogTitle>طلب إضافة صنف جديد</DialogTitle><DialogDescription>سيرسل الطلب لمسؤول المخزن. بعد الضغط على قبول يصبح الصنف متاحًا للشراء.</DialogDescription></DialogHeader>
+          <div className="grid gap-4">
+            <div className="space-y-2"><Label>براند المطبخ</Label><Select value={itemRequest.brandId} onValueChange={(brandId) => setItemRequest((current) => ({ ...current, brandId }))}><SelectTrigger><SelectValue placeholder="اختر البراند" /></SelectTrigger><SelectContent>{brandOptions.map((brand) => <SelectItem key={brand.id} value={brand.id}>{brand.name}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-2"><Label>اسم الصنف</Label><Input value={itemRequest.name} onChange={(event) => setItemRequest((current) => ({ ...current, name: event.target.value }))} placeholder="مثال: أرز بسمتي" /></div>
+            <div className="space-y-2"><Label>الماركة التجارية</Label><Input value={itemRequest.productBrand} onChange={(event) => setItemRequest((current) => ({ ...current, productBrand: event.target.value }))} placeholder="مثال: الضحى — تختلف بها الأسعار" /></div>
+            <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>كود الصنف</Label><Input value={itemRequest.code} onChange={(event) => setItemRequest((current) => ({ ...current, code: event.target.value }))} placeholder="RICE-DAHAB" /></div><div className="space-y-2"><Label>الوحدة</Label><Input value={itemRequest.unit} onChange={(event) => setItemRequest((current) => ({ ...current, unit: event.target.value }))} placeholder="kg" /></div></div>
+            <div className="space-y-2"><Label>الحد الأدنى</Label><Input type="number" min="0" value={itemRequest.minStock} onChange={(event) => setItemRequest((current) => ({ ...current, minStock: event.target.value }))} /></div>
+            <div className="space-y-2"><Label>ملاحظات</Label><Textarea value={itemRequest.notes} onChange={(event) => setItemRequest((current) => ({ ...current, notes: event.target.value }))} /></div>
+            <Button onClick={() => void submitItemRequest()}>إرسال طلب الاعتماد</Button>
+          </div>
         </DialogContent>
       </Dialog>
 

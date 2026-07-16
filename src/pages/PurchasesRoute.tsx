@@ -30,6 +30,7 @@ export default function PurchasesRoute() {
       inventoryLoading={brandsLoading || inventoryLoading}
       storageMode="local"
       fallbackReason="تُعرض أصناف المخزون الفعلية المسجلة في النظام."
+      brandOptions={brands}
     />
   );
 }
