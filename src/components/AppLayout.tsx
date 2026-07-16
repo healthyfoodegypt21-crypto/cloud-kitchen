@@ -15,6 +15,7 @@ const navItems: NavItem[] = [
   { to: '/inventory', label: 'المخزون', icon: Boxes, pageId: 'inventory', allowInDemo: true },
   { to: '/purchases', label: 'المشتريات', icon: ShoppingCart, pageId: 'purchases', allowInDemo: true },
   { to: '/cleaning', label: 'التنظيفات', icon: Sparkles, pageId: 'cleaning' },
+  { to: '/hr', label: 'الموارد البشرية', icon: Users, pageId: 'hr' },
   { to: '/menu-packages', label: 'المنيو والباقات', icon: UtensilsCrossed, pageId: 'menu-packages' },
   { to: '/customers', label: 'العملاء', icon: Users, pageId: 'customers', allowInDemo: true },
   { to: '/leaderboard', label: 'لوحة الصدارة', icon: Trophy, pageId: 'leaderboard', allowInDemo: true },

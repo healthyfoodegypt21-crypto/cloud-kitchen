@@ -15,6 +15,7 @@ import MenuPackagesRoute from "./pages/MenuPackagesRoute";
 import InventoryRoute from "./pages/InventoryRoute";
 import PurchasesRoute from "./pages/PurchasesRoute";
 import CleaningRoute from "./pages/CleaningRoute";
+import HR from "./pages/HR";
 import UsersManagement from "./pages/UsersManagement";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
@@ -34,11 +35,12 @@ const pageRoutes: Record<AppPageId, string> = {
   inventory: '/inventory',
   purchases: '/purchases',
   cleaning: '/cleaning',
+  hr: '/hr',
   users: '/users',
   settings: '/settings',
 };
 
-const pagePriority: AppPageId[] = ['dashboard', 'orders', 'kitchen', 'inventory', 'purchases', 'cleaning', 'customers', 'leaderboard', 'menu-packages', 'settings', 'users'];
+const pagePriority: AppPageId[] = ['dashboard', 'orders', 'kitchen', 'inventory', 'purchases', 'cleaning', 'hr', 'customers', 'leaderboard', 'menu-packages', 'settings', 'users'];
 
 function permittedHome(role: string | null, pagePermissions: string[], isDemoMode: boolean) {
   if (isDemoMode || role === 'owner') return '/';
@@ -106,6 +108,11 @@ function AppRoutes() {
       <Route path="/cleaning" element={
         <ProtectedRoute requiredPage="cleaning">
           <AppLayout><CleaningRoute /></AppLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/hr" element={
+        <ProtectedRoute requiredPage="hr">
+          <AppLayout><HR /></AppLayout>
         </ProtectedRoute>
       } />
       <Route path="/users" element={

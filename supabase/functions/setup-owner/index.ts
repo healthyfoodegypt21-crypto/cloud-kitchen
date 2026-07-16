@@ -16,6 +16,7 @@ const OWNER_DEFAULT_PAGES = [
   'inventory',
   'purchases',
   'cleaning',
+  'hr',
   'users',
   'settings',
 ];

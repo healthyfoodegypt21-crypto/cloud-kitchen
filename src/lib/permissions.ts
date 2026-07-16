@@ -12,6 +12,7 @@ export type AppPageId =
   | 'inventory'
   | 'purchases'
   | 'cleaning'
+  | 'hr'
   | 'users'
   | 'settings';
 
@@ -25,6 +26,7 @@ export const ALL_PAGES: { id: AppPageId; label: string }[] = [
   { id: 'inventory', label: 'المخزون' },
   { id: 'purchases', label: 'المشتريات' },
   { id: 'cleaning', label: 'التنظيفات' },
+  { id: 'hr', label: 'الموارد البشرية' },
   { id: 'users', label: 'إدارة المستخدمين' },
   { id: 'settings', label: 'الإعدادات' },
 ];
