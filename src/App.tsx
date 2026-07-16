@@ -23,23 +23,44 @@ import { hasPageAccess } from "@/lib/permissions";
 
 const queryClient = new QueryClient();
 
+const pageRoutes: Record<AppPageId, string> = {
+  dashboard: '/',
+  orders: '/orders',
+  kitchen: '/kitchen',
+  customers: '/customers',
+  leaderboard: '/leaderboard',
+  'menu-packages': '/menu-packages',
+  inventory: '/inventory',
+  purchases: '/purchases',
+  users: '/users',
+  settings: '/settings',
+};
+
+const pagePriority: AppPageId[] = ['dashboard', 'orders', 'kitchen', 'inventory', 'purchases', 'customers', 'leaderboard', 'menu-packages', 'settings', 'users'];
+
+function permittedHome(role: string | null, pagePermissions: string[], isDemoMode: boolean) {
+  if (isDemoMode || role === 'owner') return '/';
+  const permittedPage = pagePriority.find((page) => hasPageAccess(role, pagePermissions, page));
+  return permittedPage ? pageRoutes[permittedPage] : '/login';
+}
+
 function ProtectedRoute({ children, allowDemo = false, requiredPage, ownerOnly = false }: { children: React.ReactNode; allowDemo?: boolean; requiredPage?: AppPageId; ownerOnly?: boolean }) {
   const { user, role, loading, isDemoMode, pagePermissions } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   if (!user) return <Navigate to="/login" replace />;
   if (isDemoMode && !allowDemo) return <Navigate to="/" replace />;
-  if (ownerOnly && role !== 'owner') return <Navigate to="/" replace />;
-  if (requiredPage && !isDemoMode && !hasPageAccess(role, pagePermissions, requiredPage)) return <Navigate to="/" replace />;
+  if (ownerOnly && role !== 'owner') return <Navigate to={permittedHome(role, pagePermissions, isDemoMode)} replace />;
+  if (requiredPage && !isDemoMode && !hasPageAccess(role, pagePermissions, requiredPage)) return <Navigate to={permittedHome(role, pagePermissions, isDemoMode)} replace />;
   return <>{children}</>;
 }
 
 function AppRoutes() {
-  const { user, loading } = useAuth();
+  const { user, role, pagePermissions, isDemoMode, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/login" element={user ? <Navigate to={permittedHome(role, pagePermissions, isDemoMode)} replace /> : <Login />} />
       <Route path="/" element={
         <ProtectedRoute allowDemo requiredPage="dashboard">
           <AppLayout><Index /></AppLayout>
