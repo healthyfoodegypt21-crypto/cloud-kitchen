@@ -909,7 +909,7 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
           setPurchaseAccountingOpen(false);
         }
       }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>تسجيل عملية شراء</DialogTitle>
             <DialogDescription>المسار الأساسي الآن أسرع: صنف، كمية، وحدة، سعر، ثم حفظ. بيانات الدفع اختيارية فقط عند الحاجة.</DialogDescription>
@@ -933,7 +933,7 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
                         placeholder="اكتب أول حرف من اسم الصنف أو الـ SKU"
                       />
                       <CommandList>
-                        <CommandEmpty>لا توجد أصناف مطابقة.</CommandEmpty>
+                        <CommandEmpty>لا توجد أصناف مطابقة. يجب إضافة الصنف أولًا إلى المخزون قبل تسجيل عملية شراء له.</CommandEmpty>
                         {filteredPurchaseItems.map((item) => (
                           <CommandItem
                             key={item.id}
@@ -1032,7 +1032,7 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
-            <Button type="submit" className="w-full">تسجيل الشراء</Button>
+            <div className="sticky bottom-0 -mx-6 border-t bg-background px-6 pb-1 pt-4"><Button type="submit" className="w-full">إتمام وتسجيل عملية الشراء</Button></div>
           </form>
         </DialogContent>
       </Dialog>
