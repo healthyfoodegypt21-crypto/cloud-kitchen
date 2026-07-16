@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, ClipboardList, Users, LogOut, Settings, Trophy, Menu, X, UtensilsCrossed, ChefHat, Boxes, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, Users, LogOut, Settings, Trophy, Menu, X, UtensilsCrossed, ChefHat, Boxes, ShoppingCart, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -14,6 +14,7 @@ const navItems: NavItem[] = [
   { to: '/kitchen', label: 'المطبخ', icon: ChefHat, pageId: 'kitchen', allowInDemo: true },
   { to: '/inventory', label: 'المخزون', icon: Boxes, pageId: 'inventory', allowInDemo: true },
   { to: '/purchases', label: 'المشتريات', icon: ShoppingCart, pageId: 'purchases', allowInDemo: true },
+  { to: '/cleaning', label: 'التنظيفات', icon: Sparkles, pageId: 'cleaning' },
   { to: '/menu-packages', label: 'المنيو والباقات', icon: UtensilsCrossed, pageId: 'menu-packages' },
   { to: '/customers', label: 'العملاء', icon: Users, pageId: 'customers', allowInDemo: true },
   { to: '/leaderboard', label: 'لوحة الصدارة', icon: Trophy, pageId: 'leaderboard', allowInDemo: true },
