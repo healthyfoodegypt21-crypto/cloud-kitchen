@@ -164,7 +164,7 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
   const [periodDays, setPeriodDays] = useState('30');
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
   const [itemRequestDialogOpen, setItemRequestDialogOpen] = useState(false);
-  const [itemRequest, setItemRequest] = useState({ brandId: '', name: '', productBrand: '', code: '', unit: 'kg', minStock: '0', notes: '' });
+  const [itemRequest, setItemRequest] = useState({ brandId: '', name: '', productBrand: '', code: '', category: '' as InventoryItem['category'] | '', unit: 'kg', minStock: '0', notes: '' });
   const [quickBuyDialogOpen, setQuickBuyDialogOpen] = useState(false);
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
   const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
@@ -196,15 +196,15 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
   useEffect(() => { if (!itemRequest.brandId && defaultBrandId) setItemRequest((current) => ({ ...current, brandId: defaultBrandId })); }, [defaultBrandId, itemRequest.brandId]);
 
   const submitItemRequest = async () => {
-    if (!itemRequest.brandId || !itemRequest.name.trim() || !itemRequest.code.trim()) { toast.error('أدخل اسم الصنف والكود'); return; }
+    if (!itemRequest.brandId || !itemRequest.name.trim() || !itemRequest.code.trim() || !itemRequest.category) { toast.error('أدخل اسم الصنف والكود وحدد فئته'); return; }
     const { error } = await (supabase as any).rpc('inventory_submit_item_request', {
       _brand_id: itemRequest.brandId, _item_name: itemRequest.name, _product_brand: itemRequest.productBrand, _item_code: itemRequest.code,
-      _category: 'other', _unit: itemRequest.unit, _min_stock: Number(itemRequest.minStock || 0), _notes: itemRequest.notes,
+      _category: itemRequest.category, _unit: itemRequest.unit, _min_stock: Number(itemRequest.minStock || 0), _notes: itemRequest.notes,
     });
     if (error) { toast.error(error.message); return; }
     toast.success('تم إرسال طلب إضافة الصنف لمسؤول المخزن لاعتماده');
     setItemRequestDialogOpen(false);
-    setItemRequest((current) => ({ ...current, name: '', productBrand: '', code: '', minStock: '0', notes: '' }));
+    setItemRequest((current) => ({ ...current, name: '', productBrand: '', code: '', category: '', minStock: '0', notes: '' }));
   };
 
   useEffect(() => {
@@ -1063,6 +1063,7 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
           <div className="grid gap-4">
             <div className="space-y-2"><Label>اسم الصنف</Label><Input value={itemRequest.name} onChange={(event) => setItemRequest((current) => ({ ...current, name: event.target.value }))} placeholder="مثال: أرز بسمتي" /></div>
             <div className="space-y-2"><Label>الماركة التجارية</Label><Input value={itemRequest.productBrand} onChange={(event) => setItemRequest((current) => ({ ...current, productBrand: event.target.value }))} placeholder="مثال: الضحى — تختلف بها الأسعار" /></div>
+            <div className="space-y-2"><Label>فئة الصنف</Label><Select value={itemRequest.category} onValueChange={(category) => setItemRequest((current) => ({ ...current, category: category as InventoryItem['category'] }))}><SelectTrigger><SelectValue placeholder="اختر فئة الصنف" /></SelectTrigger><SelectContent>{INVENTORY_CATEGORY_ORDER.map((category) => <SelectItem key={category} value={category}>{INVENTORY_CATEGORY_LABELS[category]}</SelectItem>)}</SelectContent></Select></div>
             <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>كود الصنف</Label><Input value={itemRequest.code} onChange={(event) => setItemRequest((current) => ({ ...current, code: event.target.value }))} placeholder="RICE-DAHAB" /></div><div className="space-y-2"><Label>الوحدة</Label><Input value={itemRequest.unit} onChange={(event) => setItemRequest((current) => ({ ...current, unit: event.target.value }))} placeholder="kg" /></div></div>
             <div className="space-y-2"><Label>الحد الأدنى</Label><Input type="number" min="0" value={itemRequest.minStock} onChange={(event) => setItemRequest((current) => ({ ...current, minStock: event.target.value }))} /></div>
             <div className="space-y-2"><Label>ملاحظات</Label><Textarea value={itemRequest.notes} onChange={(event) => setItemRequest((current) => ({ ...current, notes: event.target.value }))} /></div>
