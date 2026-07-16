@@ -29,7 +29,7 @@ type Props = {
   inventoryLoading: boolean;
   storageMode: 'local';
   fallbackReason: string;
-  brandOptions: { id: string; name: string }[];
+  defaultBrandId: string;
 };
 
 const PAYMENT_METHOD_OPTIONS = [
@@ -159,7 +159,7 @@ function calculatePriceChange(currentPrice: number, previousPrice: number | null
   };
 }
 
-export default function Purchases({ inventoryItems, inventoryLoading, storageMode, fallbackReason, brandOptions }: Props) {
+export default function Purchases({ inventoryItems, inventoryLoading, storageMode, fallbackReason, defaultBrandId }: Props) {
   const { isDemoMode } = useAuth();
   const [periodDays, setPeriodDays] = useState('30');
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
@@ -193,12 +193,10 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
     [purchaseForm.purchasedQuantity, purchaseForm.purchasedUnitPrice],
   );
 
-  useEffect(() => {
-    if (!itemRequest.brandId && brandOptions[0]) setItemRequest((current) => ({ ...current, brandId: brandOptions[0].id }));
-  }, [brandOptions, itemRequest.brandId]);
+  useEffect(() => { if (!itemRequest.brandId && defaultBrandId) setItemRequest((current) => ({ ...current, brandId: defaultBrandId })); }, [defaultBrandId, itemRequest.brandId]);
 
   const submitItemRequest = async () => {
-    if (!itemRequest.brandId || !itemRequest.name.trim() || !itemRequest.code.trim()) { toast.error('اختر براند المطبخ وأدخل اسم الصنف والكود'); return; }
+    if (!itemRequest.brandId || !itemRequest.name.trim() || !itemRequest.code.trim()) { toast.error('أدخل اسم الصنف والكود'); return; }
     const { error } = await (supabase as any).rpc('inventory_submit_item_request', {
       _brand_id: itemRequest.brandId, _item_name: itemRequest.name, _product_brand: itemRequest.productBrand, _item_code: itemRequest.code,
       _category: 'other', _unit: itemRequest.unit, _min_stock: Number(itemRequest.minStock || 0), _notes: itemRequest.notes,
@@ -1063,7 +1061,6 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader><DialogTitle>طلب إضافة صنف جديد</DialogTitle><DialogDescription>سيرسل الطلب لمسؤول المخزن. بعد الضغط على قبول يصبح الصنف متاحًا للشراء.</DialogDescription></DialogHeader>
           <div className="grid gap-4">
-            <div className="space-y-2"><Label>براند المطبخ</Label><Select value={itemRequest.brandId} onValueChange={(brandId) => setItemRequest((current) => ({ ...current, brandId }))}><SelectTrigger><SelectValue placeholder="اختر البراند" /></SelectTrigger><SelectContent>{brandOptions.map((brand) => <SelectItem key={brand.id} value={brand.id}>{brand.name}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><Label>اسم الصنف</Label><Input value={itemRequest.name} onChange={(event) => setItemRequest((current) => ({ ...current, name: event.target.value }))} placeholder="مثال: أرز بسمتي" /></div>
             <div className="space-y-2"><Label>الماركة التجارية</Label><Input value={itemRequest.productBrand} onChange={(event) => setItemRequest((current) => ({ ...current, productBrand: event.target.value }))} placeholder="مثال: الضحى — تختلف بها الأسعار" /></div>
             <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>كود الصنف</Label><Input value={itemRequest.code} onChange={(event) => setItemRequest((current) => ({ ...current, code: event.target.value }))} placeholder="RICE-DAHAB" /></div><div className="space-y-2"><Label>الوحدة</Label><Input value={itemRequest.unit} onChange={(event) => setItemRequest((current) => ({ ...current, unit: event.target.value }))} placeholder="kg" /></div></div>
