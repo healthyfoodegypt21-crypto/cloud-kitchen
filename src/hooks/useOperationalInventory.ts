@@ -137,7 +137,7 @@ export function useOperationalInventory(brandId: string) {
   const alerts = useMemo<InventoryAlert[]>(() => [
     ...items.filter((item) => item.onHand <= item.minStock).map((item) => ({ id: `low-${item.id}`, type: 'low_stock' as const, title: `مخزون منخفض: ${item.name}`, description: `المتاح ${item.onHand} ${item.unit} مقابل حد ${item.minStock}.`, itemId: item.id })),
     ...items.filter((item) => item.averageCost <= 0).map((item) => ({ id: `cost-${item.id}`, type: 'missing_cost' as const, title: `تكلفة غير مسجلة: ${item.name}`, description: 'أضف سعر شراء أو رصيد افتتاحي لإظهار قيمة الصنف.', itemId: item.id })),
-    ...purchaseRequests.filter((request) => request.status === 'pending_store_approval').map((request) => ({ id: `purchase-${request.id}`, type: 'purchase_pending' as const, title: 'شراء بانتظار الاعتماد', description: `${request.requestNo} — ${request.supplierName || 'بدون مورد'}.` })),
+    ...purchaseRequests.filter((request) => request.status === 'purchased_pending_receipt').map((request) => ({ id: `purchase-${request.id}`, type: 'purchase_pending' as const, title: 'شراء بانتظار الاستلام', description: `${request.requestNo} — ${request.supplierName || 'بدون مورد'}.` })),
     ...batches.filter((batch) => batch.expiryDate && batch.quantityOnHand > 0 && new Date(batch.expiryDate).getTime() <= Date.now() + 7 * 24 * 60 * 60 * 1000).map((batch) => ({ id: `expiry-${batch.id}`, type: 'low_stock' as const, title: `صلاحية قريبة: ${items.find((item) => item.id === batch.itemId)?.name ?? 'صنف'}`, description: `دفعة ${batch.batchNo} تنتهي في ${batch.expiryDate}.`, itemId: batch.itemId })),
   ], [batches, items, purchaseRequests]);
 
