@@ -18,7 +18,7 @@ import { formatEGPCurrency } from '@/lib/utils';
 import PurchaseOrderBuilder, { type PurchaseOrderLine } from '@/components/PurchaseOrderBuilder';
 import type { InventoryBatch, InventoryCategoryRecord, OperationalInventoryItem } from '@/types/operationalInventory';
 
-type DialogMode = 'item' | 'category' | 'movement' | 'purchase' | 'withdrawal' | 'count' | null;
+type DialogMode = 'item' | 'category' | 'movement' | 'purchase' | 'withdrawal' | 'count' | 'directPurchase' | null;
 type MovementAction = 'deposit' | 'withdraw' | 'waste';
 
 type DraftLine = { itemId: string; quantity: string; unitCost?: string; locationName: string; reason: string; batchNo: string; expiryDate: string };
@@ -42,6 +42,7 @@ export default function Inventory() {
   const [line, setLine] = useState<DraftLine>({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' });
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [supplierName, setSupplierName] = useState('');
+  const [purchaserName, setPurchaserName] = useState('');
   const [notes, setNotes] = useState('');
 
   useEffect(() => { if (brands[0] && !brandId) setBrandId(brands[0].id); }, [brands, brandId]);
@@ -65,7 +66,7 @@ export default function Inventory() {
     return totals;
   }, [consumptionDays, withdrawals]);
 
-  const reset = () => { setMode(null); setLine({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' }); setLines([]); setSupplierName(''); setNotes(''); };
+  const reset = () => { setMode(null); setLine({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' }); setLines([]); setSupplierName(''); setPurchaserName(''); setNotes(''); };
   const addLine = () => {
     if (!line.itemId || number(line.quantity) <= 0) { toast.error('اختر صنفًا وأدخل كمية صحيحة'); return; }
     setLines((current) => [...current, { ...line }]);
@@ -126,6 +127,13 @@ export default function Inventory() {
     if (result) { toast.success('تم إرسال إشعار لمدير المخزن. لن يزداد المخزون قبل الاعتماد.'); reset(); }
   };
 
+  const submitStoreDirectPurchase = async () => {
+    const submissionLines = linesForSubmission();
+    if (submissionLines.length === 0 || !purchaserName.trim()) { toast.error('اختر صنفًا وأدخل الكمية واسم من قام بالشراء'); return; }
+    const result = await invoke('inventory_record_store_purchase', { _brand_id: brandId, _supplier_name: supplierName, _purchaser_name: purchaserName, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), unit_cost: number(entry.unitCost || '0'), location_name: entry.locationName, notes: entry.reason, batch_no: entry.batchNo, expiry_date: entry.expiryDate || null })), _notes: notes });
+    if (result) { toast.success('تم تسجيل الشراء المباشر وإضافته للمخزون وتوثيقه في قسم المشتريات'); reset(); }
+  };
+
   const submitConsolidatedPurchase = async (orderLines: PurchaseOrderLine[], orderSupplier: string, orderNotes: string) => {
     const result = await invoke('inventory_submit_purchase_request', {
       _brand_id: brandId, _supplier_name: orderSupplier,
@@ -159,7 +167,9 @@ export default function Inventory() {
   if (loading || brandsLoading) return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return <div className="space-y-6">
-    <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><h1 className="text-3xl font-bold">المخزون</h1><p className="text-muted-foreground">رصيد وقيمة كل صنف، الحركات، المسحوبات اليومية، واعتماد استلام المشتريات.</p></div><div className="flex flex-wrap gap-2">{canManage && <><Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />تسجيل مسحوبات اليوم</Button><Button onClick={() => setMode('purchase')}><ShoppingCart className="ml-2 h-4 w-4" />إنشاء أمر شراء مجمع</Button></>}</div></header>
+    <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><h1 className="text-3xl font-bold">المخزون</h1><p className="text-muted-foreground">رصيد وقيمة كل صنف، الحركات، المسحوبات اليومية، واعتماد استلام المشتريات.</p></div><div className="flex flex-wrap gap-2">{canManage && <><Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />تسجيل مسحوبات اليوم</Button><Button variant="outline" onClick={() => setMode('directPurchase')}><WalletCards className="ml-2 h-4 w-4" />شراء مباشر للمخزن</Button><Button onClick={() => setMode('purchase')}><ShoppingCart className="ml-2 h-4 w-4" />إنشاء أمر شراء مجمع</Button></>}</div></header>
+
+    {mode === 'directPurchase' && <Card className="border-primary/40"><CardHeader><CardTitle>شراء مباشر سجله مدير المخزن</CardTitle><CardDescription>يُضاف للمخزون فورًا، ويظهر في قسم المشتريات مع اسم من قام بالشراء.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, unitCost: String(item?.lastPurchasePrice || item?.averageCost || 0), locationName: item?.locationName || 'main' })); }}><option value="">اختر الصنف</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name} — {item.unit}</option>)}</select></div><div className="space-y-1"><Label>اسم من قام بالشراء *</Label><Input value={purchaserName} onChange={(event) => setPurchaserName(event.target.value)} /></div><div className="space-y-1"><Label>الكمية</Label><Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} /></div><div className="space-y-1"><Label>سعر الوحدة</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div><div className="space-y-1"><Label>المورد</Label><Input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} /></div><div className="space-y-1"><Label>رقم الدفعة</Label><Input value={line.batchNo} onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} /></div></div><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" /><div className="flex gap-2"><Button onClick={() => void submitStoreDirectPurchase()}><WalletCards className="ml-2 h-4 w-4" />تسجيل وإضافة للمخزون</Button><Button variant="outline" onClick={reset}>إلغاء</Button></div></CardContent></Card>}
 
     <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-muted-foreground">المخزن الرئيسي الموحد</p><Input className="max-w-xs" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث باسم الصنف أو الكود" /></div>
     <div className="grid gap-4 md:grid-cols-3"><Card><CardHeader className="pb-2"><CardDescription>قيمة البضاعة المتاحة</CardDescription><CardTitle>{formatEGPCurrency(inventoryValue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">الكمية المتاحة × متوسط تكلفة كل صنف.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>مسحوبات اليوم</CardDescription><CardTitle>{formatEGPCurrency(todayWithdrawalValue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">تُحسب بمتوسط التكلفة وقت الصرف.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>شراء تم تنفيذه بانتظار الاستلام</CardDescription><CardTitle>{purchaseRequests.filter((request) => request.status === 'purchased_pending_receipt').length}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">لا تضاف للمخزون قبل فحص الاستلام واعتماده.</CardContent></Card></div>
