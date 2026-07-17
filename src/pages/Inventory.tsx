@@ -15,6 +15,7 @@ import { useOperationalInventory } from '@/hooks/useOperationalInventory';
 import { supabase } from '@/integrations/supabase/client';
 import { hasPageAccess } from '@/lib/permissions';
 import { formatEGPCurrency } from '@/lib/utils';
+import PurchaseOrderBuilder, { type PurchaseOrderLine } from '@/components/PurchaseOrderBuilder';
 import type { InventoryBatch, InventoryCategoryRecord, OperationalInventoryItem } from '@/types/operationalInventory';
 
 type DialogMode = 'item' | 'category' | 'movement' | 'purchase' | 'withdrawal' | 'count' | null;
@@ -125,6 +126,23 @@ export default function Inventory() {
     if (result) { toast.success('تم إرسال إشعار لمدير المخزن. لن يزداد المخزون قبل الاعتماد.'); reset(); }
   };
 
+  const submitConsolidatedPurchase = async (orderLines: PurchaseOrderLine[], orderSupplier: string, orderNotes: string) => {
+    const result = await invoke('inventory_submit_purchase_request', {
+      _brand_id: brandId, _supplier_name: orderSupplier,
+      _lines: orderLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), unit_cost: number(entry.unitCost || '0'), location_name: entry.locationName, notes: entry.notes })),
+      _notes: orderNotes,
+    });
+    if (result) { toast.success('تم إنشاء أمر الشراء المجمع وإرساله للاعتماد'); reset(); }
+  };
+
+  const createPurchaseItem = async (draft: { name: string; code: string; category: string; unit: string; minStock: string; unitCost: string }) => {
+    const result = await invoke('inventory_create_item', {
+      _brand_id: brandId, _item_code: draft.code || itemCode(draft.name), _name: draft.name, _category: draft.category,
+      _unit: draft.unit, _min_stock: number(draft.minStock), _location_name: 'main', _opening_quantity: 0, _opening_unit_cost: 0, _notes: 'أُضيف من أمر شراء مجمع',
+    });
+    return result ? { id: String(result), code: draft.code || itemCode(draft.name) } : null;
+  };
+
   const postWithdrawal = async () => {
     const submissionLines = linesForSubmission();
     if (submissionLines.length === 0) { toast.error('اختر صنفًا وأدخل كمية صحيحة للمسحوبات'); return; }
@@ -141,7 +159,7 @@ export default function Inventory() {
   if (loading || brandsLoading) return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return <div className="space-y-6">
-    <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><h1 className="text-3xl font-bold">المخزون</h1><p className="text-muted-foreground">رصيد وقيمة كل صنف، الحركات، المسحوبات اليومية، واعتماد استلام المشتريات.</p></div><div className="flex flex-wrap gap-2">{canManage && <><Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />تسجيل مسحوبات اليوم</Button><Button variant="outline" onClick={() => setMode('purchase')}><ShoppingCart className="ml-2 h-4 w-4" />شراء بانتظار الاعتماد</Button></>}</div></header>
+    <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><h1 className="text-3xl font-bold">المخزون</h1><p className="text-muted-foreground">رصيد وقيمة كل صنف، الحركات، المسحوبات اليومية، واعتماد استلام المشتريات.</p></div><div className="flex flex-wrap gap-2">{canManage && <><Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />تسجيل مسحوبات اليوم</Button><Button onClick={() => setMode('purchase')}><ShoppingCart className="ml-2 h-4 w-4" />إنشاء أمر شراء مجمع</Button></>}</div></header>
 
     <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-muted-foreground">المخزن الرئيسي الموحد</p><Input className="max-w-xs" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث باسم الصنف أو الكود" /></div>
     <div className="grid gap-4 md:grid-cols-3"><Card><CardHeader className="pb-2"><CardDescription>قيمة البضاعة المتاحة</CardDescription><CardTitle>{formatEGPCurrency(inventoryValue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">الكمية المتاحة × متوسط تكلفة كل صنف.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>مسحوبات اليوم</CardDescription><CardTitle>{formatEGPCurrency(todayWithdrawalValue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">تُحسب بمتوسط التكلفة وقت الصرف.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>طلبات شراء تنتظر مدير المخزن</CardDescription><CardTitle>{purchaseRequests.filter((request) => request.status === 'pending_store_approval').length}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">لا تضاف للمخزون قبل اعتمادها.</CardContent></Card></div>
@@ -159,13 +177,13 @@ export default function Inventory() {
 
     {movements.length > 0 && <section><h2 className="mb-3 text-xl font-bold">آخر الحركات</h2><Card><CardContent className="divide-y p-0">{movements.slice(0, 10).map((movement) => <div key={movement.id} className="flex items-center justify-between p-3 text-sm"><span><strong>{movement.itemName}</strong> — {movement.type} — {movement.quantity}</span><span>{formatEGPCurrency(movement.value)}</span></div>)}</CardContent></Card></section>}
 
-    <Dialog open={mode !== null} onOpenChange={(open) => !open && reset()}><DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{mode === 'item' ? 'إضافة صنف جديد' : mode === 'category' ? 'إضافة فئة' : mode === 'purchase' ? 'تسجيل شراء بانتظار الاعتماد' : mode === 'withdrawal' ? 'تسجيل مسحوبات اليوم' : mode === 'count' ? 'جرد وتسوية صنف' : movementAction === 'deposit' ? 'إيداع في المخزون' : movementAction === 'waste' ? 'تسجيل هالك' : 'سحب من المخزون'}</DialogTitle><DialogDescription>{mode === 'purchase' ? 'سيصل إشعار لمدير المخزن؛ الرصيد لا يزيد قبل اعتماده.' : 'تُسجل الحركة بقيمتها وسجلها التدقيقي.'}</DialogDescription></DialogHeader>
+    <Dialog open={mode !== null} onOpenChange={(open) => !open && reset()}><DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{mode === 'item' ? 'إضافة صنف جديد' : mode === 'category' ? 'إضافة فئة' : mode === 'purchase' ? 'أمر شراء مجمع' : mode === 'withdrawal' ? 'تسجيل مسحوبات اليوم' : mode === 'count' ? 'جرد وتسوية صنف' : movementAction === 'deposit' ? 'إيداع في المخزون' : movementAction === 'waste' ? 'تسجيل هالك' : 'سحب من المخزون'}</DialogTitle><DialogDescription>{mode === 'purchase' ? 'يشمل تلقائيًا الأصناف التي وصلت للحد الأدنى. الرصيد لا يزيد قبل اعتماد الاستلام.' : 'تُسجل الحركة بقيمتها وسجلها التدقيقي.'}</DialogDescription></DialogHeader>
       {mode === 'item' && <ItemForm draft={itemDraft} setDraft={setItemDraft} categories={categories} onSave={createItem} />}
       {mode === 'category' && <div className="space-y-3"><Field label="اسم الفئة بالعربية" value={categoryDraft.nameAr} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameAr: value }))} /><Field label="الكود (إنجليزي بلا مسافات)" value={categoryDraft.code} onChange={(value) => setCategoryDraft((current) => ({ ...current, code: value }))} /><Field label="الاسم بالإنجليزية" value={categoryDraft.nameEn} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameEn: value }))} /><Button className="w-full" onClick={() => void createCategory()}>حفظ الفئة</Button></div>}
       {mode === 'movement' && <div className="space-y-3"><LineEditor items={items} line={line} setLine={setLine} showCost={movementAction === 'deposit'} /><Button className="w-full" onClick={() => void postMovement()}>{movementAction === 'deposit' ? 'تأكيد الإيداع' : movementAction === 'waste' ? 'تأكيد الهالك' : 'تأكيد السحب'}</Button></div>}
       {mode === 'count' && <div className="space-y-3"><LineEditor items={items} line={line} setLine={setLine} quantityLabel="الرصيد الفعلي بعد الجرد" /><Button className="w-full" onClick={() => void postCount()}><ClipboardCheck className="ml-2 h-4 w-4" />اعتماد الجرد والتسوية</Button></div>}
-      {(mode === 'purchase' || mode === 'withdrawal') && <MultiLineForm items={items} lines={lines} line={line} setLine={setLine} addLine={addLine} removeLine={(index) => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} showCost={mode === 'purchase'} />}
-      {mode === 'purchase' && <div className="space-y-3"><Field label="المورد" value={supplierName} onChange={setSupplierName} /><Label>ملاحظات</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} /><Button className="w-full" onClick={() => void submitPurchase()}><ShoppingCart className="ml-2 h-4 w-4" />إرسال للاعتماد</Button></div>}
+      {mode === 'withdrawal' && <MultiLineForm items={items} lines={lines} line={line} setLine={setLine} addLine={addLine} removeLine={(index) => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} showCost={false} />}
+      {mode === 'purchase' && <PurchaseOrderBuilder items={items} categories={categories} onSubmit={submitConsolidatedPurchase} onCreateNewItem={createPurchaseItem} />}
       {mode === 'withdrawal' && <div className="space-y-3"><Label>ملاحظات المسحوبات</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="مثال: تجهيز وردية الغداء" /><Button className="w-full" onClick={() => void postWithdrawal()}><WalletCards className="ml-2 h-4 w-4" />اعتماد مسحوبات اليوم</Button></div>}
     </DialogContent></Dialog>
   </div>;
