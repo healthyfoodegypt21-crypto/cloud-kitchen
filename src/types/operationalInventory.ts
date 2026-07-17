@@ -72,6 +72,16 @@ export type InventoryPurchaseRequest = {
 
 export type InventoryItemRequest = { id: string; itemName: string; productBrand: string; itemCode: string; unit: string; minStock: number; notes: string; status: 'pending_store_approval' | 'approved' | 'rejected' };
 
+export type InventoryNotification = {
+  id: string;
+  notificationType: string;
+  title: string;
+  message: string;
+  referenceId: string | null;
+  isRead: boolean;
+  createdAt: string;
+};
+
 export type DailyWithdrawalLine = {
   id: string;
   itemId: string;

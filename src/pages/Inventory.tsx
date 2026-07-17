@@ -45,7 +45,7 @@ export default function Inventory() {
   const [notes, setNotes] = useState('');
 
   useEffect(() => { if (brands[0] && !brandId) setBrandId(brands[0].id); }, [brands, brandId]);
-  const { items, categories, movements, purchaseRequests, withdrawals, batches, itemRequests, alerts, inventoryValue, loading, invoke } = useOperationalInventory(brandId);
+  const { items, categories, movements, purchaseRequests, withdrawals, batches, itemRequests, notifications, alerts, inventoryValue, loading, invoke, markNotificationRead } = useOperationalInventory(brandId);
   const canManage = !isDemoMode && hasPageAccess(role, pagePermissions, 'inventory');
   const selectedItem = items.find((item) => item.id === line.itemId);
 
@@ -163,6 +163,8 @@ export default function Inventory() {
 
     <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-muted-foreground">المخزن الرئيسي الموحد</p><Input className="max-w-xs" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث باسم الصنف أو الكود" /></div>
     <div className="grid gap-4 md:grid-cols-3"><Card><CardHeader className="pb-2"><CardDescription>قيمة البضاعة المتاحة</CardDescription><CardTitle>{formatEGPCurrency(inventoryValue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">الكمية المتاحة × متوسط تكلفة كل صنف.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>مسحوبات اليوم</CardDescription><CardTitle>{formatEGPCurrency(todayWithdrawalValue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">تُحسب بمتوسط التكلفة وقت الصرف.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>طلبات شراء تنتظر مدير المخزن</CardDescription><CardTitle>{purchaseRequests.filter((request) => request.status === 'pending_store_approval').length}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">لا تضاف للمخزون قبل اعتمادها.</CardContent></Card></div>
+
+    {notifications.filter((notification) => !notification.isRead).length > 0 && <section><div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-bold">إشعارات مدير المخزن</h2><p className="text-sm text-muted-foreground">طلبات الشراء القادمة من قسم المشتريات تظهر هنا فور تسجيلها.</p></div><Badge variant="destructive">{notifications.filter((notification) => !notification.isRead).length} جديد</Badge></div><div className="grid gap-3">{notifications.filter((notification) => !notification.isRead).map((notification) => <Card key={notification.id} className="border-amber-300"><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"><div><strong>{notification.title}</strong><p className="mt-1 text-sm text-muted-foreground">{notification.message}</p><p className="mt-1 text-xs text-muted-foreground">{new Date(notification.createdAt).toLocaleString('ar-EG')}</p></div><Button variant="outline" onClick={() => void markNotificationRead(notification.id)}>تمت القراءة</Button></CardContent></Card>)}</div></section>}
 
     {alerts.length > 0 && <Alert className="border-amber-300 bg-amber-50"><AlertTriangle className="h-4 w-4" /><AlertTitle>تنبيهات المخزون</AlertTitle><AlertDescription>{alerts.slice(0, 4).map((alert) => <p key={alert.id}>{alert.title}: {alert.description}</p>)}</AlertDescription></Alert>}
 

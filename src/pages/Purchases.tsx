@@ -237,8 +237,6 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
     insights,
     loading,
     removeLine,
-    registerPurchase,
-    registerQuickPurchase,
     registerReceipt,
     saveSupplier,
     readNotification,
@@ -495,6 +493,23 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
     setQuickItemPickerOpen(false);
     setQuickAccountingOpen(false);
     setQuickBuyDialogOpen(true);
+  };
+
+  const submitInventoryPurchaseRequest = async (purchaseLines: RecordPurchaseInput[]) => {
+    if (!defaultBrandId || purchaseLines.length === 0 || purchaseLines.some((line) => !line.itemId || line.purchasedQuantity <= 0)) {
+      toast.error('اختر صنفًا وأدخل كمية شراء صحيحة');
+      return false;
+    }
+    const supplier = purchaseLines.find((line) => line.purchasedSupplierName.trim())?.purchasedSupplierName ?? '';
+    const { error } = await (supabase as any).rpc('inventory_submit_purchase_request', {
+      _brand_id: defaultBrandId,
+      _supplier_name: supplier,
+      _lines: purchaseLines.map((line) => ({ item_id: line.itemId, quantity: line.purchasedQuantity, unit_cost: line.purchasedUnitPrice || 0, location_name: 'main', notes: 'تم تسجيله من قسم المشتريات' })),
+      _notes: 'طلب شراء من قسم المشتريات',
+    });
+    if (error) { toast.error(error.message || 'تعذر إرسال طلب الشراء إلى المخزون'); return false; }
+    toast.success('تم تسجيل طلب الشراء وإظهاره فورًا في إشعارات قسم المخزون');
+    return true;
   };
 
   if (inventoryLoading || loading) {
@@ -933,7 +948,7 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
             <DialogTitle>تسجيل عملية شراء</DialogTitle>
             <DialogDescription>المسار الأساسي الآن أسرع: صنف، كمية، وحدة، سعر، ثم حفظ. بيانات الدفع اختيارية فقط عند الحاجة.</DialogDescription>
           </DialogHeader>
-          <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void registerPurchase(purchaseForm); setPurchaseItemSearch(''); setItemPickerOpen(false); setPurchaseDialogOpen(false); }}>
+          <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void (async () => { if (await submitInventoryPurchaseRequest([purchaseForm])) { setPurchaseItemSearch(''); setItemPickerOpen(false); setPurchaseDialogOpen(false); } })(); }}>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
                 <Label>الصنف</Label>
@@ -1257,12 +1272,7 @@ export default function Purchases({ inventoryItems, inventoryLoading, storageMod
 
             <Button
               className="w-full"
-              onClick={() => {
-                void registerQuickPurchase(quickBuyLines.map(({ id, itemName, sku, ...line }) => line));
-                setQuickBuyLines([]);
-                setQuickBuyDraft(createPurchaseForm());
-                setQuickBuyDialogOpen(false);
-              }}
+              onClick={() => { void (async () => { if (await submitInventoryPurchaseRequest(quickBuyLines.map(({ id, itemName, sku, ...line }) => line))) { setQuickBuyLines([]); setQuickBuyDraft(createPurchaseForm()); setQuickBuyDialogOpen(false); } })(); }}
               disabled={quickBuyLines.length === 0}
             >
               حفظ كل السطور

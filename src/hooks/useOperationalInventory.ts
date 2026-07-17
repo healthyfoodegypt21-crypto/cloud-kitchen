@@ -7,6 +7,7 @@ import type {
   InventoryBatch,
   InventoryCategoryRecord,
   InventoryItemRequest,
+  InventoryNotification,
   InventoryPurchaseRequest,
   OperationalInventoryItem,
   OperationalMovement,
@@ -25,6 +26,7 @@ export function useOperationalInventory(brandId: string) {
   const [withdrawals, setWithdrawals] = useState<DailyWithdrawal[]>([]);
   const [itemRequests, setItemRequests] = useState<InventoryItemRequest[]>([]);
   const [batches, setBatches] = useState<InventoryBatch[]>([]);
+  const [notifications, setNotifications] = useState<InventoryNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -36,7 +38,7 @@ export function useOperationalInventory(brandId: string) {
 
     setLoading(true);
     const client = supabase as unknown as { from: (table: string) => any };
-    const [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, requestLinesRes, withdrawalsRes, withdrawalLinesRes, batchesRes, itemRequestsRes] = await Promise.all([
+    const [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, requestLinesRes, withdrawalsRes, withdrawalLinesRes, batchesRes, itemRequestsRes, notificationsRes] = await Promise.all([
       client.from('items_master').select('id, brand_id, item_code, name, category, purchase_unit, min_stock, last_purchase_price, avg_cost, status, notes').eq('brand_id', brandId).order('name'),
       client.from('inventory_balances').select('item_id, on_hand, location_name').eq('brand_id', brandId),
       client.from('inventory_categories').select('id, code, name_ar, name_en, sort_order, is_active').eq('is_active', true).order('sort_order'),
@@ -47,9 +49,10 @@ export function useOperationalInventory(brandId: string) {
       client.from('inventory_daily_withdrawal_lines').select('id, withdrawal_id, item_id, quantity, unit_cost, line_value, location_name, reason'),
       client.from('inventory_batches').select('id, item_id, batch_no, expiry_date, quantity_on_hand, unit_cost, status').eq('brand_id', brandId).in('status', ['available', 'reserved']).order('expiry_date', { ascending: true, nullsFirst: false }),
       client.from('inventory_item_requests').select('id, item_name, product_brand, item_code, unit, min_stock, notes, status').eq('brand_id', brandId).eq('status', 'pending_store_approval'),
+      client.from('inventory_notifications').select('id, notification_type, title, message, reference_id, is_read, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(20),
     ]);
 
-    const firstError = [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, requestLinesRes, withdrawalsRes, withdrawalLinesRes, batchesRes, itemRequestsRes].find((response) => response.error)?.error;
+    const firstError = [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, requestLinesRes, withdrawalsRes, withdrawalLinesRes, batchesRes, itemRequestsRes, notificationsRes].find((response) => response.error)?.error;
     if (firstError) {
       toast.error(firstError.message || 'تعذر تحميل بيانات المخزون');
       setLoading(false);
@@ -109,6 +112,7 @@ export function useOperationalInventory(brandId: string) {
       quantityOnHand: numeric(batch.quantity_on_hand), unitCost: numeric(batch.unit_cost), status: String(batch.status) as InventoryBatch['status'],
     })));
     setItemRequests(asRecords(itemRequestsRes.data).map((request) => ({ id: String(request.id), itemName: String(request.item_name), productBrand: String(request.product_brand ?? ''), itemCode: String(request.item_code), unit: String(request.unit), minStock: numeric(request.min_stock), notes: String(request.notes ?? ''), status: request.status as InventoryItemRequest['status'] })));
+    setNotifications(asRecords(notificationsRes.data).map((notification) => ({ id: String(notification.id), notificationType: String(notification.notification_type), title: String(notification.title), message: String(notification.message), referenceId: notification.reference_id ? String(notification.reference_id) : null, isRead: Boolean(notification.is_read), createdAt: String(notification.created_at) })));
     setLoading(false);
   }, [brandId]);
 
@@ -125,6 +129,11 @@ export function useOperationalInventory(brandId: string) {
   }, [refresh]);
 
   const inventoryValue = useMemo(() => items.reduce((sum, item) => sum + (item.onHand * item.averageCost), 0), [items]);
+  const markNotificationRead = useCallback(async (notificationId: string) => {
+    const { error } = await (supabase as any).from('inventory_notifications').update({ is_read: true }).eq('id', notificationId);
+    if (error) { toast.error(error.message || 'تعذر تحديث الإشعار'); return; }
+    await refresh();
+  }, [refresh]);
   const alerts = useMemo<InventoryAlert[]>(() => [
     ...items.filter((item) => item.onHand <= item.minStock).map((item) => ({ id: `low-${item.id}`, type: 'low_stock' as const, title: `مخزون منخفض: ${item.name}`, description: `المتاح ${item.onHand} ${item.unit} مقابل حد ${item.minStock}.`, itemId: item.id })),
     ...items.filter((item) => item.averageCost <= 0).map((item) => ({ id: `cost-${item.id}`, type: 'missing_cost' as const, title: `تكلفة غير مسجلة: ${item.name}`, description: 'أضف سعر شراء أو رصيد افتتاحي لإظهار قيمة الصنف.', itemId: item.id })),
@@ -132,5 +141,5 @@ export function useOperationalInventory(brandId: string) {
     ...batches.filter((batch) => batch.expiryDate && batch.quantityOnHand > 0 && new Date(batch.expiryDate).getTime() <= Date.now() + 7 * 24 * 60 * 60 * 1000).map((batch) => ({ id: `expiry-${batch.id}`, type: 'low_stock' as const, title: `صلاحية قريبة: ${items.find((item) => item.id === batch.itemId)?.name ?? 'صنف'}`, description: `دفعة ${batch.batchNo} تنتهي في ${batch.expiryDate}.`, itemId: batch.itemId })),
   ], [batches, items, purchaseRequests]);
 
-  return { items, categories, movements, purchaseRequests, withdrawals, batches, itemRequests, alerts, inventoryValue, loading, refresh, invoke };
+  return { items, categories, movements, purchaseRequests, withdrawals, batches, itemRequests, notifications, alerts, inventoryValue, loading, refresh, invoke, markNotificationRead };
 }
