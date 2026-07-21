@@ -13,6 +13,7 @@ import type { Database } from '@/integrations/supabase/types';
 import { useBrands } from '@/hooks/useBrands';
 import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
 import { ALL_PAGES, DEFAULT_PAGES, type AppPageId } from '@/lib/permissions';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 
 type KnownAppRole = Database['public']['Enums']['app_role'];
 
@@ -127,6 +128,17 @@ export default function UsersManagement() {
   };
 
   useEffect(() => { void fetchUsers(); }, []);
+
+  useSupabaseRealtimeRefresh({
+    channelName: 'users-management-realtime',
+    tables: [
+      { table: 'profiles' },
+      { table: 'user_roles' },
+      { table: 'user_brand_access' },
+      { table: 'user_page_permissions' },
+    ],
+    onRefresh: fetchUsers,
+  });
 
   const handleRoleChange = (role: string) => {
     const normalizedRole = role.trim().toLowerCase() as KnownAppRole;

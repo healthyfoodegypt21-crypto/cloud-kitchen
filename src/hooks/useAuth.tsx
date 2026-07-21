@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
 import type { Database } from '@/integrations/supabase/types';
 import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseAvailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 
 type AppRole = string;
 type AuthMode = 'session' | 'demo';
@@ -150,6 +151,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useSupabaseRealtimeRefresh({
+    enabled: Boolean(user?.id && authMode === 'session'),
+    channelName: `auth-context-${user?.id ?? 'guest'}`,
+    tables: user?.id ? [
+      { table: 'profiles', filter: `id=eq.${user.id}` },
+      { table: 'user_roles', filter: `user_id=eq.${user.id}` },
+      { table: 'user_page_permissions', filter: `user_id=eq.${user.id}` },
+      { table: 'user_brand_access', filter: `user_id=eq.${user.id}` },
+    ] : [],
+    onRefresh: () => user?.id ? fetchUserData(user.id) : Promise.resolve(),
+  });
 
   const signIn = async (email: string, password: string) => {
     if (isSupabaseUnavailable()) {

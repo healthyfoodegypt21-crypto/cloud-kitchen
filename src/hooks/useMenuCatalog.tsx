@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrationssupabase/types';
 import { getSupabaseOfflineReason, isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseAvailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
 import { useSupabaseReconnect } from '@/hooks/useSupabaseReconnect';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 import { compactWhitespace } from '@/lib/utils';
 import { buildDemoMealsForBrand, buildDemoPackagesForBrand, deleteLocalMeal, deleteLocalPackage, getLocalMenuCatalog, seedLocalDemoCatalog, upsertLocalMeal, upsertLocalPackage } from '@/store/menuCatalog';
 import { Meal, MealInput, PackagePlan, PackagePlanInput } from '@/types/menu';
@@ -247,6 +248,12 @@ export function useMenuCatalog() {
 
   useSupabaseReconnect(() => {
     void refresh();
+  });
+
+  useSupabaseRealtimeRefresh({
+    channelName: 'menu-catalog-realtime',
+    tables: [{ table: 'menu_items' }, { table: 'package_plans' }, { table: 'package_plan_items' }],
+    onRefresh: refresh,
   });
 
   const saveMeal = async (input: MealInput) => {

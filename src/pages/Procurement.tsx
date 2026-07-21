@@ -3,6 +3,7 @@ import { CheckCircle2, FileText, Loader2, PackagePlus, Printer, ShoppingBasket, 
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useBrands } from '@/hooks/useBrands';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -43,6 +44,17 @@ export default function Procurement() {
     setPurchases(data); setSupplier(Object.fromEntries(data.map(p => [p.id, p.supplierName]))); setPurchaser(Object.fromEntries(data.map(p => [p.id, p.purchaserName]))); setDraftLines(Object.fromEntries(data.map(p => [p.id, p.lines]))); setLoading(false);
   }, [brandId]);
   useEffect(() => { void load(); }, [load]);
+  useSupabaseRealtimeRefresh({
+    enabled: Boolean(brandId),
+    channelName: `procurement-${brandId}`,
+    tables: [
+      { table: 'inventory_purchase_requests', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_purchase_request_lines' },
+      { table: 'items_master', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_balances', filter: `brand_id=eq.${brandId}` },
+    ],
+    onRefresh: load,
+  });
   const pending = purchases.filter(p => p.status === 'pending_procurement');
   const executed = purchases.filter(p => p.purchasedAt && p.status !== 'rejected');
   const shortages = items.filter(item => item.minStock > 0 && item.onHand <= item.minStock);

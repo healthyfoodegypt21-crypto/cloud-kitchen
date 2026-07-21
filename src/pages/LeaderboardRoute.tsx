@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseAvailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
 import { useOrders } from '@/hooks/useOrders';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 import Leaderboard from '@/pages/Leaderboard';
 
 const LOCAL_DEMO_PROFILES = [
@@ -12,26 +13,35 @@ export default function LeaderboardRoute() {
   const { orders } = useOrders();
   const [profiles, setProfiles] = useState<{ id: string; display_name: string }[]>([]);
 
-  useEffect(() => {
+  const loadProfiles = async () => {
     if (isSupabaseUnavailable()) {
       setProfiles(LOCAL_DEMO_PROFILES);
       return;
     }
 
-    supabase.from('profiles').select('id, display_name').then(({ data, error }) => {
-      if (error) {
-        if (isSupabaseNetworkError(error)) {
-          markSupabaseUnavailable();
-        }
-
-        setProfiles(LOCAL_DEMO_PROFILES);
-        return;
+    const { data, error } = await supabase.from('profiles').select('id, display_name');
+    if (error) {
+      if (isSupabaseNetworkError(error)) {
+        markSupabaseUnavailable();
       }
 
-      markSupabaseAvailable();
-      setProfiles(data ?? []);
-    });
+      setProfiles(LOCAL_DEMO_PROFILES);
+      return;
+    }
+
+    markSupabaseAvailable();
+    setProfiles(data ?? []);
+  };
+
+  useEffect(() => {
+    void loadProfiles();
   }, []);
+
+  useSupabaseRealtimeRefresh({
+    channelName: 'leaderboard-profiles-realtime',
+    tables: [{ table: 'profiles' }],
+    onRefresh: loadProfiles,
+  });
 
   return <Leaderboard orders={orders} profiles={profiles} />;
 }

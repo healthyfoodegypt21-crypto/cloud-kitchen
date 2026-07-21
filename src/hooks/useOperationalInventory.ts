@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 import type {
   DailyWithdrawal,
   InventoryAlert,
@@ -117,6 +118,25 @@ export function useOperationalInventory(brandId: string) {
   }, [brandId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useSupabaseRealtimeRefresh({
+    enabled: Boolean(brandId),
+    channelName: `operational-inventory-${brandId}`,
+    tables: [
+      { table: 'items_master', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_balances', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_categories' },
+      { table: 'inventory_movements', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_purchase_requests', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_purchase_request_lines' },
+      { table: 'inventory_daily_withdrawals', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_daily_withdrawal_lines' },
+      { table: 'inventory_batches', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_item_requests', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_notifications', filter: `brand_id=eq.${brandId}` },
+    ],
+    onRefresh: refresh,
+  });
 
   const invoke = useCallback(async (fn: string, args: RawRecord) => {
     const { data, error } = await (supabase as any).rpc(fn, args);

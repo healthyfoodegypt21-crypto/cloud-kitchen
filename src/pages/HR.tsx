@@ -5,7 +5,28 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { useBrands } from '@/hooks/useBrands';
 import { hasHrAction } from '@/lib/permissions';
+import {
+  createAdvance,
+  createBonus,
+  createDeduction,
+  loadHrSnapshot,
+  lockHrMonth,
+  migrateLegacyLocalHrData,
+  persistHrSettings,
+  removeAdvance,
+  removeAttendanceRecord,
+  removeBonus,
+  removeDeduction,
+  removeEmployee,
+  removeHrRealtimeSubscription,
+  saveAttendanceRecord,
+  saveEmployee,
+  settleAdvance,
+  subscribeToHrRealtime,
+  unlockHrMonth,
+} from '@/lib/hrRealtime';
 import { formatEGPCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,10 +41,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import PayslipPrintSheet from '@/components/PayslipPrintSheet';
 import {
   AttendanceStatus, EmployeeStatus, HrAdvance, HrAttendance, HrBonus, HrDeduction, HrEmployee, HrEmployeeInput,
-  PayrollResult, RepaymentMethod, addAdvance, addBonus, addDeduction, advanceRemaining, appendAudit, calculatePayroll,
-  computeAttendanceHours, deleteAdvance, deleteAttendance, deleteBonus, deleteDeduction, deleteEmployee, getAdvances,
-  getAttendance, getAuditLog, getBonuses, getDeductions, getEmployees, getHrSettings, isMonthLocked, lockMonth,
-  repayAdvance, saveHrSettings, seedLocalHrData, unlockMonth, upsertAttendance, upsertEmployee,
+  HrAuditEntry, PayrollResult, RepaymentMethod, advanceRemaining, calculatePayroll, computeAttendanceHours, monthKey,
 } from '@/store/hr';
 
 const EMPLOYEE_STATUS_LABELS: Record<EmployeeStatus, string> = { working: 'يعمل', leave: 'إجازة', suspended: 'موقوف', resigned: 'مستقيل' };
@@ -40,8 +58,11 @@ const emptyEmployeeDraft: HrEmployeeInput = {
 };
 
 export default function HR() {
-  const { role, pagePermissions, displayName } = useAuth();
+  const { role, pagePermissions, displayName, user } = useAuth();
+  const { brands, loading: brandsLoading } = useBrands();
   const actor = displayName || 'مستخدم';
+  const actorUserId = user?.id ?? null;
+  const primaryBrandId = brands[0]?.id ?? '';
   const can = useCallback((action: Parameters<typeof hasHrAction>[2]) => hasHrAction(role, pagePermissions, action), [role, pagePermissions]);
 
   const [loading, setLoading] = useState(true);
@@ -50,33 +71,62 @@ export default function HR() {
   const [deductions, setDeductions] = useState<HrDeduction[]>([]);
   const [bonuses, setBonuses] = useState<HrBonus[]>([]);
   const [attendance, setAttendance] = useState<HrAttendance[]>([]);
-  const [audit, setAudit] = useState(() => getAuditLog());
-  const [settings, setSettings] = useState(() => getHrSettings());
+  const [audit, setAudit] = useState<HrAuditEntry[]>([]);
+  const [settings, setSettings] = useState({ grace_period_minutes: 15 });
+  const [lockedMonths, setLockedMonths] = useState<string[]>([]);
+
+  const loadData = useCallback(async () => {
+    if (!primaryBrandId) return;
+    try {
+      if (role === 'owner') {
+        const migrated = await migrateLegacyLocalHrData(primaryBrandId, actorUserId, actor);
+        if (migrated) {
+          toast.success('تم نقل بيانات الموارد البشرية القديمة إلى قاعدة البيانات المشتركة');
+        }
+      }
+      const snapshot = await loadHrSnapshot(primaryBrandId);
+      setEmployees(snapshot.employees);
+      setAdvances(snapshot.advances);
+      setDeductions(snapshot.deductions);
+      setBonuses(snapshot.bonuses);
+      setAttendance(snapshot.attendance);
+      setAudit(snapshot.audit);
+      setSettings(snapshot.settings);
+      setLockedMonths(snapshot.lockedMonths);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تحميل بيانات الموارد البشرية');
+    } finally {
+      setLoading(false);
+    }
+  }, [actor, actorUserId, primaryBrandId, role]);
 
   const refresh = useCallback(() => {
-    setEmployees(getEmployees());
-    setAdvances(getAdvances());
-    setDeductions(getDeductions());
-    setBonuses(getBonuses());
-    setAttendance(getAttendance());
-    setAudit(getAuditLog());
-    setSettings(getHrSettings());
-  }, []);
+    void loadData();
+  }, [loadData]);
 
   useEffect(() => {
-    seedLocalHrData();
-    refresh();
-    setLoading(false);
-  }, [refresh]);
+    if (brandsLoading || !primaryBrandId) return;
+    setLoading(true);
+    void loadData();
+  }, [brandsLoading, primaryBrandId, loadData]);
 
-  const log = useCallback((action: string, entity: string, oldData?: unknown, newData?: unknown) => {
-    appendAudit({ user: actor, action, entity, oldData, newData });
-  }, [actor]);
+  useEffect(() => {
+    if (brandsLoading || !primaryBrandId) return;
+    const channel = subscribeToHrRealtime(() => {
+      void loadData();
+    });
+
+    return () => {
+      void removeHrRealtimeSubscription(channel);
+    };
+  }, [brandsLoading, primaryBrandId, loadData]);
+
+  const log = useCallback<LogFn>(() => undefined, []);
 
   const employeeName = useCallback((id: string) => employees.find((item) => item.id === id)?.full_name ?? 'موظف محذوف', [employees]);
   const activeEmployees = useMemo(() => employees.filter((item) => item.status === 'working'), [employees]);
 
-  if (loading) return <div className="grid min-h-[40vh] place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  if (loading || brandsLoading) return <div className="grid min-h-[40vh] place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-6">
@@ -101,22 +151,22 @@ export default function HR() {
           <DashboardTab employees={employees} attendance={attendance} deductions={deductions} bonuses={bonuses} advances={advances} />
         </TabsContent>
         <TabsContent value="directory" className="mt-4">
-          <DirectoryTab employees={employees} can={can} refresh={refresh} log={log} settings={settings} setSettings={setSettings} />
+          <DirectoryTab employees={employees} can={can} refresh={refresh} log={log} settings={settings} setSettings={setSettings} primaryBrandId={primaryBrandId} actorUserId={actorUserId} />
         </TabsContent>
         <TabsContent value="attendance" className="mt-4">
-          <AttendanceTab employees={employees} attendance={attendance} settings={settings} can={can} refresh={refresh} log={log} />
+          <AttendanceTab employees={employees} attendance={attendance} settings={settings} can={can} refresh={refresh} log={log} actorUserId={actorUserId} />
         </TabsContent>
         <TabsContent value="advances" className="mt-4">
-          <AdvancesTab advances={advances} activeEmployees={activeEmployees} employeeName={employeeName} actor={actor} can={can} refresh={refresh} log={log} />
+          <AdvancesTab advances={advances} activeEmployees={activeEmployees} employeeName={employeeName} actor={actor} actorUserId={actorUserId} can={can} refresh={refresh} log={log} />
         </TabsContent>
         <TabsContent value="deductions" className="mt-4">
-          <DeductionsTab deductions={deductions} activeEmployees={activeEmployees} employeeName={employeeName} actor={actor} can={can} refresh={refresh} log={log} />
+          <DeductionsTab deductions={deductions} activeEmployees={activeEmployees} employeeName={employeeName} actor={actor} actorUserId={actorUserId} can={can} refresh={refresh} log={log} />
         </TabsContent>
         <TabsContent value="bonuses" className="mt-4">
-          <BonusesTab bonuses={bonuses} activeEmployees={activeEmployees} employeeName={employeeName} actor={actor} can={can} refresh={refresh} log={log} />
+          <BonusesTab bonuses={bonuses} activeEmployees={activeEmployees} employeeName={employeeName} actor={actor} actorUserId={actorUserId} can={can} refresh={refresh} log={log} />
         </TabsContent>
         <TabsContent value="payroll" className="mt-4">
-          <PayrollTab employees={employees} attendance={attendance} advances={advances} deductions={deductions} bonuses={bonuses} settings={settings} can={can} log={log} refresh={refresh} />
+          <PayrollTab employees={employees} attendance={attendance} advances={advances} deductions={deductions} bonuses={bonuses} settings={settings} lockedMonths={lockedMonths} primaryBrandId={primaryBrandId} actorUserId={actorUserId} can={can} log={log} refresh={refresh} />
         </TabsContent>
         <TabsContent value="activity" className="mt-4">
           <ActivityTab audit={audit} />
@@ -209,7 +259,7 @@ function RankCard({ title, icon: Icon, rows }: { title: string; icon: React.Elem
 
 // ---------------------------------------------------------------- Directory
 
-function DirectoryTab({ employees, can, refresh, log, settings, setSettings }: { employees: HrEmployee[]; can: CanFn; refresh: () => void; log: LogFn; settings: { grace_period_minutes: number }; setSettings: (value: { grace_period_minutes: number }) => void }) {
+function DirectoryTab({ employees, can, refresh, log, settings, setSettings, primaryBrandId, actorUserId }: { employees: HrEmployee[]; can: CanFn; refresh: () => void; log: LogFn; settings: { grace_period_minutes: number }; setSettings: (value: { grace_period_minutes: number }) => void; primaryBrandId: string; actorUserId: string | null }) {
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<HrEmployee | null>(null);
@@ -221,27 +271,42 @@ function DirectoryTab({ employees, can, refresh, log, settings, setSettings }: {
   const openCreate = () => { setEditing(null); setDraft(emptyEmployeeDraft); setDialogOpen(true); };
   const openEdit = (employee: HrEmployee) => { setEditing(employee); setDraft(employee); setDialogOpen(true); };
 
-  const save = (event: FormEvent) => {
+  const save = async (event: FormEvent) => {
     event.preventDefault();
     if (!draft.full_name?.trim() || !draft.job_title?.trim()) { toast.error('أدخل اسم الموظف والوظيفة'); return; }
     if (editing && !can('edit')) { toast.error('لا تملك صلاحية التعديل'); return; }
     if (!editing && !can('add')) { toast.error('لا تملك صلاحية الإضافة'); return; }
-    upsertEmployee({ ...draft, id: editing?.id });
-    log(editing ? 'تعديل موظف' : 'إضافة موظف', `موظف: ${draft.full_name}`, editing ?? undefined, draft);
-    toast.success(editing ? 'تم تحديث بيانات الموظف' : 'تمت إضافة الموظف');
-    setDialogOpen(false); setEditing(null); setDraft(emptyEmployeeDraft); refresh();
+    if (!primaryBrandId) { toast.error('لا يوجد براند متاح لهذا المستخدم'); return; }
+    try {
+      await saveEmployee({ ...draft, id: editing?.id }, primaryBrandId, actorUserId);
+      log(editing ? 'تعديل موظف' : 'إضافة موظف', `موظف: ${draft.full_name}`, editing ?? undefined, draft);
+      toast.success(editing ? 'تم تحديث بيانات الموظف' : 'تمت إضافة الموظف');
+      setDialogOpen(false); setEditing(null); setDraft(emptyEmployeeDraft); refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ الموظف');
+    }
   };
 
-  const remove = (employee: HrEmployee) => {
+  const remove = async (employee: HrEmployee) => {
     if (!can('delete')) { toast.error('حذف الموظفين مخصص للمالك'); return; }
-    deleteEmployee(employee.id);
-    log('حذف موظف', `موظف: ${employee.full_name}`, employee, undefined);
-    toast.success('تم حذف الموظف'); refresh();
+    try {
+      await removeEmployee(employee.id);
+      log('حذف موظف', `موظف: ${employee.full_name}`, employee, undefined);
+      toast.success('تم حذف الموظف'); refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حذف الموظف');
+    }
   };
 
-  const saveGrace = () => {
-    const next = saveHrSettings({ grace_period_minutes: Number(graceDraft) || 0 });
-    setSettings(next); log('تعديل إعدادات', 'حد التسامح في التأخير', settings, next); toast.success('تم حفظ حد التسامح');
+  const saveGrace = async () => {
+    if (!primaryBrandId) { toast.error('لا يوجد براند متاح لهذا المستخدم'); return; }
+    try {
+      const next = await persistHrSettings(primaryBrandId, { grace_period_minutes: Number(graceDraft) || 0 }, actorUserId);
+      setSettings(next); log('تعديل إعدادات', 'حد التسامح في التأخير', settings, next); toast.success('تم حفظ حد التسامح');
+      refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ الإعدادات');
+    }
   };
 
   const exportEmployees = () => {
@@ -346,7 +411,7 @@ function Field({ label, value, onChange, type = 'text', placeholder }: { label: 
 
 // ---------------------------------------------------------------- Attendance
 
-function AttendanceTab({ employees, attendance, settings, can, refresh, log }: { employees: HrEmployee[]; attendance: HrAttendance[]; settings: { grace_period_minutes: number }; can: CanFn; refresh: () => void; log: LogFn }) {
+function AttendanceTab({ employees, attendance, settings, can, refresh, log, actorUserId }: { employees: HrEmployee[]; attendance: HrAttendance[]; settings: { grace_period_minutes: number }; can: CanFn; refresh: () => void; log: LogFn; actorUserId: string | null }) {
   const [date, setDate] = useState(todayValue());
   const [employeeQuery, setEmployeeQuery] = useState('');
   const [employeeId, setEmployeeId] = useState('');
@@ -366,11 +431,11 @@ function AttendanceTab({ employees, attendance, settings, can, refresh, log }: {
     if (match) { setCheckIn(match.scheduled_check_in || ''); setCheckOut(match.scheduled_check_out || ''); }
   };
 
-  const record = () => {
+  const record = async () => {
     if (!employeeId || !selectedEmployee) { toast.error('اختر موظفاً من القائمة'); return; }
     if (!can('add')) { toast.error('لا تملك صلاحية التسجيل'); return; }
     try {
-      upsertAttendance({ employee_id: employeeId, date, check_in: checkIn, check_out: checkOut, status, notes, created_by: '' }, selectedEmployee, settings);
+      await saveAttendanceRecord({ employee_id: employeeId, date, check_in: checkIn, check_out: checkOut, status, notes }, selectedEmployee, settings, actorUserId);
       log('تسجيل حضور', `${selectedEmployee.full_name} — ${date}`, undefined, { status, checkIn, checkOut });
       toast.success('تم تسجيل الحضور');
       setEmployeeQuery(''); setEmployeeId(''); setCheckIn(''); setCheckOut(''); setStatus('present'); setNotes('');
@@ -380,9 +445,14 @@ function AttendanceTab({ employees, attendance, settings, can, refresh, log }: {
     }
   };
 
-  const remove = (item: HrAttendance) => {
+  const remove = async (item: HrAttendance) => {
     if (!can('delete')) { toast.error('حذف السجلات مخصص للمالك'); return; }
-    deleteAttendance(item.id); log('حذف حضور', `${item.date}`, item, undefined); toast.success('تم الحذف'); refresh();
+    try {
+      await removeAttendanceRecord(item.id);
+      log('حذف حضور', `${item.date}`, item, undefined); toast.success('تم الحذف'); refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حذف الحضور');
+    }
   };
 
   const exportDay = () => {
@@ -451,7 +521,7 @@ function AttendanceTab({ employees, attendance, settings, can, refresh, log }: {
 
 // ---------------------------------------------------------------- Advances
 
-function AdvancesTab({ advances, activeEmployees, employeeName, actor, can, refresh, log }: { advances: HrAdvance[]; activeEmployees: HrEmployee[]; employeeName: (id: string) => string; actor: string; can: CanFn; refresh: () => void; log: LogFn }) {
+function AdvancesTab({ advances, activeEmployees, employeeName, actor, actorUserId, can, refresh, log }: { advances: HrAdvance[]; activeEmployees: HrEmployee[]; employeeName: (id: string) => string; actor: string; actorUserId: string | null; can: CanFn; refresh: () => void; log: LogFn }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState({ employee_id: '', date: todayValue(), amount: '', reason: '', repayment_method: 'installments' as RepaymentMethod, installments: '', notes: '' });
   const [repayFor, setRepayFor] = useState<HrAdvance | null>(null);
@@ -464,21 +534,29 @@ function AdvancesTab({ advances, activeEmployees, employeeName, actor, can, refr
     return { total, repaid, remaining, settled: advances.filter((item) => advanceRemaining(item) === 0).length, unsettled: advances.filter((item) => advanceRemaining(item) > 0).length };
   }, [advances]);
 
-  const submit = () => {
+  const submit = async () => {
     if (!draft.employee_id || !Number(draft.amount)) { toast.error('اختر الموظف وأدخل قيمة السلفة'); return; }
-    addAdvance({ employee_id: draft.employee_id, date: draft.date, amount: Number(draft.amount), reason: draft.reason, repayment_method: draft.repayment_method, installments: draft.installments ? Number(draft.installments) : null, notes: draft.notes, created_by: actor });
-    log('إضافة سلفة', `${employeeName(draft.employee_id)} — ${draft.amount}`, undefined, draft);
-    toast.success('تم تسجيل السلفة'); setOpen(false); setDraft({ employee_id: '', date: todayValue(), amount: '', reason: '', repayment_method: 'installments', installments: '', notes: '' }); refresh();
+    try {
+      await createAdvance({ employee_id: draft.employee_id, date: draft.date, amount: Number(draft.amount), reason: draft.reason, repayment_method: draft.repayment_method, installments: draft.installments ? Number(draft.installments) : null, notes: draft.notes }, actorUserId, actor);
+      log('إضافة سلفة', `${employeeName(draft.employee_id)} — ${draft.amount}`, undefined, draft);
+      toast.success('تم تسجيل السلفة'); setOpen(false); setDraft({ employee_id: '', date: todayValue(), amount: '', reason: '', repayment_method: 'installments', installments: '', notes: '' }); refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تسجيل السلفة');
+    }
   };
 
-  const submitRepay = () => {
+  const submitRepay = async () => {
     if (!repayFor) return;
-    repayAdvance(repayFor.id, Number(repayAmount));
-    log('سداد سلفة', `${employeeName(repayFor.employee_id)} — ${repayAmount}`, repayFor, { repay: repayAmount });
-    toast.success('تم تسجيل السداد'); setRepayFor(null); setRepayAmount(''); refresh();
+    try {
+      await settleAdvance(repayFor.id, repayFor.repaid_amount, repayFor.amount, Number(repayAmount));
+      log('سداد سلفة', `${employeeName(repayFor.employee_id)} — ${repayAmount}`, repayFor, { repay: repayAmount });
+      toast.success('تم تسجيل السداد'); setRepayFor(null); setRepayAmount(''); refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تسجيل السداد');
+    }
   };
 
-  const remove = (item: HrAdvance) => { if (!can('delete')) { toast.error('الحذف مخصص للمالك'); return; } deleteAdvance(item.id); log('حذف سلفة', employeeName(item.employee_id), item, undefined); toast.success('تم الحذف'); refresh(); };
+  const remove = async (item: HrAdvance) => { if (!can('delete')) { toast.error('الحذف مخصص للمالك'); return; } try { await removeAdvance(item.id); log('حذف سلفة', employeeName(item.employee_id), item, undefined); toast.success('تم الحذف'); refresh(); } catch (error) { toast.error(error instanceof Error ? error.message : 'تعذر حذف السلفة'); } };
 
   const exportAll = () => exportSheet(advances.map((item) => ({ الموظف: employeeName(item.employee_id), التاريخ: item.date, القيمة: item.amount, المسدد: item.repaid_amount, المتبقي: advanceRemaining(item), السبب: item.reason, 'طريقة السداد': REPAYMENT_LABELS[item.repayment_method] })), 'advances', 'السلف');
 
@@ -551,18 +629,22 @@ function AdvancesTab({ advances, activeEmployees, employeeName, actor, can, refr
 
 // ---------------------------------------------------------------- Deductions
 
-function DeductionsTab({ deductions, activeEmployees, employeeName, actor, can, refresh, log }: { deductions: HrDeduction[]; activeEmployees: HrEmployee[]; employeeName: (id: string) => string; actor: string; can: CanFn; refresh: () => void; log: LogFn }) {
+function DeductionsTab({ deductions, activeEmployees, employeeName, actor, actorUserId, can, refresh, log }: { deductions: HrDeduction[]; activeEmployees: HrEmployee[]; employeeName: (id: string) => string; actor: string; actorUserId: string | null; can: CanFn; refresh: () => void; log: LogFn }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState({ employee_id: '', date: todayValue(), amount: '', reason: '', notes: '' });
 
-  const submit = () => {
+  const submit = async () => {
     if (!draft.employee_id || !Number(draft.amount)) { toast.error('اختر الموظف وأدخل القيمة'); return; }
     if (!draft.reason.trim()) { toast.error('سبب الخصم إجباري'); return; }
-    addDeduction({ employee_id: draft.employee_id, date: draft.date, amount: Number(draft.amount), reason: draft.reason, notes: draft.notes, created_by: actor });
-    log('إضافة خصم', `${employeeName(draft.employee_id)} — ${draft.amount}`, undefined, draft);
-    toast.success('تم تسجيل الخصم'); setOpen(false); setDraft({ employee_id: '', date: todayValue(), amount: '', reason: '', notes: '' }); refresh();
+    try {
+      await createDeduction({ employee_id: draft.employee_id, date: draft.date, amount: Number(draft.amount), reason: draft.reason, notes: draft.notes }, actorUserId, actor);
+      log('إضافة خصم', `${employeeName(draft.employee_id)} — ${draft.amount}`, undefined, draft);
+      toast.success('تم تسجيل الخصم'); setOpen(false); setDraft({ employee_id: '', date: todayValue(), amount: '', reason: '', notes: '' }); refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تسجيل الخصم');
+    }
   };
-  const remove = (item: HrDeduction) => { if (!can('delete')) { toast.error('الحذف مخصص للمالك'); return; } deleteDeduction(item.id); log('حذف خصم', employeeName(item.employee_id), item, undefined); toast.success('تم الحذف'); refresh(); };
+  const remove = async (item: HrDeduction) => { if (!can('delete')) { toast.error('الحذف مخصص للمالك'); return; } try { await removeDeduction(item.id); log('حذف خصم', employeeName(item.employee_id), item, undefined); toast.success('تم الحذف'); refresh(); } catch (error) { toast.error(error instanceof Error ? error.message : 'تعذر حذف الخصم'); } };
   const exportAll = () => exportSheet(deductions.map((item) => ({ الموظف: employeeName(item.employee_id), التاريخ: item.date, القيمة: item.amount, السبب: item.reason, 'أضافه': item.created_by })), 'deductions', 'الخصومات');
 
   return (
@@ -603,17 +685,21 @@ function DeductionsTab({ deductions, activeEmployees, employeeName, actor, can, 
 
 // ---------------------------------------------------------------- Bonuses
 
-function BonusesTab({ bonuses, activeEmployees, employeeName, actor, can, refresh, log }: { bonuses: HrBonus[]; activeEmployees: HrEmployee[]; employeeName: (id: string) => string; actor: string; can: CanFn; refresh: () => void; log: LogFn }) {
+function BonusesTab({ bonuses, activeEmployees, employeeName, actor, actorUserId, can, refresh, log }: { bonuses: HrBonus[]; activeEmployees: HrEmployee[]; employeeName: (id: string) => string; actor: string; actorUserId: string | null; can: CanFn; refresh: () => void; log: LogFn }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState({ employee_id: '', date: todayValue(), amount: '', reason: '', notes: '' });
 
-  const submit = () => {
+  const submit = async () => {
     if (!draft.employee_id || !Number(draft.amount)) { toast.error('اختر الموظف وأدخل القيمة'); return; }
-    addBonus({ employee_id: draft.employee_id, date: draft.date, amount: Number(draft.amount), reason: draft.reason, notes: draft.notes, created_by: actor });
-    log('إضافة مكافأة', `${employeeName(draft.employee_id)} — ${draft.amount}`, undefined, draft);
-    toast.success('تم تسجيل المكافأة'); setOpen(false); setDraft({ employee_id: '', date: todayValue(), amount: '', reason: '', notes: '' }); refresh();
+    try {
+      await createBonus({ employee_id: draft.employee_id, date: draft.date, amount: Number(draft.amount), reason: draft.reason, notes: draft.notes }, actorUserId, actor);
+      log('إضافة مكافأة', `${employeeName(draft.employee_id)} — ${draft.amount}`, undefined, draft);
+      toast.success('تم تسجيل المكافأة'); setOpen(false); setDraft({ employee_id: '', date: todayValue(), amount: '', reason: '', notes: '' }); refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تسجيل المكافأة');
+    }
   };
-  const remove = (item: HrBonus) => { if (!can('delete')) { toast.error('الحذف مخصص للمالك'); return; } deleteBonus(item.id); log('حذف مكافأة', employeeName(item.employee_id), item, undefined); toast.success('تم الحذف'); refresh(); };
+  const remove = async (item: HrBonus) => { if (!can('delete')) { toast.error('الحذف مخصص للمالك'); return; } try { await removeBonus(item.id); log('حذف مكافأة', employeeName(item.employee_id), item, undefined); toast.success('تم الحذف'); refresh(); } catch (error) { toast.error(error instanceof Error ? error.message : 'تعذر حذف المكافأة'); } };
   const exportAll = () => exportSheet(bonuses.map((item) => ({ الموظف: employeeName(item.employee_id), التاريخ: item.date, القيمة: item.amount, السبب: item.reason, 'أضافها': item.created_by })), 'bonuses', 'المكافآت');
 
   return (
@@ -654,7 +740,7 @@ function BonusesTab({ bonuses, activeEmployees, employeeName, actor, can, refres
 
 // ---------------------------------------------------------------- Payroll
 
-function PayrollTab({ employees, attendance, advances, deductions, bonuses, settings, can, log, refresh }: { employees: HrEmployee[]; attendance: HrAttendance[]; advances: HrAdvance[]; deductions: HrDeduction[]; bonuses: HrBonus[]; settings: { grace_period_minutes: number }; can: CanFn; log: LogFn; refresh: () => void }) {
+function PayrollTab({ employees, attendance, advances, deductions, bonuses, settings, lockedMonths, primaryBrandId, actorUserId, can, log, refresh }: { employees: HrEmployee[]; attendance: HrAttendance[]; advances: HrAdvance[]; deductions: HrDeduction[]; bonuses: HrBonus[]; settings: { grace_period_minutes: number }; lockedMonths: string[]; primaryBrandId: string; actorUserId: string | null; can: CanFn; log: LogFn; refresh: () => void }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -662,7 +748,7 @@ function PayrollTab({ employees, attendance, advances, deductions, bonuses, sett
   const [officialHolidays, setOfficialHolidays] = useState('0');
   const [printPayroll, setPrintPayroll] = useState<PayrollResult | null>(null);
 
-  const locked = isMonthLocked(year, month);
+  const locked = lockedMonths.includes(monthKey(year, month));
   const selectedEmployee = employees.find((item) => item.id === employeeId) ?? null;
   const holidays = Number(officialHolidays) || 0;
 
@@ -674,11 +760,16 @@ function PayrollTab({ employees, attendance, advances, deductions, bonuses, sett
     window.setTimeout(() => window.print(), 60);
   };
 
-  const toggleLock = () => {
+  const toggleLock = async () => {
     if (!can('lock_month')) { toast.error('إغلاق الشهر مخصص للمالك'); return; }
-    if (locked) { unlockMonth(year, month); log('فتح شهر', `${month}/${year}`); toast.success('تم فتح الشهر'); }
-    else { lockMonth(year, month); log('إغلاق شهر', `${month}/${year}`); toast.success('تم إغلاق الشهر واعتماد المرتبات'); }
-    refresh();
+    if (!primaryBrandId) { toast.error('لا يوجد براند متاح لهذا المستخدم'); return; }
+    try {
+      if (locked) { await unlockHrMonth(primaryBrandId, year, month); log('فتح شهر', `${month}/${year}`); toast.success('تم فتح الشهر'); }
+      else { await lockHrMonth(primaryBrandId, year, month, actorUserId); log('إغلاق شهر', `${month}/${year}`); toast.success('تم إغلاق الشهر واعتماد المرتبات'); }
+      refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تغيير حالة الشهر');
+    }
   };
 
   const exportPayrollSheet = () => exportSheet(allPayroll.map((row) => ({
@@ -766,7 +857,7 @@ function PayrollRow({ label, value, positive = false, negative = false }: { labe
 
 // ---------------------------------------------------------------- Activity
 
-function ActivityTab({ audit }: { audit: ReturnType<typeof getAuditLog> }) {
+function ActivityTab({ audit }: { audit: HrAuditEntry[] }) {
   return (
     <Card>
       <CardHeader><CardTitle>سجل العمليات</CardTitle><CardDescription>كل تعديل داخل الموارد البشرية مع المستخدم والتاريخ.</CardDescription></CardHeader>

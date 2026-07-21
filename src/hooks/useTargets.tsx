@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseAvailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
 import { useSupabaseReconnect } from '@/hooks/useSupabaseReconnect';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 
 export interface Target {
   id: string;
@@ -64,6 +65,12 @@ export function useTargets() {
 
   useSupabaseReconnect(() => {
     void fetch();
+  });
+
+  useSupabaseRealtimeRefresh({
+    channelName: 'targets-realtime',
+    tables: [{ table: 'targets' }],
+    onRefresh: fetch,
   });
 
   const getTarget = (type: string) => targets.find(t => t.type === type)?.value ?? 0;

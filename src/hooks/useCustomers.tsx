@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrationssupabase/types';
 import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseAvailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
 import { useSupabaseReconnect } from '@/hooks/useSupabaseReconnect';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 import { getLocalDemoOrders } from '@/lib/demoOrders';
 import { Customer, CustomerUpsertInput } from '@/types/customer';
 import { compactWhitespace, extractLegacyOrderMetadata, normalizePhone, parseDetailedAddress } from '@/lib/utils';
@@ -249,6 +250,12 @@ export function useCustomers() {
 
   useSupabaseReconnect(() => {
     void refresh();
+  });
+
+  useSupabaseRealtimeRefresh({
+    channelName: 'customers-realtime',
+    tables: [{ table: 'customers' }, { table: 'orders' }],
+    onRefresh: refresh,
   });
 
   const upsertCustomer = async (input: CustomerUpsertInput) => {

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseAvailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
 import { useSupabaseReconnect } from '@/hooks/useSupabaseReconnect';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 
 export interface Brand {
   id: string;
@@ -50,6 +51,12 @@ export function useBrands() {
 
   useSupabaseReconnect(() => {
     void fetchBrands();
+  });
+
+  useSupabaseRealtimeRefresh({
+    channelName: 'brands-realtime',
+    tables: [{ table: 'brands' }],
+    onRefresh: fetchBrands,
   });
 
   return { brands, loading };

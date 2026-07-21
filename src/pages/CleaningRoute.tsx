@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useBrands } from '@/hooks/useBrands';
+import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 import { supabase } from '@/integrations/supabase/client';
 
 type Target = { id: string; name: string; kind: 'area' | 'equipment'; icon: string; frequency_days: number; estimated_minutes: number; notes: string };
@@ -51,6 +52,16 @@ export default function CleaningRoute() {
   }, [brandId]);
 
   useEffect(() => { void load(); }, [load]);
+  useSupabaseRealtimeRefresh({
+    enabled: Boolean(brandId),
+    channelName: `cleaning-${brandId}`,
+    tables: [
+      { table: 'cleaning_targets', filter: `brand_id=eq.${brandId}` },
+      { table: 'cleaning_tasks', filter: `brand_id=eq.${brandId}` },
+      { table: 'employees' },
+    ],
+    onRefresh: load,
+  });
 
   const createTarget = async () => {
     if (!draft.name.trim()) { toast.error('أدخل اسم المكان أو المعدة'); return; }
