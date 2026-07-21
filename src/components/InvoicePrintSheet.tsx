@@ -8,7 +8,7 @@ interface Props {
   brands: Brand[];
 }
 
-const SHIPPING_COMPANY_NAME = 'Aman Cargo';
+const SHIPPING_COMPANY_NAME = 'Cloud Kitchens';
 const SHIPPING_COMPANY_TAGLINE = 'وثيقة تسليم معتمدة';
 
 function InvoiceField({ label, value, className = '' }: { label: string; value: string; className?: string }) {
@@ -86,15 +86,8 @@ export default function InvoicePrintSheet({ orders, brands }: Props) {
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/10">
-                        <svg viewBox="0 0 64 64" className="h-6 w-6" aria-hidden="true">
-                          <defs>
-                            <linearGradient id="aman-logo-gradient" x1="0%" x2="100%" y1="0%" y2="100%">
-                              <stop offset="0%" stopColor="#f8fafc" />
-                              <stop offset="100%" stopColor="#cbd5e1" />
-                            </linearGradient>
-                          </defs>
-                          <path d="M12 44 28 16l8 13 7-10 9 25" fill="none" stroke="url(#aman-logo-gradient)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-                          <circle cx="48" cy="19" r="5" fill="#f8fafc" />
+                        <svg viewBox="0 0 150 72" className="h-6 w-7" fill="none" aria-label="Cloud Kitchens">
+                          <path d="M22 57.5h75.5c12.4 0 22.5-9.8 22.5-21.9 0-11.4-8.9-20.8-20.3-21.8C95.4 5.4 86.7.5 76.5.5 63.1.5 51.6 9 47.4 21.1c-9 .1-16.4 6.8-17.6 15.5C20 37.2 12 45.3 12 55.1c0 1.3.1 2.6.4 3.9h9.6Z" stroke="currentColor" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       </div>
                       <div>

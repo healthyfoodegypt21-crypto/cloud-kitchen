@@ -104,9 +104,8 @@ export default function Login() {
       <Card className="w-full max-w-sm p-6 space-y-6">
         <div className="text-center space-y-2">
           <div className="flex justify-center">
-            <BrandLogo compact iconClassName="h-14 w-14 rounded-3xl" />
+            <BrandLogo iconClassName="h-16 w-28" textClassName="[&>span]:text-2xl" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Cloud Kitchen</h1>
           <p className="text-sm text-muted-foreground">
             {mode === 'login' ? 'سجّل الدخول لإدارة العلامات والطلبات' : 'أنشئ حساب المالك للبدء'}
           </p>
