@@ -41,3 +41,24 @@ export const DEFAULT_PAGES: Record<KnownAppRole, AppPageId[]> = {
 export function hasPageAccess(role: string | null, pagePermissions: string[], pageId: AppPageId) {
   return role === 'owner' || pagePermissions.includes(pageId);
 }
+
+// Granular Human Resources actions. Sensitive actions (delete, approvals and
+// closing a payroll month) are reserved for the owner, while any user granted
+// the `hr` page can view and record day-to-day entries.
+export type HrAction =
+  | 'view'
+  | 'add'
+  | 'edit'
+  | 'delete'
+  | 'approve_payroll'
+  | 'approve_deductions'
+  | 'approve_advances'
+  | 'lock_month';
+
+const HR_OWNER_ONLY_ACTIONS: HrAction[] = ['delete', 'approve_payroll', 'approve_deductions', 'approve_advances', 'lock_month'];
+
+export function hasHrAction(role: string | null, pagePermissions: string[], action: HrAction) {
+  if (role === 'owner') return true;
+  if (!hasPageAccess(role, pagePermissions, 'hr')) return false;
+  return !HR_OWNER_ONLY_ACTIONS.includes(action);
+}
