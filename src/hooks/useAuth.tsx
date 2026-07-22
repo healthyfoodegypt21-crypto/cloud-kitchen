@@ -9,12 +9,21 @@ type AppRole = string;
 type AuthMode = 'session' | 'demo';
 
 const LOCAL_DEMO_AUTH_KEY = 'cloud_kitchen_demo_session';
-const AUTH_HYDRATION_TIMEOUT_MS = 8000;
+const AUTH_CACHE_KEY = 'cloud_kitchen_auth_cache';
+const SESSION_BOOTSTRAP_TIMEOUT_MS = 1500;
+const AUTH_HYDRATION_TIMEOUT_MS = 2500;
 
 type LocalDemoAuthState = {
   role: AppRole;
   displayName: string;
   email: string;
+};
+
+type CachedSessionAuthState = {
+  userId: string;
+  role: AppRole | null;
+  displayName: string;
+  pagePermissions: string[];
 };
 
 function readLocalDemoAuthState(): LocalDemoAuthState | null {
@@ -37,6 +46,37 @@ function readLocalDemoAuthState(): LocalDemoAuthState | null {
   } catch {
     return null;
   }
+}
+
+function readCachedSessionAuthState(userId: string): CachedSessionAuthState | null {
+  try {
+    const rawValue = sessionStorage.getItem(AUTH_CACHE_KEY);
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue) as Partial<CachedSessionAuthState>;
+    if (!parsed || parsed.userId !== userId || typeof parsed.displayName !== 'string' || !Array.isArray(parsed.pagePermissions)) {
+      return null;
+    }
+
+    return {
+      userId,
+      role: typeof parsed.role === 'string' ? parsed.role : null,
+      displayName: parsed.displayName,
+      pagePermissions: parsed.pagePermissions.filter((page): page is string => typeof page === 'string'),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedSessionAuthState(state: CachedSessionAuthState) {
+  sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(state));
+}
+
+function clearCachedSessionAuthState() {
+  sessionStorage.removeItem(AUTH_CACHE_KEY);
 }
 
 function buildLocalDemoUser(email: string) {
@@ -98,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     markSupabaseUnavailable();
+    clearCachedSessionAuthState();
     setUser(buildLocalDemoUser(demoState.email));
     setSession(null);
     setRole(demoState.role);
@@ -105,6 +146,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPagePermissions([]);
     setAuthMode('demo');
     return true;
+  };
+
+  const applyCachedSessionAuth = (cachedState: CachedSessionAuthState) => {
+    setRole(cachedState.role);
+    setDisplayName(cachedState.displayName);
+    setPagePermissions(cachedState.pagePermissions);
+    setAuthMode('session');
   };
 
   const fetchUserData = async (userId: string) => {
@@ -132,20 +180,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthMode('session');
       }
 
-      setRole(roleRes.data ?? null);
-      setDisplayName(profileRes.data?.display_name ?? '');
-      setPagePermissions((pagePermissionsRes.data ?? []).map((item) => item.page));
+      const nextRole = roleRes.data ?? null;
+      const nextDisplayName = profileRes.data?.display_name ?? '';
+      const nextPagePermissions = (pagePermissionsRes.data ?? []).map((item) => item.page);
+
+      setRole(nextRole);
+      setDisplayName(nextDisplayName);
+      setPagePermissions(nextPagePermissions);
+      writeCachedSessionAuthState({
+        userId,
+        role: nextRole,
+        displayName: nextDisplayName,
+        pagePermissions: nextPagePermissions,
+      });
     } catch (error) {
       if (isSupabaseNetworkError(error as { message?: string })) {
         markSupabaseUnavailable();
       }
 
       markSupabaseUnavailable();
-      setRole(null);
-      setDisplayName('');
-      setPagePermissions([]);
       console.error('Failed to hydrate auth user data', error);
     }
+  };
+
+  const hydrateSessionUser = async (session: Session) => {
+    sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
+    setAuthMode('session');
+
+    const cachedState = readCachedSessionAuthState(session.user.id);
+    if (cachedState) {
+      applyCachedSessionAuth(cachedState);
+      return fetchUserData(session.user.id);
+    }
+
+    return fetchUserData(session.user.id);
   };
 
   useEffect(() => {
@@ -156,10 +224,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(session);
           setUser(session?.user ?? null);
           if (session?.user) {
-            sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
-            setAuthMode('session');
-            await fetchUserData(session.user.id);
+            const pendingRefresh = hydrateSessionUser(session);
+            if (!readCachedSessionAuthState(session.user.id)) {
+              await pendingRefresh;
+            }
           } else {
+            clearCachedSessionAuthState();
             setRole(null);
             setDisplayName('');
             setPagePermissions([]);
@@ -173,7 +243,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     withTimeout(
       supabase.auth.getSession(),
-      AUTH_HYDRATION_TIMEOUT_MS,
+      SESSION_BOOTSTRAP_TIMEOUT_MS,
       'Supabase session bootstrap timed out',
     ).then(async ({ data: { session } }) => {
       setLoading(true);
@@ -181,12 +251,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
-          setAuthMode('session');
-          await fetchUserData(session.user.id);
+          const pendingRefresh = hydrateSessionUser(session);
+          if (!readCachedSessionAuthState(session.user.id)) {
+            await pendingRefresh;
+          }
         } else if (import.meta.env.DEV && applyLocalDemoAuth(readLocalDemoAuthState())) {
           return;
         } else {
+          clearCachedSessionAuthState();
           setAuthMode('session');
         }
       } finally {
@@ -200,6 +272,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRole(null);
       setDisplayName('');
       setPagePermissions([]);
+      clearCachedSessionAuthState();
       setAuthMode('session');
       setLoading(false);
     });
@@ -261,6 +334,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
+    clearCachedSessionAuthState();
     setUser(null);
     setSession(null);
     setRole(null);

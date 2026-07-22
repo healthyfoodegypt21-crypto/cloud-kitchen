@@ -128,6 +128,71 @@ describe('useAuth', () => {
     expect(sessionStorage.getItem('cloud_kitchen_demo_session')).toBeNull();
   });
 
+  it('uses cached session permissions immediately while refreshing in the background', async () => {
+    sessionStorage.setItem('cloud_kitchen_auth_cache', JSON.stringify({
+      userId: 'user-1',
+      role: 'call_center',
+      displayName: 'كاش المستخدم',
+      pagePermissions: ['orders', 'customers'],
+    }));
+
+    const roleDeferred = createDeferred<{ data: string | null; error: null }>();
+    const profileDeferred = createDeferred<{ data: { display_name: string } | null; error: null }>();
+    const pagesDeferred = createDeferred<{ data: Array<{ page: string }>; error: null }>();
+
+    mockGetSession.mockResolvedValue({
+      data: {
+        session: {
+          user: { id: 'user-1', email: 'user@example.com' },
+        },
+      },
+    });
+
+    mockRpc.mockReturnValue(roleDeferred.promise);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') {
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          single: vi.fn().mockReturnValue(profileDeferred.promise),
+        };
+      }
+
+      if (table === 'user_page_permissions') {
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnValue(pagesDeferred.promise),
+        };
+      }
+
+      return {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: null, error: null }),
+      };
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.role).toBe('call_center');
+    expect(result.current.displayName).toBe('كاش المستخدم');
+    expect(result.current.pagePermissions).toEqual(['orders', 'customers']);
+
+    roleDeferred.resolve({ data: 'call_center', error: null });
+    profileDeferred.resolve({ data: { display_name: 'تحديث من السيرفر' }, error: null });
+    pagesDeferred.resolve({ data: [{ page: 'orders' }], error: null });
+
+    await waitFor(() => {
+      expect(result.current.displayName).toBe('تحديث من السيرفر');
+    });
+
+    expect(result.current.pagePermissions).toEqual(['orders']);
+  });
+
   it('keeps loading true until session permissions finish loading', async () => {
     const roleDeferred = createDeferred<{ data: string | null; error: null }>();
     const profileDeferred = createDeferred<{ data: { display_name: string } | null; error: null }>();
