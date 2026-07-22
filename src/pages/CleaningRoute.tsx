@@ -248,6 +248,26 @@ export default function CleaningRoute() {
     void load();
   };
 
+  const removeTask = async (task: Task) => {
+    const target = targetById.get(task.target_id);
+    const confirmed = window.confirm(
+      `سيتم حذف مهمة ${target?.name ?? 'التنظيف'}${task.started_at ? ' الجارية الآن' : ''}. لن يتم اعتمادها أو احتساب نقاط لها. هل تريد المتابعة؟`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const { error } = await (supabase as any).rpc('cleaning_delete_task', { _task_id: task.id });
+    if (error) {
+      toast.error(error.message || 'تعذر حذف المهمة');
+      return;
+    }
+
+    toast.success('تم حذف مهمة التنظيف');
+    setCompleteTask((current) => (current?.id === task.id ? null : current));
+    void load();
+  };
+
   const assign = async (taskId: string, employeeId: string) => {
     const { error } = await (supabase as any).rpc('cleaning_assign_task', {
       _task_id: taskId,
@@ -455,6 +475,9 @@ export default function CleaningRoute() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
+                        <Button size="icon" variant="ghost" onClick={() => void removeTask(task)} aria-label="حذف المهمة">
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
                         <Badge variant={isStarted ? 'default' : 'secondary'}>
                           {isStarted ? 'جاري التنفيذ' : 'مسندة وتنتظر البدء'}
                         </Badge>
@@ -552,6 +575,11 @@ export default function CleaningRoute() {
                       <Button className="w-full" disabled={!task.started_at} onClick={() => setCompleteTask(task)}>
                         <CheckCircle2 className="ml-2 h-4 w-4" />
                         استلام المهمة
+                      </Button>
+
+                      <Button className="w-full" variant="destructive" onClick={() => void removeTask(task)}>
+                        <Trash2 className="ml-2 h-4 w-4" />
+                        حذف المهمة
                       </Button>
                     </CardContent>
                   </Card>
