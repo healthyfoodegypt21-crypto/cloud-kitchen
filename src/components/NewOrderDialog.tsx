@@ -1272,7 +1272,7 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
 
             <div className="shrink-0 flex flex-col gap-3 border-t bg-muted/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-8 sm:py-4">
               <p className="text-xs text-muted-foreground">
-                {step === 'mode' && 'ابدأ باختيار البراند ونوع العميل.'}
+                {step === 'mode' && (singleAccessibleBrand ? 'ابدأ باختيار نوع العميل، والبراند محدد تلقائيًا.' : 'ابدأ باختيار البراند ونوع العميل.')}
                 {step === 'customer' && 'الهدف هنا تقليل الكتابة اليدوية ومنع التكرار.'}
                 {step === 'order' && 'راجع الملخص واضغط إنشاء الطلب عندما تصبح البيانات جاهزة.'}
               </p>
@@ -1333,6 +1333,10 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
         {triggerButton}
       </DialogTrigger>
       <DialogContent className="w-[calc(100vw-0.75rem)] max-w-[calc(100vw-0.75rem)] h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] overflow-hidden border-0 bg-transparent p-0 shadow-none sm:h-[min(88dvh,56rem)] sm:w-[min(92vw,64rem)] sm:max-w-[64rem] sm:max-h-[min(88dvh,56rem)]">
+        <DialogHeader className="sr-only">
+          <DialogTitle>إنشاء طلب جديد</DialogTitle>
+          <DialogDescription>نافذة تسجيل الأوردر واختيار العميل والبراند وتفاصيل التنفيذ.</DialogDescription>
+        </DialogHeader>
         {surfaceContent}
       </DialogContent>
     </Dialog>
