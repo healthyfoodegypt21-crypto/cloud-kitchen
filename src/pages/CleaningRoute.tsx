@@ -314,6 +314,16 @@ export default function CleaningRoute() {
   const taskCards = useMemo(() => sectionTasks.filter((task) => task.status !== 'completed'), [sectionTasks]);
   const readyToStartTasks = useMemo(() => taskCards.filter((task) => !task.started_at), [taskCards]);
   const inProgressTasks = useMemo(() => taskCards.filter((task) => Boolean(task.started_at)), [taskCards]);
+  const trackedTasks = useMemo(
+    () => taskCards.filter((task) => Boolean(task.assigned_employee_id)).sort((left, right) => {
+      if (Boolean(left.started_at) !== Boolean(right.started_at)) {
+        return left.started_at ? -1 : 1;
+      }
+
+      return left.scheduled_date.localeCompare(right.scheduled_date);
+    }),
+    [taskCards],
+  );
   const elapsedMinutes = (startedAt: string | null) => startedAt ? Math.max(0, Math.floor((currentTime - new Date(startedAt).getTime()) / 60000)) : 0;
   const completedToday = useMemo(() => sectionTasks.filter((task) => task.status === 'completed' && task.scheduled_date === new Date().toISOString().slice(0, 10)), [sectionTasks]);
   const overdue = useMemo(() => sectionTasks.filter((task) => task.status === 'overdue'), [sectionTasks]);
@@ -424,25 +434,42 @@ export default function CleaningRoute() {
                 <Clock3 className="h-5 w-5" />
                 متابعة المهام الجارية الآن
               </CardTitle>
-              <CardDescription>كل مهمة بدأت تظهر هنا حتى اعتمادها بالصورة والتقييم.</CardDescription>
+              <CardDescription>كل مهمة تم إسنادها تظهر هنا فورًا، ثم تستمر حتى الاستلام بالصورة والتقييم.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {inProgressTasks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">لا توجد مهمة قيد التنفيذ حاليًا.</p>
+              {trackedTasks.length === 0 ? (
+                <p className="text-sm text-muted-foreground">لا توجد مهام مسندة أو قيد التنفيذ حاليًا.</p>
               ) : (
-                inProgressTasks.map((task) => {
+                trackedTasks.map((task) => {
                   const target = targetById.get(task.target_id);
                   const assigned = staff.find((member) => member.id === task.assigned_employee_id);
+                  const isStarted = Boolean(task.started_at);
                   return (
                     <div key={task.id} className="flex flex-col gap-2 rounded-lg border border-emerald-500/20 bg-background p-3 md:flex-row md:items-center md:justify-between">
                       <div>
                         <strong>{target?.icon} {target?.name ?? 'مهمة تنظيف'}</strong>
-                        <p className="text-sm text-muted-foreground">الموظف: {assigned?.display_name ?? 'غير محدد'} • بدأت منذ {elapsedMinutes(task.started_at)} دقيقة</p>
+                        <p className="text-sm text-muted-foreground">
+                          الموظف: {assigned?.display_name ?? 'غير محدد'}
+                          {' • '}
+                          {isStarted ? `بدأت منذ ${elapsedMinutes(task.started_at)} دقيقة` : 'تم التوزيع وتنتظر بدء التنفيذ'}
+                        </p>
                       </div>
-                      <Button size="sm" onClick={() => setCompleteTask(task)}>
-                        <CheckCircle2 className="ml-2 h-4 w-4" />
-                        استلام وتقييم
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={isStarted ? 'default' : 'secondary'}>
+                          {isStarted ? 'جاري التنفيذ' : 'مسندة وتنتظر البدء'}
+                        </Badge>
+                        {isStarted ? (
+                          <Button size="sm" onClick={() => setCompleteTask(task)}>
+                            <CheckCircle2 className="ml-2 h-4 w-4" />
+                            استلام وتقييم
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" onClick={() => void start(task.id)}>
+                            <Play className="ml-2 h-4 w-4" />
+                            بدء التنفيذ
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   );
                 })
