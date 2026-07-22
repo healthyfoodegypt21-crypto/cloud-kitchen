@@ -298,7 +298,7 @@ export function useMenuCatalog() {
         return true;
       }
 
-      toast.error(input.id ? 'تعذر تعديل الوجبة' : 'تعذر إضافة الوجبة');
+      toast.error(error.message || (input.id ? 'تعذر تعديل الوجبة' : 'تعذر إضافة الوجبة'));
       console.error(error);
       return false;
     }
