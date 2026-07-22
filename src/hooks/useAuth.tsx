@@ -117,12 +117,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        setLoading(true);
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
           sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
           setAuthMode('session');
-          setTimeout(() => fetchUserData(session.user.id), 0);
+          await fetchUserData(session.user.id);
         } else {
           setRole(null);
           setDisplayName('');
@@ -133,13 +134,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      setLoading(true);
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
         sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
         setAuthMode('session');
-        fetchUserData(session.user.id);
+        await fetchUserData(session.user.id);
       } else if (import.meta.env.DEV && applyLocalDemoAuth(readLocalDemoAuthState())) {
         setLoading(false);
         return;

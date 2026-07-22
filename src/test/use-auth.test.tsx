@@ -10,6 +10,19 @@ const mockSignInWithPassword = vi.fn();
 const mockSignOut = vi.fn();
 const mockRpc = vi.fn();
 const mockFrom = vi.fn();
+const mockChannel = vi.fn();
+const mockRemoveChannel = vi.fn();
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
 
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: {
@@ -21,6 +34,8 @@ vi.mock('@/integrations/supabase/client', () => ({
     },
     rpc: (...args: unknown[]) => mockRpc(...args),
     from: (...args: unknown[]) => mockFrom(...args),
+    channel: (...args: unknown[]) => mockChannel(...args),
+    removeChannel: (...args: unknown[]) => mockRemoveChannel(...args),
   },
 }));
 
@@ -52,11 +67,16 @@ describe('useAuth', () => {
     mockSignInWithPassword.mockResolvedValue({ error: null });
     mockSignOut.mockResolvedValue({ error: null });
     mockRpc.mockResolvedValue({ data: null, error: null });
-    mockFrom.mockReturnValue({
+    mockChannel.mockReturnValue({
+      on: vi.fn().mockReturnThis(),
+      subscribe: vi.fn(),
+    });
+    mockRemoveChannel.mockResolvedValue(undefined);
+    mockFrom.mockImplementation(() => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: null, error: null }),
-    });
+    }));
   });
 
   afterEach(() => {
@@ -105,5 +125,64 @@ describe('useAuth', () => {
     expect(result.current.isDemoMode).toBe(false);
     expect(result.current.user).toBeNull();
     expect(sessionStorage.getItem('cloud_kitchen_demo_session')).toBeNull();
+  });
+
+  it('keeps loading true until session permissions finish loading', async () => {
+    const roleDeferred = createDeferred<{ data: string | null; error: null }>();
+    const profileDeferred = createDeferred<{ data: { display_name: string } | null; error: null }>();
+    const pagesDeferred = createDeferred<{ data: Array<{ page: string }>; error: null }>();
+
+    mockGetSession.mockResolvedValue({
+      data: {
+        session: {
+          user: { id: 'user-1', email: 'user@example.com' },
+        },
+      },
+    });
+
+    mockRpc.mockReturnValue(roleDeferred.promise);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') {
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          single: vi.fn().mockReturnValue(profileDeferred.promise),
+        };
+      }
+
+      if (table === 'user_page_permissions') {
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnValue(pagesDeferred.promise),
+        };
+      }
+
+      return {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: null, error: null }),
+      };
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.user?.id).toBe('user-1');
+    });
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.role).toBeNull();
+
+    roleDeferred.resolve({ data: 'call_center', error: null });
+    profileDeferred.resolve({ data: { display_name: 'موظف الطلبات' }, error: null });
+    pagesDeferred.resolve({ data: [{ page: 'orders' }], error: null });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.role).toBe('call_center');
+    expect(result.current.displayName).toBe('موظف الطلبات');
+    expect(result.current.pagePermissions).toEqual(['orders']);
   });
 });
