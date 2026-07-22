@@ -88,7 +88,13 @@ export default function CleaningRoute() {
   const [photo, setPhoto] = useState<File | null>(null);
   const [managerNotes, setManagerNotes] = useState('');
   const [completionRating, setCompletionRating] = useState('5');
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [draft, setDraft] = useState(initialDraft);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!brandId && brands[0]) {
@@ -308,6 +314,7 @@ export default function CleaningRoute() {
   const taskCards = useMemo(() => sectionTasks.filter((task) => task.status !== 'completed'), [sectionTasks]);
   const readyToStartTasks = useMemo(() => taskCards.filter((task) => !task.started_at), [taskCards]);
   const inProgressTasks = useMemo(() => taskCards.filter((task) => Boolean(task.started_at)), [taskCards]);
+  const elapsedMinutes = (startedAt: string | null) => startedAt ? Math.max(0, Math.floor((currentTime - new Date(startedAt).getTime()) / 60000)) : 0;
   const completedToday = useMemo(() => sectionTasks.filter((task) => task.status === 'completed' && task.scheduled_date === new Date().toISOString().slice(0, 10)), [sectionTasks]);
   const overdue = useMemo(() => sectionTasks.filter((task) => task.status === 'overdue'), [sectionTasks]);
   const score = useMemo(() => {
@@ -411,6 +418,38 @@ export default function CleaningRoute() {
             <Metric title="مكتملة اليوم" value={String(completedToday.length)} hint="معتمدة بالصور والتقييم" />
           </div>
 
+          <Card className="border-emerald-500/30 bg-emerald-500/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-emerald-800">
+                <Clock3 className="h-5 w-5" />
+                متابعة المهام الجارية الآن
+              </CardTitle>
+              <CardDescription>كل مهمة بدأت تظهر هنا حتى اعتمادها بالصورة والتقييم.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {inProgressTasks.length === 0 ? (
+                <p className="text-sm text-muted-foreground">لا توجد مهمة قيد التنفيذ حاليًا.</p>
+              ) : (
+                inProgressTasks.map((task) => {
+                  const target = targetById.get(task.target_id);
+                  const assigned = staff.find((member) => member.id === task.assigned_employee_id);
+                  return (
+                    <div key={task.id} className="flex flex-col gap-2 rounded-lg border border-emerald-500/20 bg-background p-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <strong>{target?.icon} {target?.name ?? 'مهمة تنظيف'}</strong>
+                        <p className="text-sm text-muted-foreground">الموظف: {assigned?.display_name ?? 'غير محدد'} • بدأت منذ {elapsedMinutes(task.started_at)} دقيقة</p>
+                      </div>
+                      <Button size="sm" onClick={() => setCompleteTask(task)}>
+                        <CheckCircle2 className="ml-2 h-4 w-4" />
+                        استلام وتقييم
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
+            </CardContent>
+          </Card>
+
           <section>
             <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
@@ -474,7 +513,7 @@ export default function CleaningRoute() {
                       {task.started_at ? (
                         <div className="rounded-lg bg-emerald-500/10 p-3 text-sm text-emerald-700">
                           <Clock3 className="ml-1 inline h-4 w-4" />
-                          بدأ التنفيذ الفعلي والمهمة ما زالت معلقة حتى الاستلام
+                          بدأ التنفيذ الفعلي منذ {elapsedMinutes(task.started_at)} دقيقة والمهمة ما زالت معلقة حتى الاستلام
                         </div>
                       ) : (
                         <Button className="w-full" variant="outline" disabled={!task.assigned_employee_id} onClick={() => void start(task.id)}>
