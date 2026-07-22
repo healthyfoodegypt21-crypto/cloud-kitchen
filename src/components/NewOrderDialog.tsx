@@ -103,7 +103,8 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
   const { brands } = useBrands();
   const { meals, packages } = useMenuCatalog();
   const { customers, loading: customersLoading, storageMode, upsertCustomer } = useCustomers();
-  const defaultBrandId = brands.length === 1 ? brands[0].id : '';
+  const singleAccessibleBrand = brands.length === 1 ? brands[0] : null;
+  const defaultBrandId = singleAccessibleBrand?.id ?? '';
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<WorkflowStep>('mode');
   const [customerMode, setCustomerMode] = useState<CustomerMode | null>(null);
@@ -442,6 +443,34 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
     return message ? <p className="text-xs text-destructive">{message}</p> : null;
   };
 
+  const renderBrandField = (placeholder = 'اختر العلامة') => {
+    if (singleAccessibleBrand) {
+      return (
+        <div className="grid gap-1.5">
+          <Label>العلامة التجارية</Label>
+          <div className="flex min-h-10 items-center rounded-md border bg-muted/40 px-3 text-sm font-medium text-foreground">
+            {singleAccessibleBrand.name}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid gap-1.5">
+        <Label>العلامة التجارية *</Label>
+        <Select value={form.brand_id} onValueChange={handleBrandChange}>
+          <SelectTrigger className={fieldClassName('brand_id')}><SelectValue placeholder={brands.length === 0 ? 'لا توجد علامات متاحة' : placeholder} /></SelectTrigger>
+          <SelectContent>
+            {brands.map(brand => (
+              <SelectItem key={brand.id} value={brand.id}>{brand.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {renderFieldError('brand_id')}
+      </div>
+    );
+  };
+
   const validateAddressFields = (nextErrors: FormErrors) => {
     if (!compactWhitespace(form.address_house_number)) nextErrors.address_house_number = 'اكتب رقم البيت';
     if (!compactWhitespace(form.address_street)) nextErrors.address_street = 'اكتب اسم الشارع';
@@ -752,23 +781,14 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
                     <CardContent className="grid gap-3 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-sm font-semibold text-foreground">اختر البراند أولًا</p>
-                          <p className="text-xs text-muted-foreground">العملاء مسجلون بشكل منفصل لكل علامة تجارية.</p>
+                          <p className="text-sm font-semibold text-foreground">{singleAccessibleBrand ? 'البراند المرتبط بحسابك' : 'اختر البراند أولًا'}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {singleAccessibleBrand ? 'تم ربط الأوردر تلقائيًا ببراندك المتاح.' : 'العملاء مسجلون بشكل منفصل لكل علامة تجارية.'}
+                          </p>
                         </div>
                         <Badge variant="outline">{brands.length} براند</Badge>
                       </div>
-                      <div className="grid gap-1.5">
-                        <Label>العلامة التجارية *</Label>
-                        <Select value={form.brand_id} onValueChange={handleBrandChange}>
-                          <SelectTrigger className={fieldClassName('brand_id')}><SelectValue placeholder={brands.length === 0 ? 'لا توجد علامات متاحة' : 'اختر العلامة'} /></SelectTrigger>
-                          <SelectContent>
-                            {brands.map(brand => (
-                              <SelectItem key={brand.id} value={brand.id}>{brand.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {renderFieldError('brand_id')}
-                      </div>
+                      {renderBrandField()}
                     </CardContent>
                   </Card>
 
@@ -829,18 +849,7 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
                         </div>
                         <Badge variant="outline">{brandCustomers.length} عميل متاح</Badge>
                       </div>
-                      <div className="grid gap-1.5">
-                        <Label>العلامة التجارية *</Label>
-                        <Select value={form.brand_id} onValueChange={handleBrandChange}>
-                          <SelectTrigger className={fieldClassName('brand_id')}><SelectValue placeholder="اختر العلامة" /></SelectTrigger>
-                          <SelectContent>
-                            {brands.map(brand => (
-                              <SelectItem key={brand.id} value={brand.id}>{brand.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {renderFieldError('brand_id')}
-                      </div>
+                      {renderBrandField()}
                       <div className="relative">
                         <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} placeholder="ابحث بالاسم أو الهاتف" className="pr-9" />
@@ -964,18 +973,7 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
                         <p className="text-sm text-muted-foreground">أدخل الحد الأدنى من البيانات ثم ننتقل مباشرة لتفاصيل الأوردر.</p>
                       </div>
 
-                      <div className="grid gap-1.5">
-                        <Label>العلامة التجارية *</Label>
-                        <Select value={form.brand_id} onValueChange={handleBrandChange}>
-                          <SelectTrigger className={fieldClassName('brand_id')}><SelectValue placeholder="اختر العلامة" /></SelectTrigger>
-                          <SelectContent>
-                            {brands.map(brand => (
-                              <SelectItem key={brand.id} value={brand.id}>{brand.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {renderFieldError('brand_id')}
-                      </div>
+                      {renderBrandField()}
 
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="grid gap-1.5 sm:col-span-2">
