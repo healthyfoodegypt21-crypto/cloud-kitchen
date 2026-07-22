@@ -1,5 +1,5 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock3, ImagePlus, Play, Plus, Sparkles, Trophy, Users } from 'lucide-react';
+import { CheckCircle2, Clock3, ImagePlus, Play, Plus, Sparkles, Trash2, Trophy, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -220,6 +220,22 @@ export default function CleaningRoute() {
       kind: payloadKind,
       icon: sectionMeta[payloadKind].icon,
     });
+    void load();
+  };
+
+  const removeTarget = async (target: Target) => {
+    const confirmed = window.confirm(`سيتم حذف ${target.kind === 'equipment' ? 'المعدة' : 'منطقة التنظيف'} "${target.name}" وإلغاء مهامها المفتوحة. هل تريد المتابعة؟`);
+    if (!confirmed) {
+      return;
+    }
+
+    const { error } = await (supabase as any).rpc('cleaning_delete_target', { _target_id: target.id });
+    if (error) {
+      toast.error(error.message || 'تعذر حذف العنصر');
+      return;
+    }
+
+    toast.success(`تم حذف ${target.kind === 'equipment' ? 'المعدة' : 'منطقة التنظيف'}`);
     void load();
   };
 
@@ -479,12 +495,18 @@ export default function CleaningRoute() {
               </CardHeader>
               <CardContent className="space-y-2">
                 {sectionTargets.map((target) => (
-                  <div key={target.id} className="flex items-center justify-between rounded-lg border p-3">
-                    <span>
-                      {target.icon} <strong>{target.name}</strong>{' '}
-                      <span className="text-muted-foreground">— {target.kind === 'equipment' ? 'معدة' : 'مكان'}</span>
-                    </span>
-                    <span className="text-sm text-muted-foreground">كل {target.frequency_days} يوم • {target.estimated_minutes} د</span>
+                  <div key={target.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                    <div>
+                      <span>
+                        {target.icon} <strong>{target.name}</strong>{' '}
+                        <span className="text-muted-foreground">— {target.kind === 'equipment' ? 'معدة' : 'مكان'}</span>
+                      </span>
+                      <p className="text-sm text-muted-foreground">كل {target.frequency_days} يوم • {target.estimated_minutes} د</p>
+                    </div>
+                    <Button variant="destructive" size="sm" onClick={() => void removeTarget(target)}>
+                      <Trash2 className="ml-2 h-4 w-4" />
+                      حذف
+                    </Button>
                   </div>
                 ))}
 
