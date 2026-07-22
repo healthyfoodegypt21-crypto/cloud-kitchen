@@ -9,6 +9,7 @@ type AppRole = string;
 type AuthMode = 'session' | 'demo';
 
 const LOCAL_DEMO_AUTH_KEY = 'cloud_kitchen_demo_session';
+const AUTH_HYDRATION_TIMEOUT_MS = 8000;
 
 type LocalDemoAuthState = {
   role: AppRole;
@@ -47,6 +48,23 @@ function buildLocalDemoUser(email: string) {
     created_at: new Date(0).toISOString(),
     email,
   } as User;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 interface AuthState {
@@ -91,11 +109,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUserData = async (userId: string) => {
     try {
-      const [roleRes, profileRes, pagePermissionsRes] = await Promise.all([
-        supabase.rpc('get_user_role', { _user_id: userId }),
-        supabase.from('profiles').select('display_name').eq('id', userId).single(),
-        supabase.from('user_page_permissions').select('page').eq('user_id', userId),
-      ]);
+      const [roleRes, profileRes, pagePermissionsRes] = await withTimeout(
+        Promise.all([
+          supabase.rpc('get_user_role', { _user_id: userId }),
+          supabase.from('profiles').select('display_name').eq('id', userId).single(),
+          supabase.from('user_page_permissions').select('page').eq('user_id', userId),
+        ]),
+        AUTH_HYDRATION_TIMEOUT_MS,
+        'Auth user data hydration timed out',
+      );
 
       if (isSupabaseNetworkError(roleRes.error) || isSupabaseNetworkError(profileRes.error) || isSupabaseNetworkError(pagePermissionsRes.error)) {
         markSupabaseUnavailable();
@@ -149,7 +171,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    withTimeout(
+      supabase.auth.getSession(),
+      AUTH_HYDRATION_TIMEOUT_MS,
+      'Supabase session bootstrap timed out',
+    ).then(async ({ data: { session } }) => {
       setLoading(true);
       try {
         setSession(session);
@@ -166,6 +192,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } finally {
         setLoading(false);
       }
+    }).catch((error) => {
+      console.error('Failed to restore Supabase session', error);
+      markSupabaseUnavailable();
+      setUser(null);
+      setSession(null);
+      setRole(null);
+      setDisplayName('');
+      setPagePermissions([]);
+      setAuthMode('session');
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();

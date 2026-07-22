@@ -80,6 +80,7 @@ describe('useAuth', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     sessionStorage.clear();
     resetSupabaseRuntimeState();
@@ -207,5 +208,24 @@ describe('useAuth', () => {
     expect(result.current.role).toBeNull();
     expect(result.current.displayName).toBe('');
     expect(result.current.pagePermissions).toEqual([]);
+  });
+
+  it('stops loading when session hydration hangs without resolving', async () => {
+    vi.useFakeTimers();
+
+    mockGetSession.mockReturnValue(new Promise(() => undefined));
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8000);
+      await Promise.resolve();
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.user).toBeNull();
+    expect(result.current.role).toBeNull();
   });
 });
