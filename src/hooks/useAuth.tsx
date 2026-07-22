@@ -90,65 +90,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const fetchUserData = async (userId: string) => {
-    const [roleRes, profileRes, pagePermissionsRes] = await Promise.all([
-      supabase.rpc('get_user_role', { _user_id: userId }),
-      supabase.from('profiles').select('display_name').eq('id', userId).single(),
-      supabase.from('user_page_permissions').select('page').eq('user_id', userId),
-    ]);
+    try {
+      const [roleRes, profileRes, pagePermissionsRes] = await Promise.all([
+        supabase.rpc('get_user_role', { _user_id: userId }),
+        supabase.from('profiles').select('display_name').eq('id', userId).single(),
+        supabase.from('user_page_permissions').select('page').eq('user_id', userId),
+      ]);
 
-    if (isSupabaseNetworkError(roleRes.error) || isSupabaseNetworkError(profileRes.error) || isSupabaseNetworkError(pagePermissionsRes.error)) {
+      if (isSupabaseNetworkError(roleRes.error) || isSupabaseNetworkError(profileRes.error) || isSupabaseNetworkError(pagePermissionsRes.error)) {
+        markSupabaseUnavailable();
+        setRole(null);
+        setDisplayName('');
+        setPagePermissions([]);
+        return;
+      }
+
+      if (!roleRes.error && !profileRes.error && !pagePermissionsRes.error) {
+        markSupabaseAvailable();
+        setAuthMode('session');
+      }
+
+      setRole(roleRes.data ?? null);
+      setDisplayName(profileRes.data?.display_name ?? '');
+      setPagePermissions((pagePermissionsRes.data ?? []).map((item) => item.page));
+    } catch (error) {
+      if (isSupabaseNetworkError(error as { message?: string })) {
+        markSupabaseUnavailable();
+      }
+
       markSupabaseUnavailable();
       setRole(null);
       setDisplayName('');
       setPagePermissions([]);
-      return;
+      console.error('Failed to hydrate auth user data', error);
     }
-
-    if (!roleRes.error && !profileRes.error && !pagePermissionsRes.error) {
-      markSupabaseAvailable();
-      setAuthMode('session');
-    }
-
-    setRole(roleRes.data ?? null);
-    setDisplayName(profileRes.data?.display_name ?? '');
-    setPagePermissions((pagePermissionsRes.data ?? []).map((item) => item.page));
   };
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setLoading(true);
+        try {
+          setSession(session);
+          setUser(session?.user ?? null);
+          if (session?.user) {
+            sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
+            setAuthMode('session');
+            await fetchUserData(session.user.id);
+          } else {
+            setRole(null);
+            setDisplayName('');
+            setPagePermissions([]);
+            setAuthMode('session');
+          }
+        } finally {
+          setLoading(false);
+        }
+      }
+    );
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      setLoading(true);
+      try {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
           sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
           setAuthMode('session');
           await fetchUserData(session.user.id);
+        } else if (import.meta.env.DEV && applyLocalDemoAuth(readLocalDemoAuthState())) {
+          return;
         } else {
-          setRole(null);
-          setDisplayName('');
-          setPagePermissions([]);
           setAuthMode('session');
         }
+      } finally {
         setLoading(false);
       }
-    );
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setLoading(true);
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
-        setAuthMode('session');
-        await fetchUserData(session.user.id);
-      } else if (import.meta.env.DEV && applyLocalDemoAuth(readLocalDemoAuthState())) {
-        setLoading(false);
-        return;
-      } else {
-        setAuthMode('session');
-      }
-      setLoading(false);
     });
 
     return () => subscription.unsubscribe();

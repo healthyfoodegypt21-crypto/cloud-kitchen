@@ -185,4 +185,27 @@ describe('useAuth', () => {
     expect(result.current.displayName).toBe('موظف الطلبات');
     expect(result.current.pagePermissions).toEqual(['orders']);
   });
+
+  it('stops loading even when user permission hydration throws', async () => {
+    mockGetSession.mockResolvedValue({
+      data: {
+        session: {
+          user: { id: 'user-1', email: 'user@example.com' },
+        },
+      },
+    });
+
+    mockRpc.mockRejectedValue(new Error('Failed to fetch'));
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.user?.id).toBe('user-1');
+    expect(result.current.role).toBeNull();
+    expect(result.current.displayName).toBe('');
+    expect(result.current.pagePermissions).toEqual([]);
+  });
 });
