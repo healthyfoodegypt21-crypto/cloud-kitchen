@@ -33,6 +33,7 @@ type Task = {
   completed_at: string | null;
   photo_path: string;
   points_awarded: number;
+  quality_rating: number;
 };
 
 type Staff = {
@@ -86,6 +87,7 @@ export default function CleaningRoute() {
   const [completeTask, setCompleteTask] = useState<Task | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [managerNotes, setManagerNotes] = useState('');
+  const [completionRating, setCompletionRating] = useState('5');
   const [draft, setDraft] = useState(initialDraft);
 
   useEffect(() => {
@@ -124,7 +126,7 @@ export default function CleaningRoute() {
         .order('created_at'),
       client
         .from('cleaning_tasks')
-        .select('id,target_id,scheduled_date,assigned_employee_id,status,estimated_minutes,started_at,completed_at,photo_path,points_awarded')
+        .select('id,target_id,scheduled_date,assigned_employee_id,status,estimated_minutes,started_at,completed_at,photo_path,points_awarded,quality_rating')
         .eq('brand_id', brandId)
         .order('scheduled_date'),
       client.rpc('cleaning_staff', { _brand_id: brandId }),
@@ -158,6 +160,7 @@ export default function CleaningRoute() {
         completed_at: row.completed_at ? String(row.completed_at) : null,
         photo_path: String(row.photo_path ?? ''),
         points_awarded: Number(row.points_awarded ?? 0),
+        quality_rating: Number(row.quality_rating ?? 5),
       })),
     );
     setStaff(
@@ -250,6 +253,7 @@ export default function CleaningRoute() {
     }
 
     toast.success('تم توزيع المهمة');
+    setTasks((current) => current.map((task) => task.id === taskId ? { ...task, assigned_employee_id: employeeId || null } : task));
     void load();
   };
 
@@ -261,6 +265,7 @@ export default function CleaningRoute() {
     }
 
     toast.success('تم بدء مؤقت التنفيذ الفعلي');
+    setTasks((current) => current.map((task) => task.id === taskId ? { ...task, started_at: task.started_at ?? new Date().toISOString() } : task));
     void load();
   };
 
@@ -282,6 +287,7 @@ export default function CleaningRoute() {
       _task_id: completeTask.id,
       _photo_path: path,
       _manager_notes: managerNotes,
+      _quality_rating: Number(completionRating),
     });
     if (error) {
       toast.error(error.message);
@@ -292,6 +298,7 @@ export default function CleaningRoute() {
     setCompleteTask(null);
     setPhoto(null);
     setManagerNotes('');
+    setCompletionRating('5');
     void load();
   };
 
@@ -299,6 +306,8 @@ export default function CleaningRoute() {
   const sectionTargets = useMemo(() => (selectedKind ? targets.filter((target) => target.kind === selectedKind) : []), [selectedKind, targets]);
   const sectionTasks = useMemo(() => (selectedKind ? tasks.filter((task) => targetById.get(task.target_id)?.kind === selectedKind) : []), [selectedKind, targetById, tasks]);
   const taskCards = useMemo(() => sectionTasks.filter((task) => task.status !== 'completed'), [sectionTasks]);
+  const readyToStartTasks = useMemo(() => taskCards.filter((task) => !task.started_at), [taskCards]);
+  const inProgressTasks = useMemo(() => taskCards.filter((task) => Boolean(task.started_at)), [taskCards]);
   const completedToday = useMemo(() => sectionTasks.filter((task) => task.status === 'completed' && task.scheduled_date === new Date().toISOString().slice(0, 10)), [sectionTasks]);
   const overdue = useMemo(() => sectionTasks.filter((task) => task.status === 'overdue'), [sectionTasks]);
   const score = useMemo(() => {
@@ -395,9 +404,11 @@ export default function CleaningRoute() {
         <>
           <div className="grid gap-4 md:grid-cols-4">
             <Metric title="نظافة اليوم" value={`${score}%`} hint={`درجة ${sectionInfo?.title ?? 'القسم'}`} />
-            <Metric title="مهام اليوم" value={String(taskCards.length)} hint="بانتظار الاستلام" />
+            <Metric title="مهام اليوم" value={String(taskCards.length)} hint="التوزيع والتنفيذ" />
+            <Metric title="بانتظار البدء" value={String(readyToStartTasks.length)} hint="تم إسنادها أو تنتظر الإسناد" />
+            <Metric title="جاري التنفيذ" value={String(inProgressTasks.length)} hint="مع موظف محدد الآن" />
             <Metric title="متأخرة" value={String(overdue.length)} hint="تحتاج تدخلًا" danger={overdue.length > 0} />
-            <Metric title="مكتملة اليوم" value={String(completedToday.length)} hint="معتمدة بالصور" />
+            <Metric title="مكتملة اليوم" value={String(completedToday.length)} hint="معتمدة بالصور والتقييم" />
           </div>
 
           <section>
@@ -413,6 +424,8 @@ export default function CleaningRoute() {
               {taskCards.map((task) => {
                 const target = targetById.get(task.target_id);
                 const assigned = staff.find((member) => member.id === task.assigned_employee_id);
+                const stageLabel = task.started_at ? 'جاري التنفيذ' : task.assigned_employee_id ? 'مسندة وتنتظر البدء' : 'بانتظار التوزيع';
+                const badgeVariant = task.status === 'overdue' ? 'destructive' : task.started_at ? 'default' : 'secondary';
 
                 return (
                   <Card key={task.id} className={task.status === 'overdue' ? 'border-destructive/40' : ''}>
@@ -426,8 +439,8 @@ export default function CleaningRoute() {
                             {target?.kind === 'equipment' ? 'معدة' : 'منطقة'} • كل {target?.frequency_days} يوم
                           </CardDescription>
                         </div>
-                        <Badge variant={task.status === 'overdue' ? 'destructive' : 'secondary'}>
-                          {task.status === 'overdue' ? 'متأخرة' : 'مستحقة'}
+                        <Badge variant={badgeVariant}>
+                          {task.status === 'overdue' ? 'متأخرة' : stageLabel}
                         </Badge>
                       </div>
                     </CardHeader>
@@ -452,16 +465,16 @@ export default function CleaningRoute() {
                       </select>
 
                       {assigned ? (
-                        <p className="text-sm text-muted-foreground">
+                        <div className="rounded-lg bg-sky-500/10 p-3 text-sm text-sky-700">
                           <Users className="ml-1 inline h-4 w-4" />
-                          مسندة إلى: {assigned.display_name} — {assigned.role_title || 'موظف'}
-                        </p>
+                          المهمة الآن مع: {assigned.display_name} — {assigned.role_title || 'موظف'}
+                        </div>
                       ) : null}
 
                       {task.started_at ? (
                         <div className="rounded-lg bg-emerald-500/10 p-3 text-sm text-emerald-700">
                           <Clock3 className="ml-1 inline h-4 w-4" />
-                          بدأ التنفيذ الفعلي
+                          بدأ التنفيذ الفعلي والمهمة ما زالت معلقة حتى الاستلام
                         </div>
                       ) : (
                         <Button className="w-full" variant="outline" disabled={!task.assigned_employee_id} onClick={() => void start(task.id)}>
@@ -520,7 +533,7 @@ export default function CleaningRoute() {
                   <Trophy className="ml-2 inline h-5 w-5 text-amber-500" />
                   لوحة نقاط التنظيف
                 </CardTitle>
-                <CardDescription>النقاط للمهام التي استلمها المدير بالصور داخل هذا القسم.</CardDescription>
+                <CardDescription>النقاط للمهام التي استلمها مسؤول التنظيف بالصور والتقييم داخل هذا القسم.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
                 {leaders.map((leader, index) => (
@@ -600,22 +613,41 @@ export default function CleaningRoute() {
         onOpenChange={(open) => {
           if (!open) {
             setCompleteTask(null);
+            setPhoto(null);
+            setManagerNotes('');
+            setCompletionRating('5');
           }
         }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>استلام التنظيف</DialogTitle>
-            <DialogDescription>يرجى رفع صورة كإثبات. ستحسب النقاط تلقائيًا وفق الالتزام بالموعد والوقت المتوقع.</DialogDescription>
+            <DialogDescription>يرجى رفع صورة كإثبات، ثم تسجيل تقييم مسؤول النظافة. النقاط ستضاف للموظف تلقائيًا.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="rounded-lg bg-muted p-3">الوقت المتوقع: {completeTask?.estimated_minutes} دقيقة</div>
+            {completeTask?.assigned_employee_id ? (
+              <div className="rounded-lg bg-sky-500/10 p-3 text-sm text-sky-700">
+                <Users className="ml-1 inline h-4 w-4" />
+                الموظف المسؤول: {staff.find((member) => member.id === completeTask.assigned_employee_id)?.display_name ?? 'غير محدد'}
+              </div>
+            ) : null}
             <div className="space-y-1">
               <Label>صورة إثبات التنظيف</Label>
               <Input type="file" accept="image/*" onChange={(event: ChangeEvent<HTMLInputElement>) => setPhoto(event.target.files?.[0] ?? null)} />
             </div>
             <div className="space-y-1">
-              <Label>ملاحظة المدير</Label>
+              <Label>تقييم مسؤول النظافة</Label>
+              <select className="h-10 w-full rounded-md border bg-background px-3" value={completionRating} onChange={(event) => setCompletionRating(event.target.value)}>
+                <option value="5">ممتاز - 5/5</option>
+                <option value="4">جيد جدًا - 4/5</option>
+                <option value="3">جيد - 3/5</option>
+                <option value="2">مقبول - 2/5</option>
+                <option value="1">ضعيف - 1/5</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>ملاحظة مسؤول النظافة</Label>
               <Textarea value={managerNotes} onChange={(event) => setManagerNotes(event.target.value)} />
             </div>
             <Button className="w-full" onClick={() => void complete()}>
