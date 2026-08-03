@@ -15,7 +15,6 @@ const OWNER_DEFAULT_PAGES = [
   'menu-packages',
   'inventory',
   'purchases',
-  'cleaning',
   'hr',
   'users',
   'settings',

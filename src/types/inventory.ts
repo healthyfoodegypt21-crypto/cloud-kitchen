@@ -8,7 +8,6 @@ export type InventoryCategory =
   | 'oils'
   | 'dry_goods'
   | 'packaging'
-  | 'cleaning'
   | 'beverage'
   | 'finished_product'
   | 'other';
@@ -297,7 +296,6 @@ export const INVENTORY_CATEGORY_LABELS: Record<InventoryCategory, string> = {
   oils: 'زيوت ودهون',
   dry_goods: 'مواد جافة',
   packaging: 'تغليف',
-  cleaning: 'منظفات',
   beverage: 'مشروبات',
   finished_product: 'منتجات جاهزة',
   other: 'أخرى',
@@ -365,7 +363,6 @@ export const INVENTORY_CATEGORY_ORDER: InventoryCategory[] = [
   'oils',
   'dry_goods',
   'packaging',
-  'cleaning',
   'beverage',
   'finished_product',
   'other',

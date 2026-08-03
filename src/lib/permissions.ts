@@ -11,7 +11,6 @@ export type AppPageId =
   | 'menu-packages'
   | 'inventory'
   | 'purchases'
-  | 'cleaning'
   | 'hr'
   | 'users'
   | 'settings';
@@ -25,7 +24,6 @@ export const ALL_PAGES: { id: AppPageId; label: string }[] = [
   { id: 'menu-packages', label: 'المنيو والباقات' },
   { id: 'inventory', label: 'المخزون' },
   { id: 'purchases', label: 'المشتريات' },
-  { id: 'cleaning', label: 'التنظيفات' },
   { id: 'hr', label: 'الموارد البشرية' },
   { id: 'users', label: 'إدارة المستخدمين' },
   { id: 'settings', label: 'الإعدادات' },
@@ -34,7 +32,7 @@ export const ALL_PAGES: { id: AppPageId; label: string }[] = [
 export const DEFAULT_PAGES: Record<KnownAppRole, AppPageId[]> = {
   owner: ALL_PAGES.map((page) => page.id),
   call_center: ['dashboard', 'orders', 'customers', 'leaderboard', 'menu-packages', 'purchases', 'settings'],
-  kitchen: ['orders', 'kitchen', 'inventory', 'purchases', 'cleaning', 'settings'],
+  kitchen: ['orders', 'kitchen', 'inventory', 'purchases', 'settings'],
   delivery: ['orders', 'settings'],
 };
 

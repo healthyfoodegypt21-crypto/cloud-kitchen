@@ -12,8 +12,6 @@ DECLARE
     'user_roles',
     'user_brand_access',
     'user_page_permissions',
-    'cleaning_targets',
-    'cleaning_tasks',
     'items_master',
     'inventory_balances',
     'inventory_categories',

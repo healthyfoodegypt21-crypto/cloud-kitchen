@@ -231,6 +231,5 @@ INSERT INTO public.inventory_categories (code, name_ar, name_en, sort_order, is_
   ('oils', 'الزيوت والدهون', 'Oils & Fats', 70, true),
   ('dry_goods', 'المواد الجافة', 'Dry Goods', 80, true),
   ('packaging', 'مواد التعبئة والتغليف', 'Packaging', 90, true),
-  ('cleaning', 'المنظفات', 'Cleaning', 100, true),
   ('beverages', 'المشروبات', 'Beverages', 110, true),
   ('finished_products', 'المنتجات الجاهزة', 'Finished Products', 120, true);
