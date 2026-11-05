@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import PurchasesAssistant from '@/components/PurchasesAssistant';
 import SmartPurchaseImportDialog, { type SmartPurchaseSubmission } from '@/components/SmartPurchaseImportDialog';
-import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useBrands } from '@/hooks/useBrands';
 import { supabase } from '@/integrations/supabase/client';
@@ -15,6 +14,12 @@ export default function PurchasesRoute() {
   const [brandId, setBrandId] = useState('');
   const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; unit: string }>>([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [importSource, setImportSource] = useState<'message' | 'image'>('message');
+
+  const startImport = (source: 'message' | 'image') => {
+    setImportSource(source);
+    setImportOpen(true);
+  };
 
   useEffect(() => {
     if (!brandId && brands[0]) {
@@ -100,17 +105,15 @@ export default function PurchasesRoute() {
 
   return (
     <>
-      <div className="mb-4 flex justify-end">
-        <Button className="gap-2" onClick={() => setImportOpen(true)} disabled={!brandId}>
-          <Sparkles className="h-4 w-4" />
-          إدخال سريع ذكي
-        </Button>
+      <div className="purchases-modern space-y-5">
+        <PurchasesAssistant displayName={displayName} onStartImport={startImport} />
+        <Procurement />
       </div>
-      <Procurement />
       <SmartPurchaseImportDialog
         open={importOpen}
         inventoryItems={inventoryItems}
         defaultPurchaserName={displayName}
+        startWith={importSource}
         onOpenChange={setImportOpen}
         onSubmit={submitSmartPurchase}
       />

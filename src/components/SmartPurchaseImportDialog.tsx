@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Sparkles, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,7 @@ type Props = {
   open: boolean;
   inventoryItems: Array<SmartPurchaseCatalogItem & { unit: string }>;
   defaultPurchaserName: string;
+  startWith: 'message' | 'image';
   onOpenChange: (open: boolean) => void;
   onSubmit: (submission: SmartPurchaseSubmission) => Promise<boolean>;
 };
@@ -35,6 +36,7 @@ export default function SmartPurchaseImportDialog({
   open,
   inventoryItems,
   defaultPurchaserName,
+  startWith,
   onOpenChange,
   onSubmit,
 }: Props) {
@@ -48,6 +50,8 @@ export default function SmartPurchaseImportDialog({
   const [isReadingImage, setIsReadingImage] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const messageRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const selectedItems = useMemo(
     () => new Map(inventoryItems.map((item) => [item.id, item])),
@@ -78,8 +82,11 @@ export default function SmartPurchaseImportDialog({
   useEffect(() => {
     if (open) {
       setPurchaserName(defaultPurchaserName);
+      window.setTimeout(() => {
+        (startWith === 'message' ? messageRef.current : imageInputRef.current)?.focus();
+      }, 100);
     }
-  }, [defaultPurchaserName, open]);
+  }, [defaultPurchaserName, open, startWith]);
 
   const applyParse = (text: string) => {
     const result = parseSmartPurchaseMessage(text, inventoryItems);
@@ -183,6 +190,7 @@ export default function SmartPurchaseImportDialog({
             <Label htmlFor="smart-purchase-message">رسالة واتساب أو نص الفاتورة</Label>
             <Textarea
               id="smart-purchase-message"
+              ref={messageRef}
               rows={8}
               value={message}
               onChange={(event) => setMessage(event.target.value)}
@@ -199,6 +207,7 @@ export default function SmartPurchaseImportDialog({
             <Label htmlFor="smart-purchase-image">صورة الفاتورة</Label>
             <Input
               id="smart-purchase-image"
+              ref={imageInputRef}
               type="file"
               accept="image/*"
               disabled={isReadingImage}
