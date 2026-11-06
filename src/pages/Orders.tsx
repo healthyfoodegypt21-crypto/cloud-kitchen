@@ -12,6 +12,7 @@ import { Meal, PackagePlan } from '@/types/menu';
 import { Order, OrderStatus, STATUS_LABELS } from '@/types/order';
 import OrderCard from '@/components/OrderCard';
 import NewOrderDialog from '@/components/NewOrderDialog';
+import OrderSheetImportDialog from '@/components/OrderSheetImportDialog';
 import { CalendarDays, Filter, Loader2, Printer, RotateCcw, Search } from 'lucide-react';
 import { Brand } from '@/hooks/useBrands';
 import { formatEGPCurrency, getTodayDateValue } from '@/lib/utils';
@@ -173,7 +174,10 @@ export default function Orders({ orders, loading, onRefresh, addOrder, updateSta
     <div className="space-y-4 print:hidden">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-foreground">الطلبات</h1>
-        <NewOrderDialog onCreated={onRefresh} addOrder={addOrder} />
+        <div className="flex flex-wrap gap-2">
+          <OrderSheetImportDialog addOrder={addOrder} onImported={onRefresh} brands={brands} meals={meals} packages={packages} />
+          <NewOrderDialog onCreated={onRefresh} addOrder={addOrder} />
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
