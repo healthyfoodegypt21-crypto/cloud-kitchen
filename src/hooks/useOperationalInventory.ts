@@ -40,7 +40,7 @@ export function useOperationalInventory(brandId: string) {
     setLoading(true);
     const client = supabase as unknown as { from: (table: string) => any };
     const [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, requestLinesRes, withdrawalsRes, withdrawalLinesRes, batchesRes, itemRequestsRes, notificationsRes] = await Promise.all([
-      client.from('items_master').select('id, brand_id, item_code, name, category, purchase_unit, min_stock, last_purchase_price, avg_cost, status, notes').eq('brand_id', brandId).order('name'),
+      client.from('items_master').select('id, brand_id, item_code, name, category, purchase_unit, usage_unit, conversion_factor, min_stock, last_purchase_price, avg_cost, status, notes').eq('brand_id', brandId).order('name'),
       client.from('inventory_balances').select('item_id, on_hand, location_name').eq('brand_id', brandId),
       client.from('inventory_categories').select('id, code, name_ar, name_en, sort_order, is_active').eq('is_active', true).order('sort_order'),
       client.from('inventory_movements').select('id, item_id, movement_type, quantity, unit_cost, location_name, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(30),
@@ -73,7 +73,9 @@ export function useOperationalInventory(brandId: string) {
       const balance = balancesByItem.get(String(item.id)) ?? { onHand: 0, locationName: 'main' };
       return {
         id: String(item.id), brandId: String(item.brand_id), code: String(item.item_code), name: String(item.name),
-        category: String(item.category), unit: String(item.purchase_unit), minStock: numeric(item.min_stock),
+        category: String(item.category), unit: String(item.usage_unit ?? item.purchase_unit),
+        purchaseUnit: String(item.purchase_unit), conversionFactor: numeric(item.conversion_factor ?? 1),
+        minStock: numeric(item.min_stock),
         lastPurchasePrice: numeric(item.last_purchase_price), averageCost: numeric(item.avg_cost), onHand: balance.onHand,
         locationName: balance.locationName, status: item.status === 'inactive' ? 'inactive' : 'active', notes: String(item.notes ?? ''),
       };

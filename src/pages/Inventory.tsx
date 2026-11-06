@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Boxes, ClipboardCheck, Loader2, PackagePlus, Plus, ShoppingCart, Trash2, WalletCards } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowUpFromLine, Boxes, ClipboardCheck, Loader2, PackagePlus, Plus, ShoppingCart, Trash2, WalletCards } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,13 +17,17 @@ import { hasPageAccess } from '@/lib/permissions';
 import { formatEGPCurrency } from '@/lib/utils';
 import PurchaseOrderBuilder, { type PurchaseOrderLine } from '@/components/PurchaseOrderBuilder';
 import type { InventoryBatch, InventoryCategoryRecord, OperationalInventoryItem } from '@/types/operationalInventory';
+import PurchaseReceiptPanel from '@/components/PurchaseReceiptPanel';
+import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 
 type DialogMode = 'item' | 'category' | 'movement' | 'purchase' | 'withdrawal' | 'count' | 'directPurchase' | null;
 type MovementAction = 'deposit' | 'withdraw' | 'waste';
 
 type DraftLine = { itemId: string; quantity: string; unitCost?: string; locationName: string; reason: string; batchNo: string; expiryDate: string };
 const categoryColors = ['#e0f2fe', '#ffedd5', '#ede9fe', '#d1fae5', '#ffe4e6', '#cffafe', '#fef3c7', '#fae8ff', '#dbeafe', '#dcfce7', '#fee2e2', '#e0e7ff'];
+type ItemDraft = { name: string; code: string; category: string; purchaseUnit: string; usageUnit: string; conversionFactor: string; minStock: string; openingQuantity: string; openingCost: string; locationName: string; notes: string };
 
+const emptyItemDraft: ItemDraft = { name: '', code: '', category: '', purchaseUnit: 'kg', usageUnit: 'kg', conversionFactor: '1', minStock: '0', openingQuantity: '0', openingCost: '0', locationName: 'main', notes: '' };
 function number(value: string) { return Number(value || 0); }
 function itemCode(name: string) { return `${name.trim().replace(/\s+/g, '-').slice(0, 10).toUpperCase()}-${Date.now().toString().slice(-5)}`; }
 
@@ -37,11 +41,12 @@ export default function Inventory() {
   const [openedCategory, setOpenedCategory] = useState<InventoryCategoryRecord | null>(null);
   const [consumptionDays, setConsumptionDays] = useState<7 | 30>(7);
   const [movementAction, setMovementAction] = useState<MovementAction>('deposit');
-  const [itemDraft, setItemDraft] = useState({ name: '', code: '', category: '', unit: 'kg', minStock: '0', openingQuantity: '0', openingCost: '0', locationName: 'main', notes: '' });
+  const [itemDraft, setItemDraft] = useState<ItemDraft>(emptyItemDraft);
   const [categoryDraft, setCategoryDraft] = useState({ nameAr: '', nameEn: '', code: '' });
   const [line, setLine] = useState<DraftLine>({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' });
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [supplierName, setSupplierName] = useState('');
+  const [purchaseItemId, setPurchaseItemId] = useState('');
   const [purchaserName, setPurchaserName] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -66,7 +71,7 @@ export default function Inventory() {
     return totals;
   }, [consumptionDays, withdrawals]);
 
-  const reset = () => { setMode(null); setLine({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' }); setLines([]); setSupplierName(''); setPurchaserName(''); setNotes(''); };
+  const reset = () => { setMode(null); setLine({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' }); setLines([]); setPurchaseItemId(''); setItemDraft(emptyItemDraft); setSupplierName(''); setPurchaserName(''); setNotes(''); };
   const addLine = () => {
     if (!line.itemId || number(line.quantity) <= 0) { toast.error('اختر صنفًا وأدخل كمية صحيحة'); return; }
     setLines((current) => [...current, { ...line }]);
@@ -81,10 +86,17 @@ export default function Inventory() {
   };
 
   const createItem = async () => {
-    if (!itemDraft.name || !itemDraft.category || !itemDraft.unit) { toast.error('الاسم والفئة والوحدة حقول مطلوبة'); return; }
-    const result = await invoke('inventory_create_item', {
+    const conversionFactor = number(itemDraft.conversionFactor);
+    if (!itemDraft.name.trim() || !itemDraft.category || !itemDraft.purchaseUnit || !itemDraft.usageUnit
+      || !Number.isFinite(conversionFactor) || conversionFactor <= 0
+      || (itemDraft.purchaseUnit === itemDraft.usageUnit && conversionFactor !== 1)) {
+      toast.error('أدخل الاسم والفئة ووحدتي الشراء والاستخدام ومعامل تحويل صحيحًا');
+      return;
+    }
+    const result = await invoke('inventory_create_item_v2', {
       _brand_id: brandId, _item_code: itemDraft.code || itemCode(itemDraft.name), _name: itemDraft.name, _category: itemDraft.category,
-      _unit: itemDraft.unit, _min_stock: number(itemDraft.minStock), _location_name: itemDraft.locationName,
+      _purchase_unit: itemDraft.purchaseUnit, _usage_unit: itemDraft.usageUnit, _conversion_factor: conversionFactor,
+      _min_stock: number(itemDraft.minStock), _location_name: itemDraft.locationName,
       _opening_quantity: number(itemDraft.openingQuantity), _opening_unit_cost: number(itemDraft.openingCost), _notes: itemDraft.notes,
     });
     if (result) { toast.success('تم إنشاء الصنف ورصيده الافتتاحي'); reset(); }
@@ -143,10 +155,11 @@ export default function Inventory() {
     if (result) { toast.success('تم إنشاء أمر الشراء المجمع وإرساله للاعتماد'); reset(); }
   };
 
-  const createPurchaseItem = async (draft: { name: string; code: string; category: string; unit: string; minStock: string; unitCost: string }) => {
-    const result = await invoke('inventory_create_item', {
+  const createPurchaseItem = async (draft: { name: string; code: string; category: string; purchaseUnit: string; usageUnit: string; conversionFactor: string; minStock: string; unitCost: string }) => {
+    const result = await invoke('inventory_create_item_v2', {
       _brand_id: brandId, _item_code: draft.code || itemCode(draft.name), _name: draft.name, _category: draft.category,
-      _unit: draft.unit, _min_stock: number(draft.minStock), _location_name: 'main', _opening_quantity: 0, _opening_unit_cost: 0, _notes: 'أُضيف من أمر شراء مجمع',
+      _purchase_unit: draft.purchaseUnit, _usage_unit: draft.usageUnit, _conversion_factor: number(draft.conversionFactor),
+      _min_stock: number(draft.minStock), _location_name: 'main', _opening_quantity: 0, _opening_unit_cost: 0, _notes: 'أُضيف من أمر شراء مجمع',
     });
     return result ? { id: String(result), code: draft.code || itemCode(draft.name) } : null;
   };
@@ -169,7 +182,7 @@ export default function Inventory() {
   return <div className="space-y-6">
     <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><h1 className="text-3xl font-bold">المخزون</h1><p className="text-muted-foreground">رصيد وقيمة كل صنف، الحركات، المسحوبات اليومية، واعتماد استلام المشتريات.</p></div><div className="flex flex-wrap gap-2">{canManage && <><Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />تسجيل مسحوبات اليوم</Button><Button variant="outline" onClick={() => setMode('directPurchase')}><WalletCards className="ml-2 h-4 w-4" />شراء مباشر للمخزن</Button><Button onClick={() => setMode('purchase')}><ShoppingCart className="ml-2 h-4 w-4" />إنشاء أمر شراء مجمع</Button></>}</div></header>
 
-    {mode === 'directPurchase' && <Card className="border-primary/40"><CardHeader><CardTitle>شراء مباشر سجله مدير المخزن</CardTitle><CardDescription>يُضاف للمخزون فورًا، ويظهر في قسم المشتريات مع اسم من قام بالشراء.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, unitCost: String(item?.lastPurchasePrice || item?.averageCost || 0), locationName: item?.locationName || 'main' })); }}><option value="">اختر الصنف</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name} — {item.unit}</option>)}</select></div><div className="space-y-1"><Label>اسم من قام بالشراء *</Label><Input value={purchaserName} onChange={(event) => setPurchaserName(event.target.value)} /></div><div className="space-y-1"><Label>الكمية</Label><Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} /></div><div className="space-y-1"><Label>سعر الوحدة</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div><div className="space-y-1"><Label>المورد</Label><Input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} /></div><div className="space-y-1"><Label>رقم الدفعة</Label><Input value={line.batchNo} onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} /></div></div><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" /><div className="flex gap-2"><Button onClick={() => void submitStoreDirectPurchase()}><WalletCards className="ml-2 h-4 w-4" />تسجيل وإضافة للمخزون</Button><Button variant="outline" onClick={reset}>إلغاء</Button></div></CardContent></Card>}
+    {mode === 'directPurchase' && <Card className="border-primary/40"><CardHeader><CardTitle>شراء مباشر سجله مدير المخزن</CardTitle><CardDescription>يُضاف للمخزون فورًا؛ أدخل الكمية وسعر الوحدة بوحدة الشراء.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, unitCost: String(item?.lastPurchasePrice || (item ? item.averageCost * item.conversionFactor : 0)), locationName: item?.locationName || 'main' })); }}><option value="">اختر الصنف</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name} — {item.purchaseUnit}</option>)}</select></div><div className="space-y-1"><Label>اسم من قام بالشراء *</Label><Input value={purchaserName} onChange={(event) => setPurchaserName(event.target.value)} /></div><div className="space-y-1"><Label>الكمية بوحدة الشراء</Label><Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} /></div><div className="space-y-1"><Label>سعر وحدة الشراء</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div><div className="space-y-1"><Label>المورد</Label><Input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} /></div><div className="space-y-1"><Label>رقم الدفعة</Label><Input value={line.batchNo} onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} /></div></div><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" /><div className="flex gap-2"><Button onClick={() => void submitStoreDirectPurchase()}><WalletCards className="ml-2 h-4 w-4" />تسجيل وإضافة للمخزون</Button><Button variant="outline" onClick={reset}>إلغاء</Button></div></CardContent></Card>}
 
     <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-muted-foreground">المخزن الرئيسي الموحد</p><Input className="max-w-xs" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث باسم الصنف أو الكود" /></div>
     <div className="grid gap-4 md:grid-cols-3"><Card><CardHeader className="pb-2"><CardDescription>قيمة البضاعة المتاحة</CardDescription><CardTitle>{formatEGPCurrency(inventoryValue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">الكمية المتاحة × متوسط تكلفة كل صنف.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>مسحوبات اليوم</CardDescription><CardTitle>{formatEGPCurrency(todayWithdrawalValue)}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">تُحسب بمتوسط التكلفة وقت الصرف.</CardContent></Card><Card><CardHeader className="pb-2"><CardDescription>شراء تم تنفيذه بانتظار الاستلام</CardDescription><CardTitle>{purchaseRequests.filter((request) => request.status === 'purchased_pending_receipt').length}</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">لا تضاف للمخزون قبل فحص الاستلام واعتماده.</CardContent></Card></div>
@@ -185,7 +198,7 @@ export default function Inventory() {
 
     {itemRequests.length > 0 && <section><h2 className="mb-3 text-xl font-bold">أصناف جديدة بانتظار قبول مدير المخزن</h2><div className="grid gap-3">{itemRequests.map((request) => <Card key={request.id}><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"><div><strong>{request.itemName}{request.productBrand ? ` — ${request.productBrand}` : ''}</strong><p className="text-sm text-muted-foreground">{request.itemCode} • {request.unit} • حد أدنى {request.minStock}</p></div>{canManage && <div className="flex gap-2"><Button onClick={() => void invoke('inventory_review_item_request', { _request_id: request.id, _approve: true, _review_notes: '' })}>قبول وإضافة الصنف</Button><Button variant="outline" onClick={() => void invoke('inventory_review_item_request', { _request_id: request.id, _approve: false, _review_notes: 'مرفوض من مدير المخزن' })}>رفض</Button></div>}</CardContent></Card>)}</div></section>}
 
-    {purchaseRequests.filter((request) => request.status === 'purchased_pending_receipt').length > 0 && <section><h2 className="mb-3 text-xl font-bold">شراء تم تنفيذه بانتظار استلام مدير المخزن</h2><div className="grid gap-3">{purchaseRequests.filter((request) => request.status === 'purchased_pending_receipt').map((request) => <Card key={request.id}><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"><div><strong>{request.requestNo}</strong><p className="text-sm text-muted-foreground">{request.supplierName || 'مورد غير محدد'} — {request.lines.map((entry) => `${entry.itemName} (${entry.quantity})`).join('، ')}</p></div>{canManage && <div className="flex gap-2"><Button onClick={() => void invoke('inventory_review_purchase_request', { _request_id: request.id, _approve: true, _review_notes: '' })}><ArrowDownToLine className="ml-2 h-4 w-4" />اعتماد الاستلام وإضافة للمخزون</Button><Button variant="outline" onClick={() => void invoke('inventory_review_purchase_request', { _request_id: request.id, _approve: false, _review_notes: 'مرفوض من مدير المخزن' })}>رفض الاستلام</Button></div>}</CardContent></Card>)}</div></section>}
+    <PurchaseReceiptPanel brandId={brandId} canManage={canManage} />
 
     {movements.length > 0 && <section><h2 className="mb-3 text-xl font-bold">آخر الحركات</h2><Card><CardContent className="divide-y p-0">{movements.slice(0, 10).map((movement) => <div key={movement.id} className="flex items-center justify-between p-3 text-sm"><span><strong>{movement.itemName}</strong> — {movement.type} — {movement.quantity}</span><span>{formatEGPCurrency(movement.value)}</span></div>)}</CardContent></Card></section>}
 
@@ -195,7 +208,7 @@ export default function Inventory() {
       {mode === 'movement' && <div className="space-y-3"><LineEditor items={items} line={line} setLine={setLine} showCost={movementAction === 'deposit'} /><Button className="w-full" onClick={() => void postMovement()}>{movementAction === 'deposit' ? 'تأكيد الإيداع' : movementAction === 'waste' ? 'تأكيد الهالك' : 'تأكيد السحب'}</Button></div>}
       {mode === 'count' && <div className="space-y-3"><LineEditor items={items} line={line} setLine={setLine} quantityLabel="الرصيد الفعلي بعد الجرد" /><Button className="w-full" onClick={() => void postCount()}><ClipboardCheck className="ml-2 h-4 w-4" />اعتماد الجرد والتسوية</Button></div>}
       {mode === 'withdrawal' && <MultiLineForm items={items} lines={lines} line={line} setLine={setLine} addLine={addLine} removeLine={(index) => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} showCost={false} />}
-      {mode === 'purchase' && <PurchaseOrderBuilder items={items} categories={categories} onSubmit={submitConsolidatedPurchase} onCreateNewItem={createPurchaseItem} />}
+      {mode === 'purchase' && <PurchaseOrderBuilder items={items} categories={categories} initialItemId={purchaseItemId} onSubmit={submitConsolidatedPurchase} onCreateNewItem={createPurchaseItem} />}
       {mode === 'withdrawal' && <div className="space-y-3"><Label>ملاحظات المسحوبات</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="مثال: تجهيز وردية الغداء" /><Button className="w-full" onClick={() => void postWithdrawal()}><WalletCards className="ml-2 h-4 w-4" />اعتماد مسحوبات اليوم</Button></div>}
     </DialogContent></Dialog>
   </div>;
@@ -206,10 +219,88 @@ function ItemCard({ item, batches, consumptionQuantity, consumptionValue, consum
   const low = item.onHand <= item.minStock;
   const suggestedPurchase = Math.max(item.minStock - item.onHand, 0);
 
-  return <Card className={low ? 'border-amber-300' : ''}><CardHeader className="pb-3"><div className="flex items-start justify-between gap-2"><div><CardTitle className="text-lg">{item.name}</CardTitle><CardDescription>{item.code} • الموقع: {item.locationName}</CardDescription></div><Badge variant={low ? 'destructive' : 'secondary'}>{low ? 'وصل للحد الأدنى' : 'الرصيد آمن'}</Badge></div></CardHeader><CardContent className="space-y-3"><div className="grid grid-cols-3 gap-2 text-center"><Metric label="المتاح" value={`${item.onHand} ${item.unit}`} /><Metric label="الحد الأدنى" value={`${item.minStock} ${item.unit}`} /><Metric label="قيمة الصنف" value={formatEGPCurrency(value)} /></div><div className="grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg bg-muted p-2"><p className="text-xs text-muted-foreground">متوسط تكلفة الوحدة</p><p className="font-semibold">{formatEGPCurrency(item.averageCost)}</p></div><div className="rounded-lg bg-muted p-2"><p className="text-xs text-muted-foreground">آخر سعر شراء</p><p className="font-semibold">{formatEGPCurrency(item.lastPurchasePrice)}</p></div></div><div className="rounded-lg border border-primary/20 bg-primary/5 p-2 text-sm"><p className="font-semibold">متوسط الاستهلاك اليومي — آخر {consumptionDays} يومًا</p><div className="mt-1 flex justify-between"><span>{consumptionQuantity.toFixed(2)} {item.unit}</span><span>{formatEGPCurrency(consumptionValue)}</span></div></div>{batches.length > 0 && <div className="rounded-lg border p-2 text-xs"><p className="mb-1 font-semibold">الدُفعات المتاحة</p>{batches.slice(0, 2).map((batch) => <p key={batch.id}>#{batch.batchNo} — {batch.quantityOnHand} {item.unit}{batch.expiryDate ? ` — صلاحية ${batch.expiryDate}` : ''}</p>)}</div>}{low && <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">المطلوب للحد الأدنى: <strong>{suggestedPurchase} {item.unit}</strong></div>}{item.notes && <p className="text-xs text-muted-foreground">ملاحظات: {item.notes}</p>}{lastMovement && <p className="text-xs text-muted-foreground">آخر حركة: {lastMovement.type} — {lastMovement.quantity} {item.unit}</p>}{canManage && <div className="grid grid-cols-2 gap-2">{low && <Button size="sm" onClick={onPurchase}><ShoppingCart className="ml-1 h-3.5 w-3.5" />طلب شراء</Button>}<Button size="sm" variant="outline" onClick={() => onAction('deposit')}>إيداع</Button><Button size="sm" variant="outline" onClick={() => onAction('withdraw')}>سحب</Button><Button size="sm" variant="outline" className="text-destructive" onClick={() => onAction('waste')}><Trash2 className="ml-1 h-3.5 w-3.5" />هالك</Button><Button size="sm" variant="outline" onClick={onCount}>جرد</Button><Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={onDelete}><Trash2 className="ml-1 h-3.5 w-3.5" />حذف الصنف</Button></div>}</CardContent></Card>;
+  return (
+    <Card className={low ? 'border-amber-300' : ''}>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <div><CardTitle className="text-lg">{item.name}</CardTitle><CardDescription>{item.code} • الموقع: {item.locationName}</CardDescription></div>
+          <Badge variant={low ? 'destructive' : 'secondary'}>{low ? 'وصل للحد الأدنى' : 'الرصيد آمن'}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <Metric label="المتاح" value={`${item.onHand} ${item.unit}`} />
+          <Metric label="الحد الأدنى" value={`${item.minStock} ${item.unit}`} />
+          <Metric label="قيمة الصنف" value={formatEGPCurrency(value)} />
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div className="rounded-lg bg-muted p-2"><p className="text-xs text-muted-foreground">متوسط تكلفة {item.unit}</p><p className="font-semibold">{formatEGPCurrency(item.averageCost)}</p></div>
+          <div className="rounded-lg bg-muted p-2"><p className="text-xs text-muted-foreground">آخر سعر شراء / {item.purchaseUnit}</p><p className="font-semibold">{formatEGPCurrency(item.lastPurchasePrice)}</p></div>
+        </div>
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-2 text-sm">
+          <p className="font-semibold">متوسط الاستهلاك اليومي — آخر {consumptionDays} يومًا</p>
+          <div className="mt-1 flex justify-between"><span>{consumptionQuantity.toFixed(2)} {item.unit}</span><span>{formatEGPCurrency(consumptionValue)}</span></div>
+        </div>
+        {batches.length > 0 && <div className="rounded-lg border p-2 text-xs"><p className="mb-1 font-semibold">الدُفعات المتاحة</p>{batches.slice(0, 2).map((batch) => <p key={batch.id}>#{batch.batchNo} — {batch.quantityOnHand} {item.unit}{batch.expiryDate ? ` — صلاحية ${batch.expiryDate}` : ''}</p>)}</div>}
+        {low && <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">الكمية الناقصة للحد الأدنى: <strong>{suggestedPurchase} {item.unit}</strong></div>}
+        {item.notes && <p className="text-xs text-muted-foreground">ملاحظات: {item.notes}</p>}
+        {lastMovement && <p className="text-xs text-muted-foreground">آخر حركة: {lastMovement.type} — {lastMovement.quantity} {item.unit}</p>}
+        {canManage && <div className="grid grid-cols-2 gap-2">
+          {low && <Button size="sm" onClick={onPurchase}><ShoppingCart className="ml-1 h-3.5 w-3.5" />طلب شراء</Button>}
+          <Button size="sm" variant="outline" onClick={() => onAction('deposit')}>إيداع</Button>
+          <Button size="sm" variant="outline" onClick={() => onAction('withdraw')}>سحب</Button>
+          <Button size="sm" variant="outline" className="text-destructive" onClick={() => onAction('waste')}><Trash2 className="ml-1 h-3.5 w-3.5" />هالك</Button>
+          <Button size="sm" variant="outline" onClick={onCount}>جرد</Button>
+          <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={onDelete}><Trash2 className="ml-1 h-3.5 w-3.5" />حذف الصنف</Button>
+        </div>}
+      </CardContent>
+    </Card>
+  );
 }
 function Metric({ label, value }: { label: string; value: string }) { return <div className="rounded-lg bg-muted p-2"><p className="text-xs text-muted-foreground">{label}</p><p className="text-sm font-semibold">{value}</p></div>; }
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <div className="space-y-1"><Label>{label}</Label><Input value={value} onChange={(event) => onChange(event.target.value)} /></div>; }
-function LineEditor({ items, line, setLine, showCost = false, quantityLabel = 'الكمية' }: { items: OperationalInventoryItem[]; line: DraftLine; setLine: React.Dispatch<React.SetStateAction<DraftLine>>; showCost?: boolean; quantityLabel?: string }) { return <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, locationName: item?.locationName ?? 'main', unitCost: String(item?.averageCost ?? '') })); }}><option value="">اختر الصنف</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name} — المتاح {item.onHand}</option>)}</select></div><div className="space-y-1"><Label>{quantityLabel}</Label><Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} /></div>{showCost && <><div className="space-y-1"><Label>سعر الوحدة</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div><div className="space-y-1"><Label>رقم الدفعة</Label><Input value={line.batchNo} placeholder="اختياري" onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} /></div><div className="space-y-1"><Label>تاريخ الصلاحية</Label><Input type="date" value={line.expiryDate} onChange={(event) => setLine((current) => ({ ...current, expiryDate: event.target.value }))} /></div></>}<div className="space-y-1"><Label>الموقع</Label><Input value={line.locationName} onChange={(event) => setLine((current) => ({ ...current, locationName: event.target.value }))} /></div><div className="space-y-1 sm:col-span-2"><Label>السبب / الملاحظات</Label><Input value={line.reason} onChange={(event) => setLine((current) => ({ ...current, reason: event.target.value }))} /></div></div>; }
+function LineEditor({ items, line, setLine, showCost = false, quantityLabel = 'الكمية' }: { items: OperationalInventoryItem[]; line: DraftLine; setLine: React.Dispatch<React.SetStateAction<DraftLine>>; showCost?: boolean; quantityLabel?: string }) {
+  const selectedItem = items.find((item) => item.id === line.itemId);
+  return <div className="grid gap-3 sm:grid-cols-2">
+    <div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, locationName: item?.locationName ?? 'main', unitCost: String(item?.averageCost ?? '') })); }}><option value="">اختر الصنف</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name} — المتاح {item.onHand} {item.unit}</option>)}</select></div>
+    <div className="space-y-1"><Label>{selectedItem ? `${quantityLabel} بوحدة ${selectedItem.unit}` : quantityLabel}</Label><Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} /></div>
+    {showCost && <>
+      <div className="space-y-1"><Label>تكلفة وحدة الاستخدام</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div>
+      <div className="space-y-1"><Label>رقم الدفعة</Label><Input value={line.batchNo} placeholder="اختياري" onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} /></div>
+      <div className="space-y-1"><Label>تاريخ الصلاحية</Label><Input type="date" value={line.expiryDate} onChange={(event) => setLine((current) => ({ ...current, expiryDate: event.target.value }))} /></div>
+    </>}
+    <div className="space-y-1"><Label>الموقع</Label><Input value={line.locationName} onChange={(event) => setLine((current) => ({ ...current, locationName: event.target.value }))} /></div>
+    <div className="space-y-1 sm:col-span-2"><Label>السبب / الملاحظات</Label><Input value={line.reason} onChange={(event) => setLine((current) => ({ ...current, reason: event.target.value }))} /></div>
+  </div>;
+}
 function MultiLineForm({ items, lines, line, setLine, addLine, removeLine, showCost }: { items: OperationalInventoryItem[]; lines: DraftLine[]; line: DraftLine; setLine: React.Dispatch<React.SetStateAction<DraftLine>>; addLine: () => void; removeLine: (index: number) => void; showCost: boolean }) { return <div className="space-y-3"><LineEditor items={items} line={line} setLine={setLine} showCost={showCost} /><Button type="button" variant="outline" className="w-full" onClick={addLine}><Plus className="ml-2 h-4 w-4" />إضافة السطر</Button>{lines.length > 0 && <div className="space-y-2 rounded-xl border p-3">{lines.map((entry, index) => { const item = items.find((candidate) => candidate.id === entry.itemId); const cost = showCost ? number(entry.unitCost || '0') : item?.averageCost ?? 0; return <div className="flex items-center justify-between text-sm" key={`${entry.itemId}-${index}`}><span>{item?.name} — {entry.quantity} × {formatEGPCurrency(cost)}</span><Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeLine(index)}>حذف</Button></div>; })}</div>}</div>; }
-function ItemForm({ draft, setDraft, categories, onSave }: { draft: any; setDraft: React.Dispatch<React.SetStateAction<any>>; categories: { code: string; name_ar: string }[]; onSave: () => void }) { const update = (key: string, value: string) => setDraft((current: any) => ({ ...current, [key]: value })); return <div className="grid gap-3 sm:grid-cols-2"><Field label="اسم الصنف" value={draft.name} onChange={(value) => update('name', value)} /><Field label="كود الصنف (اختياري)" value={draft.code} onChange={(value) => update('code', value)} /><div className="space-y-1"><Label>الفئة</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={draft.category} onChange={(event) => update('category', event.target.value)}><option value="">اختر الفئة</option>{categories.map((category) => <option key={category.code} value={category.code}>{category.name_ar}</option>)}</select></div><Field label="الوحدة" value={draft.unit} onChange={(value) => update('unit', value)} /><Field label="الحد الأدنى" value={draft.minStock} onChange={(value) => update('minStock', value)} /><Field label="الموقع" value={draft.locationName} onChange={(value) => update('locationName', value)} /><Field label="الرصيد الافتتاحي" value={draft.openingQuantity} onChange={(value) => update('openingQuantity', value)} /><Field label="متوسط سعر الوحدة الافتتاحي" value={draft.openingCost} onChange={(value) => update('openingCost', value)} /><div className="space-y-1 sm:col-span-2"><Label>ملاحظات</Label><Textarea value={draft.notes} onChange={(event) => update('notes', event.target.value)} /></div><Button className="sm:col-span-2" onClick={onSave}>حفظ الصنف</Button></div>; }
+function ItemForm({ draft, setDraft, categories, onSave }: { draft: ItemDraft; setDraft: React.Dispatch<React.SetStateAction<ItemDraft>>; categories: { code: string; name_ar: string }[]; onSave: () => void }) {
+  const update = (key: keyof ItemDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+  const updateUnit = (key: 'purchaseUnit' | 'usageUnit', value: string) => setDraft((current) => {
+    const purchaseUnit = key === 'purchaseUnit' ? value : current.purchaseUnit;
+    const usageUnit = key === 'usageUnit' ? value : current.usageUnit;
+    return {
+      ...current,
+      [key]: value,
+      conversionFactor: purchaseUnit === usageUnit ? '1' : current.purchaseUnit === current.usageUnit ? '' : current.conversionFactor,
+    };
+  });
+
+  return <div className="grid gap-3 sm:grid-cols-2">
+    <Field label="اسم الصنف" value={draft.name} onChange={(value) => update('name', value)} />
+    <Field label="كود الصنف (اختياري)" value={draft.code} onChange={(value) => update('code', value)} />
+    <div className="space-y-1"><Label>الفئة</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={draft.category} onChange={(event) => update('category', event.target.value)}><option value="">اختر الفئة</option>{categories.map((category) => <option key={category.code} value={category.code}>{category.name_ar}</option>)}</select></div>
+    <UnitField label="وحدة الشراء" value={draft.purchaseUnit} onChange={(value) => updateUnit('purchaseUnit', value)} />
+    <UnitField label="وحدة الاستخدام بالمخزون" value={draft.usageUnit} onChange={(value) => updateUnit('usageUnit', value)} />
+    <div className="space-y-1"><Label>كمية الاستخدام في وحدة الشراء</Label><Input type="number" min="0.001" step="0.001" value={draft.conversionFactor} onChange={(event) => update('conversionFactor', event.target.value)} /></div>
+    <Field label={`حد التنبيه بوحدة ${draft.usageUnit}`} value={draft.minStock} onChange={(value) => update('minStock', value)} />
+    <Field label="الموقع" value={draft.locationName} onChange={(value) => update('locationName', value)} />
+    <Field label={`الرصيد الافتتاحي بوحدة ${draft.usageUnit}`} value={draft.openingQuantity} onChange={(value) => update('openingQuantity', value)} />
+    <Field label="متوسط تكلفة وحدة الاستخدام" value={draft.openingCost} onChange={(value) => update('openingCost', value)} />
+    <div className="space-y-1 sm:col-span-2"><Label>ملاحظات</Label><Textarea value={draft.notes} onChange={(event) => update('notes', event.target.value)} /></div>
+    <Button className="sm:col-span-2" onClick={onSave}>حفظ الصنف</Button>
+  </div>;
+}
+function UnitField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return <div className="space-y-1"><Label>{label}</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={value} onChange={(event) => onChange(event.target.value)}>{Object.entries(INVENTORY_UNIT_LABELS).map(([unit, unitLabel]) => <option value={unit} key={unit}>{unitLabel} ({unit})</option>)}</select></div>;
+}

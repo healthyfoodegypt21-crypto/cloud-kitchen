@@ -16,6 +16,8 @@ export type OperationalInventoryItem = {
   name: string;
   category: string;
   unit: string;
+  purchaseUnit: string;
+  conversionFactor: number;
   minStock: number;
   lastPurchasePrice: number;
   averageCost: number;
