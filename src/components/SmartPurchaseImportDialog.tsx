@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 import { parseSmartPurchaseMessage, type SmartPurchaseCatalogItem, type SmartPurchaseLine } from '@/lib/smartPurchaseImport';
 import { convertInvoiceLineToPurchaseUnit } from '@/lib/procurementUnits';
+import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
 
 export type SmartPurchaseSubmission = {
   supplierId: string;
@@ -28,7 +29,7 @@ export type SmartPurchaseSubmission = {
 
 type Props = {
   open: boolean;
-  inventoryItems: Array<SmartPurchaseCatalogItem & { purchaseUnit: string; usageUnit: string; conversionFactor: number }>;
+  inventoryItems: Array<SmartPurchaseCatalogItem & { purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>;
   suppliers: Array<{ id: string; name: string }>;
   defaultPurchaserName: string;
   startWith: 'message' | 'image';
@@ -355,13 +356,21 @@ export default function SmartPurchaseImportDialog({
                       <X className="h-4 w-4" />
                     </Button>
                     {item && converted ? (
-                      <p className="text-xs text-muted-foreground md:col-span-5">
-                        ستُسجل {converted.quantity.toLocaleString('ar-EG', { maximumFractionDigits: 3 })} {item.purchaseUnit}
-                        {line.sourceUnit && line.sourceUnit !== item.purchaseUnit
-                          ? ` (محوّلة تلقائيًا من ${line.sourceUnit} إلى وحدة الشراء بمعامل ${item.conversionFactor})`
-                          : ' بوحدة الشراء'}
-                        {' '}بسعر {converted.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م للوحدة.
-                      </p>
+                      <div className="space-y-2 md:col-span-5">
+                        <p className="text-xs text-muted-foreground">
+                          ستُسجل {converted.quantity.toLocaleString('ar-EG', { maximumFractionDigits: 3 })} {item.purchaseUnit}
+                          {line.sourceUnit && line.sourceUnit !== item.purchaseUnit
+                            ? ` (محوّلة تلقائيًا من ${line.sourceUnit} إلى وحدة الشراء بمعامل ${item.conversionFactor})`
+                            : ' بوحدة الشراء'}
+                          {' '}بسعر {converted.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م للوحدة.
+                        </p>
+                        <ProcurementPriceAlert
+                          itemName={item.name}
+                          currentPrice={converted.unitPrice}
+                          previousPrice={item.lastPurchasePrice}
+                          unit={item.purchaseUnit}
+                        />
+                      </div>
                     ) : item ? (
                       <p className="text-xs text-destructive md:col-span-5">
                         وحدة الفاتورة غير متوافقة مع وحدات الصنف؛ راجع وحدة الصنف أو إعداد معامل التحويل قبل التسجيل.

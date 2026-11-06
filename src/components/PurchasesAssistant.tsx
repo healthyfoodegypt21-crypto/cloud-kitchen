@@ -35,7 +35,7 @@ export default function PurchasesAssistant({ displayName, onStartImport }: Props
               {displayName ? `أهلًا ${displayName}،` : 'أهلًا،'} خلّي Allie تساعدك!
             </h2>
             <p className="max-w-2xl text-sm leading-7 text-slate-600 dark:text-slate-300 sm:text-base">
-              رسالة المورد أو صورة الفاتورة تتحول لمسودة مشتريات مرتبة. راجع الأصناف والأسعار، وأنا أساعدك تكمّل الباقي.
+              رسالة المورد أو صورة الفاتورة تتحول لمسودة مشتريات مرتبة. أقارن أسعار الأصناف بآخر شراء وأنبهك فورًا عند وجود تغيير قبل التسجيل.
             </p>
           </div>
 

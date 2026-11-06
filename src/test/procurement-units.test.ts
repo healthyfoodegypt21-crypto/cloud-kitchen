@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { convertInvoiceLineToPurchaseUnit, suggestPurchaseQuantity } from '@/lib/procurementUnits';
+import { getProcurementPriceChange } from '@/lib/procurementPriceChanges';
 
 describe('procurement invoice unit conversion', () => {
   const item = { purchaseUnit: 'kg', usageUnit: 'g', conversionFactor: 1000 };
@@ -29,5 +30,18 @@ describe('procurement invoice unit conversion', () => {
     expect(convertInvoiceLineToPurchaseUnit(2, 45, 'piece', item)).toBeNull();
     expect(convertInvoiceLineToPurchaseUnit(2, 45, 'g', { ...item, conversionFactor: 0 })).toBeNull();
     expect(convertInvoiceLineToPurchaseUnit(0, 45, 'kg', item)).toBeNull();
+  });
+});
+
+describe('procurement price change detection', () => {
+  it('calculates price increases against the last purchase price', () => {
+    expect(getProcurementPriceChange(112, 100)).toEqual({ direction: 'increase', percentage: 12 });
+  });
+
+  it('detects decreases and ignores unchanged, missing, or invalid baselines', () => {
+    expect(getProcurementPriceChange(90, 100)).toEqual({ direction: 'decrease', percentage: 10 });
+    expect(getProcurementPriceChange(100, 100)).toBeNull();
+    expect(getProcurementPriceChange(10, 0)).toBeNull();
+    expect(getProcurementPriceChange(Number.NaN, 10)).toBeNull();
   });
 });

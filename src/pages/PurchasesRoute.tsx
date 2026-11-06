@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
 import PurchasesAssistant from '@/components/PurchasesAssistant';
 import SmartPurchaseImportDialog, { type SmartPurchaseSubmission } from '@/components/SmartPurchaseImportDialog';
 import ProcurementCenter from '@/pages/ProcurementCenter';
@@ -13,7 +14,7 @@ export default function PurchasesRoute() {
   const { brands } = useBrands();
   const { displayName } = useAuth();
   const [brandId, setBrandId] = useState('');
-  const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; sku: string; purchaseUnit: string; usageUnit: string; conversionFactor: number }>>([]);
+  const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; sku: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>>([]);
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [importSource, setImportSource] = useState<'message' | 'image'>('message');
@@ -42,7 +43,7 @@ export default function PurchasesRoute() {
     const loadItems = async () => {
       const { data, error } = await asSupabaseLooseClient(supabase)
         .from('items_master')
-        .select('id,name,item_code,purchase_unit,usage_unit,conversion_factor')
+        .select('id,name,item_code,purchase_unit,usage_unit,conversion_factor,last_purchase_price')
         .eq('brand_id', brandId)
         .eq('status', 'active')
         .order('name');
@@ -63,6 +64,7 @@ export default function PurchasesRoute() {
             purchaseUnit: String(item.purchase_unit ?? ''),
             usageUnit: String(item.usage_unit ?? item.purchase_unit ?? ''),
             conversionFactor: Number(item.conversion_factor ?? 1),
+            lastPurchasePrice: Number(item.last_purchase_price ?? 0),
           };
         }));
       }

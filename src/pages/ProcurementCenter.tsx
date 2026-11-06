@@ -12,6 +12,7 @@ import type { Brand } from '@/hooks/useBrands';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import { supabase } from '@/integrations/supabase/client';
 import { suggestPurchaseQuantity } from '@/lib/procurementUnits';
+import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
 
 type Supplier = {
   id: string;
@@ -302,6 +303,7 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
     [items],
   );
   const pending = requests.filter((request) => request.status === 'pending_procurement');
+  const directItem = items.find((item) => item.id === directDraft.itemId);
   const currentSpend = requests.filter((request) => request.purchasedAt)
     .reduce((sum, request) => sum + request.lines.reduce((lineSum, line) => lineSum + number(line.quantity) * number(line.unitCost), 0), 0);
   const latestPrices = useMemo(() => {
@@ -664,13 +666,17 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
                   <TextField label="رقم الفاتورة" value={draft.invoiceNumber} onChange={(value) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, invoiceNumber: value } }))} />
                 </div>
                 <div className="space-y-3">
-                  {draft.lines.map((line) => <div key={line.id} className="grid gap-3 rounded-xl border p-3 md:grid-cols-2 xl:grid-cols-5">
-                    <div className="xl:col-span-1"><strong>{line.itemName}</strong><p className="text-xs text-muted-foreground">وحدة الشراء: {line.unit}</p></div>
-                    <NumberTextField label="الكمية الفعلية" value={line.quantity} onChange={(value) => setExecutionLine(request.id, line.id, { quantity: value })} />
-                    <NumberTextField label="سعر وحدة الشراء" value={line.unitCost} onChange={(value) => setExecutionLine(request.id, line.id, { unitCost: value })} step="0.01" />
-                    <TextField label="رقم الدفعة" value={line.batchNo} onChange={(value) => setExecutionLine(request.id, line.id, { batchNo: value })} />
-                    <TextField label="الصلاحية" value={line.expiryDate} type="date" onChange={(value) => setExecutionLine(request.id, line.id, { expiryDate: value })} />
-                  </div>)}
+                  {draft.lines.map((line) => {
+                    const item = items.find((entry) => entry.id === line.itemId);
+                    return <div key={line.id} className="grid gap-3 rounded-xl border p-3 md:grid-cols-2 xl:grid-cols-5">
+                      <div className="xl:col-span-1"><strong>{line.itemName}</strong><p className="text-xs text-muted-foreground">وحدة الشراء: {line.unit}</p></div>
+                      <NumberTextField label="الكمية الفعلية" value={line.quantity} onChange={(value) => setExecutionLine(request.id, line.id, { quantity: value })} />
+                      <NumberTextField label="سعر وحدة الشراء" value={line.unitCost} onChange={(value) => setExecutionLine(request.id, line.id, { unitCost: value })} step="0.01" />
+                      <TextField label="رقم الدفعة" value={line.batchNo} onChange={(value) => setExecutionLine(request.id, line.id, { batchNo: value })} />
+                      <TextField label="الصلاحية" value={line.expiryDate} type="date" onChange={(value) => setExecutionLine(request.id, line.id, { expiryDate: value })} />
+                      {item ? <div className="md:col-span-2 xl:col-span-5"><ProcurementPriceAlert itemName={item.name} currentPrice={number(line.unitCost)} previousPrice={item.lastPrice} unit={item.purchaseUnit} /></div> : null}
+                    </div>;
+                  })}
                 </div>
                 <div className="grid gap-3 md:grid-cols-4">
                   <NumberTextField label="ضريبة الفاتورة" value={draft.taxAmount} onChange={(value) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, taxAmount: value } }))} step="0.01" />
@@ -772,6 +778,7 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
             }} options={items.map((item) => ({ value: item.id, label: `${item.name} (${item.purchaseUnit})` }))} />
             <NumberTextField label="الكمية بوحدة الشراء" value={directDraft.quantity} onChange={(quantity) => setDirectDraft((current) => ({ ...current, quantity }))} />
             <NumberTextField label="سعر وحدة الشراء" value={directDraft.unitCost} onChange={(unitCost) => setDirectDraft((current) => ({ ...current, unitCost }))} step="0.01" />
+            {directItem ? <div className="sm:col-span-2"><ProcurementPriceAlert itemName={directItem.name} currentPrice={number(directDraft.unitCost)} previousPrice={directItem.lastPrice} unit={directItem.purchaseUnit} /></div> : null}
             <Field label="المورد" value={directDraft.supplierId} onChange={(supplierId) => setDirectDraft((current) => ({ ...current, supplierId }))} options={activeSuppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))} allowEmpty />
             <TextField label="اسم من قام بالشراء" value={directDraft.purchaserName || purchaserName} onChange={(value) => setDirectDraft((current) => ({ ...current, purchaserName: value }))} />
             <TextField label="رقم الفاتورة" value={directDraft.invoiceNumber} onChange={(invoiceNumber) => setDirectDraft((current) => ({ ...current, invoiceNumber }))} />
