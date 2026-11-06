@@ -25,7 +25,7 @@ const numeric = (value: unknown) => {
 };
 const asRecords = (value: unknown): RawRecord[] => Array.isArray(value) ? value as RawRecord[] : [];
 
-export function useOperationalInventory(brandId: string) {
+export function useOperationalInventory(brandId: string, linkedBrandIds: string[] = []) {
   const [items, setItems] = useState<OperationalInventoryItem[]>([]);
   const [categories, setCategories] = useState<InventoryCategoryRecord[]>([]);
   const [movements, setMovements] = useState<OperationalMovement[]>([]);
@@ -38,6 +38,7 @@ export function useOperationalInventory(brandId: string) {
   const [notifications, setNotifications] = useState<InventoryNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const refreshVersion = useRef(0);
+  const brandScopeKey = [...new Set([brandId, ...linkedBrandIds].filter(Boolean))].join(',');
 
   const refresh = useCallback(async () => {
     const requestVersion = ++refreshVersion.current;
@@ -58,13 +59,14 @@ export function useOperationalInventory(brandId: string) {
 
     setLoading(true);
     const client = asSupabaseLooseClient(supabase);
+    const withdrawalBrandIds = brandScopeKey.split(',').filter(Boolean);
     const [itemsRes, balancesRes, categoriesRes, movementsRes, requestsRes, withdrawalsRes, batchesRes, itemRequestsRes, notificationsRes, warehousesRes, countRes] = await Promise.all([
       client.from('items_master').select('id, brand_id, item_code, name, category, purchase_unit, usage_unit, conversion_factor, min_stock, last_purchase_price, avg_cost, status, notes').eq('brand_id', brandId).order('name'),
       client.from('inventory_balances').select('id,item_id,on_hand,reserved_qty,location_name').eq('brand_id', brandId),
       client.from('inventory_categories').select('id, code, name_ar, name_en, sort_order, is_active').eq('is_active', true).order('sort_order'),
       client.from('inventory_movements').select('id, item_id, movement_type, quantity, unit_cost, location_name, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(30),
       client.from('inventory_purchase_requests').select('id, request_no, supplier_name, status, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(100),
-      client.from('inventory_daily_withdrawals').select('id, withdrawal_no, withdrawal_date, status, notes').eq('brand_id', brandId).order('withdrawal_date', { ascending: false }).limit(100),
+      client.from('inventory_daily_withdrawals').select('id, brand_id, withdrawal_no, withdrawal_date, status, notes').in('brand_id', withdrawalBrandIds).order('withdrawal_date', { ascending: false }).limit(100),
       client.from('inventory_batches').select('id,warehouse_id,item_id,batch_no,expiry_date,quantity_on_hand,unit_cost,reserved_qty,status').eq('brand_id', brandId).order('expiry_date', { ascending: true, nullsFirst: false }),
       client.from('inventory_item_requests').select('id, item_name, product_brand, item_code, unit, min_stock, notes, status').eq('brand_id', brandId).eq('status', 'pending_store_approval').limit(100),
       client.from('inventory_notifications').select('id, notification_type, title, message, reference_id, is_read, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(20),
@@ -186,7 +188,7 @@ export function useOperationalInventory(brandId: string) {
         quantity: numeric(line.quantity), unitCost: numeric(line.unit_cost), lineValue: numeric(line.line_value),
         locationName: String(line.location_name), reason: String(line.reason),
       }));
-      return { id: String(withdrawal.id), withdrawalNo: String(withdrawal.withdrawal_no), withdrawalDate: String(withdrawal.withdrawal_date), status: String(withdrawal.status), notes: String(withdrawal.notes ?? ''), lines, totalValue: lines.reduce((sum, line) => sum + line.lineValue, 0) };
+      return { id: String(withdrawal.id), brandId: String(withdrawal.brand_id), withdrawalNo: String(withdrawal.withdrawal_no), withdrawalDate: String(withdrawal.withdrawal_date), status: String(withdrawal.status), notes: String(withdrawal.notes ?? ''), lines, totalValue: lines.reduce((sum, line) => sum + line.lineValue, 0) };
     }));
     const warehouseNameById = new Map(asRecords(warehousesRes.data).map((warehouse) => [
       String(warehouse.id),
@@ -222,7 +224,7 @@ export function useOperationalInventory(brandId: string) {
     setItemRequests(asRecords(itemRequestsRes.data).map((request) => ({ id: String(request.id), itemName: String(request.item_name), productBrand: String(request.product_brand ?? ''), itemCode: String(request.item_code), unit: String(request.unit), minStock: numeric(request.min_stock), notes: String(request.notes ?? ''), status: request.status as InventoryItemRequest['status'] })));
     setNotifications(asRecords(notificationsRes.data).map((notification) => ({ id: String(notification.id), notificationType: String(notification.notification_type), title: String(notification.title), message: String(notification.message), referenceId: notification.reference_id ? String(notification.reference_id) : null, isRead: Boolean(notification.is_read), createdAt: String(notification.created_at) })));
     setLoading(false);
-  }, [brandId]);
+  }, [brandId, brandScopeKey]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -236,7 +238,7 @@ export function useOperationalInventory(brandId: string) {
       { table: 'inventory_movements', filter: `brand_id=eq.${brandId}` },
       { table: 'inventory_purchase_requests', filter: `brand_id=eq.${brandId}` },
       { table: 'inventory_purchase_request_lines' },
-      { table: 'inventory_daily_withdrawals', filter: `brand_id=eq.${brandId}` },
+      { table: 'inventory_daily_withdrawals' },
       { table: 'inventory_daily_withdrawal_lines' },
       { table: 'inventory_batches', filter: `brand_id=eq.${brandId}` },
       { table: 'warehouses', filter: `brand_id=eq.${brandId}` },

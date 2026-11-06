@@ -133,6 +133,7 @@ export type DailyWithdrawalLine = {
 
 export type DailyWithdrawal = {
   id: string;
+  brandId: string;
   withdrawalNo: string;
   withdrawalDate: string;
   status: string;
