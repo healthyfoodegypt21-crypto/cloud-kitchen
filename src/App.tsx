@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import AppLayout from "@/components/AppLayout";
 import Login from "@/pages/Login";
+import ResetPassword from "@/pages/ResetPassword";
 import Index from "./pages/Index";
 import KitchenRoute from "./pages/KitchenRoute";
 import OrdersRoute from "./pages/OrdersRoute";
@@ -62,6 +63,7 @@ function AppRoutes() {
 
   return (
     <Routes>
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/login" element={user ? <Navigate to={permittedHome(role, pagePermissions, isDemoMode)} replace /> : <Login />} />
       <Route path="/" element={
         <ProtectedRoute allowDemo requiredPage="dashboard">
