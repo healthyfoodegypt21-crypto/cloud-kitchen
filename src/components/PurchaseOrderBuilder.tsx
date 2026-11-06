@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import type { InventoryCategoryRecord, OperationalInventoryItem } from '@/types/operationalInventory';
+import type { InventoryCategoryRecord, InventoryLocation, OperationalInventoryItem } from '@/types/operationalInventory';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 import { suggestPurchaseQuantity } from '@/lib/procurementUnits';
 
@@ -22,30 +22,33 @@ export type PurchaseOrderLine = {
 type NewItemDraft = { name: string; code: string; category: string; purchaseUnit: string; usageUnit: string; conversionFactor: string; minStock: string; unitCost: string };
 const blankNewItem: NewItemDraft = { name: '', code: '', category: '', purchaseUnit: 'kg', usageUnit: 'kg', conversionFactor: '1', minStock: '0', unitCost: '' };
 
-function suggestedLine(item: OperationalInventoryItem): PurchaseOrderLine {
+function suggestedLine(item: OperationalInventoryItem, locations: InventoryLocation[]): PurchaseOrderLine {
   const conversionFactor = item.conversionFactor > 0 ? item.conversionFactor : 1;
   return {
     itemId: item.id,
     itemName: item.name,
     unit: item.purchaseUnit,
-    quantity: String(suggestPurchaseQuantity(item.minStock, item.onHand, conversionFactor)),
+    quantity: String(suggestPurchaseQuantity(item.minStock, item.availableQuantity, conversionFactor)),
     unitCost: String(item.lastPurchasePrice || item.averageCost * conversionFactor || ''),
-    locationName: item.locationName,
-    notes: item.onHand <= item.minStock ? 'اقتراح تلقائي: وصل للحد الأدنى' : '',
+    locationName: locations.some((location) => location.code === item.locationName)
+      ? item.locationName
+      : locations[0]?.code ?? item.locationName,
+    notes: item.minStock > 0 && item.availableQuantity <= item.minStock ? 'اقتراح تلقائي: وصل للحد الأدنى' : '',
   };
 }
 
-export default function PurchaseOrderBuilder({ items, categories, initialItemId, onSubmit, onCreateNewItem }: {
+export default function PurchaseOrderBuilder({ items, categories, locations, initialItemId, onSubmit, onCreateNewItem }: {
   items: OperationalInventoryItem[];
   categories: InventoryCategoryRecord[];
+  locations: InventoryLocation[];
   initialItemId?: string;
   onSubmit: (lines: PurchaseOrderLine[], supplierName: string, notes: string) => Promise<void>;
   onCreateNewItem: (draft: NewItemDraft) => Promise<{ id: string; code: string } | null>;
 }) {
   const [lines, setLines] = useState<PurchaseOrderLine[]>(() => {
     const initialItem = items.find(item => item.id === initialItemId);
-    if (initialItem) return [suggestedLine(initialItem)];
-    return items.filter(item => item.minStock > 0 && item.onHand <= item.minStock).map(suggestedLine);
+    if (initialItem) return [suggestedLine(initialItem, locations)];
+    return items.filter(item => item.status === 'active' && item.minStock > 0 && item.availableQuantity <= item.minStock).map(item => suggestedLine(item, locations));
   });
   const [existingItemId, setExistingItemId] = useState('');
   const [supplierName, setSupplierName] = useState('');
@@ -68,7 +71,7 @@ export default function PurchaseOrderBuilder({ items, categories, initialItemId,
   const addExistingItem = () => {
     const item = items.find(candidate => candidate.id === existingItemId);
     if (!item || selectedIds.has(item.id)) return;
-    setLines(current => [...current, suggestedLine(item)]);
+    setLines(current => [...current, suggestedLine(item, locations)]);
     setExistingItemId('');
   };
   const addNewItem = async () => {
@@ -83,12 +86,13 @@ export default function PurchaseOrderBuilder({ items, categories, initialItemId,
     const created = await onCreateNewItem(newItem);
     setCreatingItem(false);
     if (!created) return;
-    setLines(current => [...current, { itemId: created.id, itemName: newItem.name.trim(), unit: newItem.purchaseUnit, quantity: '1', unitCost: newItem.unitCost, locationName: 'main', notes: 'صنف جديد ضمن أمر الشراء' }]);
+    setLines(current => [...current, { itemId: created.id, itemName: newItem.name.trim(), unit: newItem.purchaseUnit, quantity: '1', unitCost: newItem.unitCost, locationName: locations[0]?.code ?? 'main', notes: 'صنف جديد ضمن أمر الشراء' }]);
     setNewItem(blankNewItem);
     toast.success('تمت إضافة الصنف الجديد إلى أمر الشراء');
   };
   const submit = async () => {
-    if (lines.length === 0 || lines.some(line => Number(line.quantity) <= 0)) { toast.error('أضف صنفًا واحدًا على الأقل بكمية صحيحة'); return; }
+    if (!locations.length) { toast.error('أنشئ موقع مخزن نشطًا قبل إرسال أمر الشراء'); return; }
+    if (lines.length === 0 || lines.some(line => Number(line.quantity) <= 0 || !locations.some(location => location.code === line.locationName))) { toast.error('أضف صنفًا واحدًا على الأقل بكمية صحيحة وموقع مخزن نشط'); return; }
     await onSubmit(lines, supplierName, notes);
   };
 
@@ -96,10 +100,10 @@ export default function PurchaseOrderBuilder({ items, categories, initialItemId,
     <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">تمت إضافة {lines.filter(line => line.notes.includes('اقتراح تلقائي')).length} أصناف تلقائيًا لأنها وصلت للحد الأدنى. عدّل الكمية أو احذف أي صنف قبل الإرسال.</div>
     <div className="space-y-3">
       <h3 className="font-semibold">أصناف أمر الشراء</h3>
-      {lines.map(line => <div className="rounded-xl border p-3" key={line.itemId}><div className="mb-3 flex items-center justify-between gap-2"><div><strong>{line.itemName}</strong><span className="mr-2 text-sm text-muted-foreground">({line.unit})</span></div><Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => setLines(current => current.filter(item => item.itemId !== line.itemId))}><Trash2 className="ml-1 h-4 w-4" />حذف</Button></div><div className="grid gap-3 sm:grid-cols-2"><NumberField label="الكمية المطلوبة" value={line.quantity} onChange={value => updateLine(line.itemId, { quantity: value })} /><NumberField label="سعر الوحدة المتوقع" value={line.unitCost} onChange={value => updateLine(line.itemId, { unitCost: value })} step="0.01" /></div></div>)}
+      {lines.map(line => <div className="rounded-xl border p-3" key={line.itemId}><div className="mb-3 flex items-center justify-between gap-2"><div><strong>{line.itemName}</strong><span className="mr-2 text-sm text-muted-foreground">({line.unit})</span></div><Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => setLines(current => current.filter(item => item.itemId !== line.itemId))}><Trash2 className="ml-1 h-4 w-4" />حذف</Button></div><div className="grid gap-3 sm:grid-cols-2"><NumberField label="الكمية المطلوبة" value={line.quantity} onChange={value => updateLine(line.itemId, { quantity: value })} /><NumberField label="سعر الوحدة المتوقع" value={line.unitCost} onChange={value => updateLine(line.itemId, { unitCost: value })} step="0.01" /><div className="space-y-1"><Label>موقع الاستلام</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.locationName} onChange={event => updateLine(line.itemId, { locationName: event.target.value })}>{locations.map(location => <option key={location.code} value={location.code}>{location.name}</option>)}</select></div></div></div>)}
       {lines.length === 0 && <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">لا توجد أصناف في الأمر. أضف صنفًا من المخزون أو صنفًا جديدًا.</p>}
     </div>
-    <div className="rounded-xl bg-muted/50 p-4"><Label>إضافة صنف موجود في المخزون</Label><div className="mt-2 flex gap-2"><select className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3" value={existingItemId} onChange={event => setExistingItemId(event.target.value)}><option value="">اختر الصنف</option>{items.filter(item => !selectedIds.has(item.id)).map(item => <option key={item.id} value={item.id}>{item.name} — المتاح {item.onHand} {item.unit} — وحدة الشراء {item.purchaseUnit}</option>)}</select><Button type="button" variant="outline" disabled={!existingItemId} onClick={addExistingItem}><Plus className="ml-1 h-4 w-4" />إضافة</Button></div></div>
+    <div className="rounded-xl bg-muted/50 p-4"><Label>إضافة صنف موجود في المخزون</Label><div className="mt-2 flex gap-2"><select className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3" value={existingItemId} onChange={event => setExistingItemId(event.target.value)}><option value="">اختر الصنف</option>{items.filter(item => item.status === 'active' && !selectedIds.has(item.id)).map(item => <option key={item.id} value={item.id}>{item.name} — المتاح {item.availableQuantity} {item.unit} — وحدة الشراء {item.purchaseUnit}</option>)}</select><Button type="button" variant="outline" disabled={!existingItemId} onClick={addExistingItem}><Plus className="ml-1 h-4 w-4" />إضافة</Button></div></div>
     <div className="rounded-xl border border-dashed p-4">
       <h3 className="flex items-center gap-2 font-semibold"><PackagePlus className="h-5 w-5" />إضافة صنف جديد إلى الأمر</h3>
       <p className="mt-1 text-sm text-muted-foreground">سيُنشأ الصنف في المخزون بدون رصيد، ثم يُضاف لهذا الأمر بالكمية التي تحددها.</p>

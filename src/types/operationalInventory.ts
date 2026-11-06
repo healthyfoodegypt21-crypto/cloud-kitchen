@@ -22,9 +22,43 @@ export type OperationalInventoryItem = {
   lastPurchasePrice: number;
   averageCost: number;
   onHand: number;
+  reservedQuantity: number;
+  availableQuantity: number;
   locationName: string;
+  balances: InventoryLocationBalance[];
   status: 'active' | 'inactive';
   notes: string;
+};
+
+export type InventoryLocationBalance = {
+  locationName: string;
+  onHand: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+};
+
+export type InventoryLocation = {
+  code: string;
+  name: string;
+};
+
+export type InventoryCountApproval = {
+  id: string;
+  countNo: string;
+  countedBy: string;
+  countedAt: string;
+  bookQuantity: number;
+  physicalQuantity: number;
+  notes: string;
+  lines: Array<{
+    id: string;
+    itemId: string;
+    itemName: string;
+    locationName: string;
+    bookQuantity: number;
+    physicalQuantity: number;
+    variance: number;
+  }>;
 };
 
 export type InventoryBatch = {
@@ -32,7 +66,9 @@ export type InventoryBatch = {
   itemId: string;
   batchNo: string;
   expiryDate: string | null;
+  locationName: string;
   quantityOnHand: number;
+  reservedQuantity: number;
   unitCost: number;
   status: 'available' | 'reserved' | 'consumed' | 'expired' | 'damaged';
 };
@@ -107,7 +143,7 @@ export type DailyWithdrawal = {
 
 export type InventoryAlert = {
   id: string;
-  type: 'low_stock' | 'missing_cost' | 'purchase_pending';
+  type: 'low_stock' | 'missing_cost' | 'purchase_pending' | 'expiry' | 'expired';
   title: string;
   description: string;
   itemId?: string;
