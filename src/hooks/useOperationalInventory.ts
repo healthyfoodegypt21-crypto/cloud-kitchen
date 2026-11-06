@@ -66,7 +66,7 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
       client.from('inventory_categories').select('id, code, name_ar, name_en, sort_order, is_active').eq('is_active', true).order('sort_order'),
       client.from('inventory_movements').select('id, item_id, movement_type, quantity, unit_cost, location_name, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(30),
       client.from('inventory_purchase_requests').select('id, request_no, supplier_name, status, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(100),
-      client.from('inventory_daily_withdrawals').select('id, brand_id, withdrawal_no, withdrawal_date, status, notes').in('brand_id', withdrawalBrandIds).order('withdrawal_date', { ascending: false }).limit(100),
+      client.from('inventory_daily_withdrawals').select('id, brand_id, is_shared, withdrawal_no, withdrawal_date, status, notes').in('brand_id', withdrawalBrandIds).order('withdrawal_date', { ascending: false }).limit(100),
       client.from('inventory_batches').select('id,warehouse_id,item_id,batch_no,expiry_date,quantity_on_hand,unit_cost,reserved_qty,status').eq('brand_id', brandId).order('expiry_date', { ascending: true, nullsFirst: false }),
       client.from('inventory_item_requests').select('id, item_name, product_brand, item_code, unit, min_stock, notes, status').eq('brand_id', brandId).eq('status', 'pending_store_approval').limit(100),
       client.from('inventory_notifications').select('id, notification_type, title, message, reference_id, is_read, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(20),
@@ -188,7 +188,7 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
         quantity: numeric(line.quantity), unitCost: numeric(line.unit_cost), lineValue: numeric(line.line_value),
         locationName: String(line.location_name), reason: String(line.reason),
       }));
-      return { id: String(withdrawal.id), brandId: String(withdrawal.brand_id), withdrawalNo: String(withdrawal.withdrawal_no), withdrawalDate: String(withdrawal.withdrawal_date), status: String(withdrawal.status), notes: String(withdrawal.notes ?? ''), lines, totalValue: lines.reduce((sum, line) => sum + line.lineValue, 0) };
+      return { id: String(withdrawal.id), brandId: String(withdrawal.brand_id), isShared: Boolean(withdrawal.is_shared), withdrawalNo: String(withdrawal.withdrawal_no), withdrawalDate: String(withdrawal.withdrawal_date), status: String(withdrawal.status), notes: String(withdrawal.notes ?? ''), lines, totalValue: lines.reduce((sum, line) => sum + line.lineValue, 0) };
     }));
     const warehouseNameById = new Map(asRecords(warehousesRes.data).map((warehouse) => [
       String(warehouse.id),

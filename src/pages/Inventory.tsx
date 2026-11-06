@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, Loader2, PackagePlus, Pencil, Plus, Search, ShoppingCart, Trash2, WalletCards, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,6 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const [category, setCategory] = useState('all');
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<DialogMode>(null);
-  const [consumerBrandId, setConsumerBrandId] = useState('');
   const [movementAction, setMovementAction] = useState<MovementAction>('deposit');
   const [itemDraft, setItemDraft] = useState<ItemDraft>(emptyItemDraft);
   const [editingItem, setEditingItem] = useState<OperationalInventoryItem | null>(null);
@@ -58,12 +57,6 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const [purchaserName, setPurchaserName] = useState('');
   const [notes, setNotes] = useState('');
 
-  const sharedBrands = useMemo(() => brands.filter((brand) => hub.brandIds.includes(brand.id)), [brands, hub]);
-  useEffect(() => {
-    if (!sharedBrands.some((brand) => brand.id === consumerBrandId) && sharedBrands[0]) {
-      setConsumerBrandId(sharedBrands[0].id);
-    }
-  }, [consumerBrandId, sharedBrands]);
   const { items, categories, movements, purchaseRequests, withdrawals, countApprovals, locations, itemRequests, notifications, alerts, inventoryValue, loading, invoke, markNotificationRead } = useOperationalInventory(brandId, hub.brandIds);
   const canManage = !isDemoMode && hasPageAccess(role, pagePermissions, 'inventory');
   const selectedItem = items.find((item) => item.id === line.itemId);
@@ -210,8 +203,8 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
 
   const postWithdrawal = async () => {
     const submissionLines = linesForSubmission();
-    if (!consumerBrandId || submissionLines.length === 0 || submissionLines.some((entry) => !Number.isFinite(number(entry.quantity)) || number(entry.quantity) <= 0)) { toast.error('اختر العلامة المستفيدة وأدخل كمية موجبة وصحيحة لكل بند'); return; }
-    const result = await invoke('inventory_post_shared_daily_withdrawal', { _hub_id: hub.id, _consumer_brand_id: consumerBrandId, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), location_name: entry.locationName, reason: entry.reason || 'تشغيل المطبخ' })), _notes: notes });
+    if (submissionLines.length === 0 || submissionLines.some((entry) => !Number.isFinite(number(entry.quantity)) || number(entry.quantity) <= 0)) { toast.error('أدخل كمية موجبة وصحيحة لكل بند'); return; }
+    const result = await invoke('inventory_post_shared_daily_withdrawal', { _hub_id: hub.id, _consumer_brand_id: brandId, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), location_name: entry.locationName, reason: entry.reason || 'تشغيل المطبخ' })), _notes: notes });
     if (result) {
       const value = rpcNumber(result, 'total_value');
       if (value === null) toast.error('تم تسجيل المسحوبات لكن تعذر قراءة إجماليها. راجع سجل المسحوبات.');
@@ -249,10 +242,10 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       <div>
         <p className="text-sm font-medium text-primary">{hub.name} · يخدم {hub.brandIds.length} علامات تجارية</p>
         <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">إدارة المخزون</h1>
-        <p className="mt-1 text-sm text-muted-foreground">رصيد واحد مشترك، وصرف مسجل على العلامة المستفيدة.</p>
+        <p className="mt-1 text-sm text-muted-foreground">رصيد واحد مشترك للعلامات، مع تسجيل سحب الوجبات المشتركة من المخزن.</p>
       </div>
       {canManage && <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />صرف للعلامة</Button>
+        <Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />سحب من المخزن</Button>
         <Button variant="outline" onClick={() => setMode('movement')}><Plus className="ml-2 h-4 w-4" />حركة مخزون</Button>
         <Button variant="outline" onClick={() => setMode('directPurchase')}><WalletCards className="ml-2 h-4 w-4" />شراء مباشر</Button>
         <Button onClick={() => setMode('purchase')}><ShoppingCart className="ml-2 h-4 w-4" />طلب شراء</Button>
@@ -301,7 +294,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
             <td className="p-3"><Badge variant={item.status === 'inactive' ? 'outline' : low ? 'destructive' : 'secondary'}>{item.status === 'inactive' ? 'مؤرشف' : low ? 'إعادة طلب' : 'متاح'}</Badge></td>
             <td className="p-3"><div className="flex items-center gap-1">{canManage && <>
               <Button size="icon" variant="ghost" aria-label={`تعديل ${item.name}`} title="تعديل" onClick={() => startEditItem(item)}><Pencil className="h-4 w-4" /></Button>
-              <Button size="icon" variant="ghost" aria-label={`صرف ${item.name}`} title="صرف للعلامة" onClick={() => { setLine({ itemId: item.id, quantity: '', unitCost: '', locationName: item.locationName, reason: '', batchNo: '', expiryDate: '' }); setMode('withdrawal'); }}><ArrowUpFromLine className="h-4 w-4" /></Button>
+              <Button size="icon" variant="ghost" aria-label={`سحب ${item.name} من المخزن`} title="سحب من المخزن" onClick={() => { setLine({ itemId: item.id, quantity: '', unitCost: '', locationName: item.locationName, reason: '', batchNo: '', expiryDate: '' }); setMode('withdrawal'); }}><ArrowUpFromLine className="h-4 w-4" /></Button>
               <Button size="icon" variant="ghost" aria-label={`طلب ${item.name}`} title="طلب شراء" onClick={() => startPurchaseRequest(item)}><ShoppingCart className="h-4 w-4" /></Button>
               <Button size="icon" variant="ghost" aria-label={`جرد ${item.name}`} title="بدء جرد" onClick={() => { const balance = item.balances.find((entry) => entry.locationName === item.locationName); setLine({ itemId: item.id, quantity: String(balance?.onHand ?? item.onHand), unitCost: '', locationName: item.locationName, reason: '', batchNo: '', expiryDate: '' }); setMode('count'); }}><ClipboardCheck className="h-4 w-4" /></Button>
               <Button size="icon" variant="ghost" aria-label={`${item.status === 'active' ? 'أرشفة' : 'تفعيل'} ${item.name}`} title={item.status === 'active' ? 'أرشفة' : 'تفعيل'} onClick={() => void toggleItemStatus(item)}><span className="text-xs">{item.status === 'active' ? 'أر' : 'فع'}</span></Button>
@@ -321,24 +314,23 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
 
     <PurchaseReceiptPanel brandId={brandId} canManage={canManage} />
 
-    <Card><CardHeader><CardTitle className="text-base">صرف المخزون حسب العلامة</CardTitle><CardDescription>الرصيد مخصوم مرة واحدة من المخزن المركزي، مع حفظ تكلفة الصرف للعلامة المستفيدة.</CardDescription></CardHeader><CardContent className="divide-y p-0">{withdrawals.length === 0 ? <p className="p-5 text-sm text-muted-foreground">لا توجد مسحوبات مسجلة.</p> : withdrawals.slice(0, 15).map((withdrawal) => <div key={withdrawal.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"><div><strong>{withdrawal.withdrawalNo}</strong><span className="mx-2 text-muted-foreground">{brands.find((brand) => brand.id === withdrawal.brandId)?.name ?? 'علامة مرتبطة بالمخزن'}</span><p className="text-xs text-muted-foreground">{withdrawal.withdrawalDate} · {withdrawal.lines.length} أصناف</p></div><span className="font-medium tabular-nums">{formatEGPCurrency(withdrawal.totalValue)}</span></div>)}</CardContent></Card>
+    <Card><CardHeader><CardTitle className="text-base">سحوبات المخزن</CardTitle><CardDescription>السحب للوجبات المشتركة يُخصم من الرصيد المركزي دون نسبته لعلامة بعينها.</CardDescription></CardHeader><CardContent className="divide-y p-0">{withdrawals.length === 0 ? <p className="p-5 text-sm text-muted-foreground">لا توجد مسحوبات مسجلة.</p> : withdrawals.slice(0, 15).map((withdrawal) => <div key={withdrawal.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"><div><strong>{withdrawal.withdrawalNo}</strong><span className="mx-2 text-muted-foreground">{withdrawal.isShared ? 'سحب مشترك' : brands.find((brand) => brand.id === withdrawal.brandId)?.name ?? 'علامة مرتبطة بالمخزن'}</span><p className="text-xs text-muted-foreground">{withdrawal.withdrawalDate} · {withdrawal.lines.length} أصناف</p></div><span className="font-medium tabular-nums">{formatEGPCurrency(withdrawal.totalValue)}</span></div>)}</CardContent></Card>
 
     {movements.length > 0 && <section><h2 className="mb-3 text-xl font-bold">آخر الحركات</h2><Card><CardContent className="divide-y p-0">{movements.slice(0, 10).map((movement) => <div key={movement.id} className="flex items-center justify-between p-3 text-sm"><span><strong>{movement.itemName}</strong> — {movement.type} — {movement.quantity}</span><span>{formatEGPCurrency(movement.value)}</span></div>)}</CardContent></Card></section>}
 
     </TabsContent>
     </Tabs>
 
-    <Dialog open={mode !== null && mode !== 'directPurchase'} onOpenChange={(open) => !open && reset()}><DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto"><DialogHeader><DialogTitle>{mode === 'item' ? 'إضافة صنف جديد' : mode === 'editItem' ? 'تعديل بيانات الصنف' : mode === 'category' ? 'إضافة فئة' : mode === 'purchase' ? 'طلب شراء للمخزن المركزي' : mode === 'withdrawal' ? 'صرف من الرصيد المشترك' : mode === 'count' ? 'إرسال جرد للمراجعة' : movementAction === 'deposit' ? 'إيداع في المخزون' : 'تسجيل هالك'}</DialogTitle><DialogDescription>{mode === 'purchase' ? 'لا يتغير الرصيد حتى يتم الاستلام الفعلي.' : mode === 'count' ? 'سيُحفظ الجرد للمراجعة ولا يتغير الرصيد قبل اعتماده من مستخدم آخر.' : 'هذا المخزن يخدم العلامات المرتبطة به دون فصل الأرصدة.'}</DialogDescription></DialogHeader>
+    <Dialog open={mode !== null && mode !== 'directPurchase'} onOpenChange={(open) => !open && reset()}><DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto"><DialogHeader><DialogTitle>{mode === 'item' ? 'إضافة صنف جديد' : mode === 'editItem' ? 'تعديل بيانات الصنف' : mode === 'category' ? 'إضافة فئة' : mode === 'purchase' ? 'طلب شراء للمخزن المركزي' : mode === 'withdrawal' ? 'سحب من المخزن' : mode === 'count' ? 'إرسال جرد للمراجعة' : movementAction === 'deposit' ? 'إيداع في المخزون' : 'تسجيل هالك'}</DialogTitle><DialogDescription>{mode === 'purchase' ? 'لا يتغير الرصيد حتى يتم الاستلام الفعلي.' : mode === 'count' ? 'سيُحفظ الجرد للمراجعة ولا يتغير الرصيد قبل اعتماده من مستخدم آخر.' : mode === 'withdrawal' ? 'يُخصم السحب من المخزن المركزي دون تحديد علامة، لأنه قد يُستخدم في وجبات مشتركة.' : 'هذا المخزن يخدم العلامات المرتبطة به دون فصل الأرصدة.'}</DialogDescription></DialogHeader>
       {(mode === 'item' || mode === 'editItem') && <ItemForm draft={itemDraft} setDraft={setItemDraft} categories={categories} locations={locations} allowOpeningStock={mode === 'item'} onSave={mode === 'item' ? createItem : updateItem} />}
       {mode === 'category' && <div className="space-y-3"><Field label="اسم الفئة بالعربية" value={categoryDraft.nameAr} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameAr: value }))} /><Field label="الكود (إنجليزي بلا مسافات)" value={categoryDraft.code} onChange={(value) => setCategoryDraft((current) => ({ ...current, code: value }))} /><Field label="الاسم بالإنجليزية" value={categoryDraft.nameEn} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameEn: value }))} /><Button className="w-full" onClick={() => void createCategory()}>حفظ الفئة</Button></div>}
       {mode === 'movement' && <div className="space-y-3"><div className="space-y-1"><Label htmlFor="movement-action">نوع الحركة</Label><select id="movement-action" className="h-10 w-full rounded-md border bg-background px-3" value={movementAction} onChange={(event) => { if (event.target.value === 'deposit' || event.target.value === 'waste') setMovementAction(event.target.value); }}><option value="deposit">إضافة رصيد</option><option value="waste">تسجيل هالك</option></select></div><LineEditor items={items} locations={locations} line={line} setLine={setLine} showCost={movementAction === 'deposit'} /><Button className="w-full" onClick={() => void postMovement()}>{movementAction === 'deposit' ? 'تأكيد الإيداع' : 'تأكيد الهالك'}</Button></div>}
       {mode === 'count' && <div className="space-y-3"><LineEditor items={items} locations={locations} line={line} setLine={setLine} quantityLabel="الرصيد الفعلي بعد الجرد" /><Button className="w-full" onClick={() => void postCount()}><ClipboardCheck className="ml-2 h-4 w-4" />إرسال للمراجعة</Button></div>}
       {mode === 'withdrawal' && <div className="space-y-4">
-        <div className="space-y-1"><Label htmlFor="consumer-brand">العلامة المستفيدة</Label><select id="consumer-brand" className="h-10 w-full rounded-md border bg-background px-3" value={consumerBrandId} onChange={(event) => setConsumerBrandId(event.target.value)}>{sharedBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select><p className="text-xs text-muted-foreground">يُخصم الصرف من المخزون الموحد ويُسجل على هذه العلامة.</p></div>
         <MultiLineForm items={items} locations={locations} lines={lines} line={line} setLine={setLine} addLine={addLine} removeLine={(index) => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} showCost={false} />
       </div>}
       {mode === 'purchase' && <PurchaseOrderBuilder items={items} categories={categories} locations={locations} initialItemId={purchaseItemId} onSubmit={submitConsolidatedPurchase} onCreateNewItem={createPurchaseItem} />}
-      {mode === 'withdrawal' && <div className="space-y-3"><Label>ملاحظات الصرف</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="مثال: تجهيز وردية الغداء" /><Button className="w-full" onClick={() => void postWithdrawal()}><WalletCards className="ml-2 h-4 w-4" />اعتماد الصرف</Button></div>}
+      {mode === 'withdrawal' && <div className="space-y-3"><Label>ملاحظات السحب</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="مثال: تجهيز وردية الغداء المشتركة" /><Button className="w-full" onClick={() => void postWithdrawal()}><WalletCards className="ml-2 h-4 w-4" />تأكيد السحب من المخزن</Button></div>}
     </DialogContent></Dialog>
   </div>;
 }
