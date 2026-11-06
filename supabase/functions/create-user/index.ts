@@ -49,15 +49,20 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const bearerToken = authHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!bearerToken) {
+      return jsonResponse({ error: 'Your login session is missing. Sign in again and retry.' }, 401);
+    }
 
     const supabaseUser = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_ANON_KEY')!,
       { global: { headers: { Authorization: authHeader } } },
     );
-    const { data: { user: caller }, error: authError } = await supabaseUser.auth.getUser();
-    if (authError || !caller) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const { data: { user: caller }, error: authError } = await supabaseUser.auth.getUser(bearerToken);
+    if (authError || !caller) {
+      return jsonResponse({ error: 'Your login session is invalid or expired. Sign in again and retry.' }, 401);
+    }
 
     const { data: isOwner, error: roleError } = await supabaseUser.rpc('has_role', {
       _user_id: caller.id,
