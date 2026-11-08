@@ -125,6 +125,24 @@ describe('order meal resolution', () => {
     expect(getOrderMealCount(snapshotPackageOrder, meals, [])).toBe(2);
   });
 
+  it('resolves meal details from the current spreadsheet import notes format', () => {
+    const importedOrder = {
+      ...packageOrder,
+      order_mode: 'meals' as const,
+      package: '',
+      package_plan_id: null,
+      selected_meal_ids: [],
+      notes: 'ملاحظة العميل - تفاصيل الطلب المستوردة: بيف استيك، فراخ جريل، فراخ جريل - رسوم التوصيل: 20',
+    };
+
+    expect(resolveOrderMeals(importedOrder, meals, []).map(meal => meal.label)).toEqual([
+      'بيف استيك',
+      'فراخ جريل',
+      'فراخ جريل',
+    ]);
+    expect(getOrderMealCount(importedOrder, meals, [])).toBe(3);
+  });
+
   it('falls back to known demo package blueprints when a legacy 20-day package has no catalog match', () => {
     const legacyDemoPackageOrder = {
       ...packageOrder,

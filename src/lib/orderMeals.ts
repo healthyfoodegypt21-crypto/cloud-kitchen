@@ -197,6 +197,11 @@ function findDemoPackageSnapshot(order: Order) {
   return [];
 }
 
+function getImportedMealDetails(order: Order) {
+  const detailsLine = order.notes.match(/(?:^|\n| - )تفاصيل(?:\s+الطلب\s+المستوردة|\s*الشيت)\s*:\s*(.*?)(?=\s+-\s+|\n|$)/u)?.[1] ?? '';
+  return detailsLine.split(/\s*\|\s*|\s*،\s*/u).map(item => item.trim()).filter(Boolean);
+}
+
 export function resolveOrderMeals(order: Order, meals: Meal[], packages: PackagePlan[]): ResolvedOrderMealItem[] {
   const mealsById = new Map(meals.map(meal => [meal.id, meal]));
   const packagesByBrandAndName = buildPackageLookup(packages);
@@ -215,6 +220,24 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
       fat: matchedMeal?.fat ?? null,
     } satisfies ResolvedOrderMealItem;
   };
+
+  const importedMealDetails = getImportedMealDetails(order);
+  if (importedMealDetails.length > 0) {
+    return importedMealDetails.map((label, index) => {
+      const matchedMeal = findMealByLabel(label, order.brand_id, meals);
+
+      return {
+        id: matchedMeal?.id ?? `${order.id}-imported-meal-${index + 1}`,
+        label: matchedMeal?.name ?? label,
+        customizationKey: matchedMeal?.id ?? `${order.id}-imported-meal-${index + 1}`,
+        category: matchedMeal?.category ?? inferCategoryFromMealLabel(label),
+        calories: matchedMeal?.calories ?? null,
+        protein: matchedMeal?.protein ?? null,
+        carbs: matchedMeal?.carbs ?? null,
+        fat: matchedMeal?.fat ?? null,
+      };
+    });
+  }
 
   if (order.order_mode === 'meals') {
     const selectedMeals = order.selected_meal_ids
