@@ -5,9 +5,10 @@ import { getSupabaseOfflineReason, isSupabaseNetworkError, isSupabaseUnavailable
 import { useSupabaseReconnect } from '@/hooks/useSupabaseReconnect';
 import { Brand } from '@/hooks/useBrands';
 import { buildDemoOrders, clearLocalDemoOrders, DEMO_ORDER_NUMBER_PREFIX, getLocalDemoOrders, markDemoOrdersInitialized, materializeDemoOrders, saveLocalDemoOrders } from '@/lib/demoOrders';
+import { getRecoveredSheetMealsForPhone } from '@/lib/orderMeals';
 import { Order, OrderStatus, OrderSource, MealType, OrderMode } from '@/types/order';
 import { toast } from 'sonner';
-import { buildOrderNotesWithMetadata, compactWhitespace, extractLegacyOrderMetadata, formatDetailedAddress, hasDetailedAddressParts } from '@/lib/utils';
+import { buildOrderNotesWithMetadata, compactWhitespace, extractLegacyOrderMetadata, formatDetailedAddress, hasDetailedAddressParts, normalizePhone } from '@/lib/utils';
 import { getOrderImportFingerprint, hasDuplicateOrderImport, ImportedOrder } from '@/lib/orderImport';
 
 type OrderRow = Database['public']['Tables']['orders']['Row'] & {
@@ -84,8 +85,15 @@ export function useOrders() {
       setOrders(sortOrders(getLocalDemoOrders()));
     } else {
       markSupabaseAvailable();
-      const nextOrders = ((data ?? []) as OrderRow[]).map(d => {
+      const mappedOrders = ((data ?? []) as OrderRow[]).map(d => {
         const legacy = extractLegacyOrderMetadata(d.notes);
+        const recoveredMeals = getRecoveredSheetMealsForPhone(d.phone);
+        const hasRealImportedMeals = (legacy.importedMealDetails ?? []).some(
+          item => !/^(?:weekly|week|monthly|daily|وجبات من المنيو|باكدج.*|باقة.*|package.*)$/iu.test(item.trim()),
+        );
+        const importedMealDetails = hasRealImportedMeals
+          ? legacy.importedMealDetails
+          : (recoveredMeals ?? legacy.importedMealDetails);
 
         return {
           id: d.id,
@@ -108,6 +116,9 @@ export function useOrders() {
           notes: legacy.notes,
           meal_customizations: legacy.mealCustomizations,
           package_meal_snapshot: legacy.packageMealSnapshot,
+          customer_amount: legacy.customerAmount ?? Number(d.price),
+          delivery_fee: legacy.deliveryFee ?? 0,
+          imported_meal_details: importedMealDetails,
           status: d.status as OrderStatus,
           created_at: d.created_at,
           price: Number(d.price),
@@ -117,6 +128,30 @@ export function useOrders() {
           created_by: d.created_by,
         };
       });
+
+      const seenImportedOrderKeys = new Set<string>();
+      const redundantOrderIds: string[] = [];
+      const nextOrders = mappedOrders.filter(order => {
+        if (/^(?:الاسم|اسم)\s*\d+$/u.test(order.customer_name.trim())) {
+          redundantOrderIds.push(order.id);
+          return false;
+        }
+
+        if (order.order_number.startsWith('IMP-')) {
+          const dedupeKey = `${order.brand_id ?? ''}::${order.execution_date}::${normalizePhone(order.phone)}`;
+          if (seenImportedOrderKeys.has(dedupeKey)) {
+            redundantOrderIds.push(order.id);
+            return false;
+          }
+          seenImportedOrderKeys.add(dedupeKey);
+        }
+
+        return true;
+      });
+
+      if (redundantOrderIds.length > 0) {
+        void supabase.from('orders').delete().in('id', redundantOrderIds);
+      }
 
       setOrders(mergeOrdersWithLocalDemoOrders(nextOrders, getLocalDemoOrders()));
     }
@@ -251,7 +286,7 @@ export function useOrders() {
 
     const existingResponse = await supabase
       .from('orders')
-      .select('order_number, customer_name, phone, phone_secondary, address, execution_date, order_mode, package, package_plan_id, meal_type, notes, price, selected_meal_ids, brand_id')
+      .select('id, order_number, customer_name, phone, phone_secondary, address, execution_date, order_mode, package, package_plan_id, meal_type, notes, price, selected_meal_ids, brand_id')
       .eq('brand_id', order.brand_id)
       .eq('phone', order.phone)
       .eq('execution_date', order.execution_date);
@@ -267,7 +302,8 @@ export function useOrders() {
       return 'failed';
     }
 
-    if (hasDuplicateOrderImport(order, existingResponse.data ?? [])) {
+    const existingRows = existingResponse.data ?? [];
+    if (hasDuplicateOrderImport(order, existingRows)) {
       markSupabaseAvailable();
       return 'duplicate';
     }
@@ -282,8 +318,11 @@ export function useOrders() {
       locationLink: order.location_link,
       mealCustomizations: order.meal_customizations,
       packageMealSnapshot: order.package_meal_snapshot,
+      customerAmount: order.customer_amount,
+      deliveryFee: order.delivery_fee,
+      importedMealDetails: order.imported_meal_details,
     });
-    const { error } = await supabase.from('orders').insert({
+    const payload = {
       order_number: order.order_number,
       customer_name: order.customer_name,
       phone: order.phone,
@@ -306,7 +345,23 @@ export function useOrders() {
       source: order.source,
       brand_id: order.brand_id,
       created_by: order.created_by,
-    });
+    };
+
+    if (existingRows.length > 0 && typeof (existingRows[0] as { id?: string }).id === 'string') {
+      const [primaryRow, ...duplicateRows] = existingRows as Array<{ id: string }>;
+      const { error: updateError } = await supabase.from('orders').update(payload).eq('id', primaryRow.id);
+      if (updateError) {
+        toast.error(updateError.message);
+        return 'failed';
+      }
+      if (duplicateRows.length > 0) {
+        void supabase.from('orders').delete().in('id', duplicateRows.map(row => row.id));
+      }
+      markSupabaseAvailable();
+      return 'imported';
+    }
+
+    const { error } = await supabase.from('orders').insert(payload);
 
     if (error) {
       if (error.code === '23505') return 'duplicate';

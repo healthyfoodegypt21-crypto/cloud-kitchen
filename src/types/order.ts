@@ -41,15 +41,18 @@ export interface Order {
   status: OrderStatus;
   created_at: string;
   price: number;
+  customer_amount?: number;
+  delivery_fee?: number;
+  imported_meal_details?: string[];
   selected_meal_ids: string[];
   source: OrderSource;
   brand_id: string | null;
   created_by: string | null;
+  assigned_to?: string | null;
 }
 
 export const STATUS_LABELS: Record<OrderStatus, string> = {
   new: 'جديد',
-  confirmed: 'تم التأكيد',
   in_preparation: 'قيد التحضير',
   out_for_delivery: 'خرج للتوصيل',
   delivered: 'تم التسليم',

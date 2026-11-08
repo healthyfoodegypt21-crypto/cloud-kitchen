@@ -1,5 +1,5 @@
 import { Brand } from '@/hooks/useBrands';
-import { resolveOrderMeals } from '@/lib/orderMeals';
+import { getRecoveredSheetMealsForPhone, resolveOrderMeals } from '@/lib/orderMeals';
 import { compactWhitespace } from '@/lib/utils';
 import { Meal, MenuCategory, PackagePlan, MENU_CATEGORY_ORDER, MENU_CATEGORY_LABELS } from '@/types/menu';
 import { Order } from '@/types/order';
@@ -39,6 +39,21 @@ export interface KitchenDailySummary {
   brands: KitchenBrandSummary[];
 }
 
+export interface DailyMealAggregationRow {
+  key: string;
+  label: string;
+  category: KitchenCategory;
+  countsByBrand: Record<string, number>;
+  total: number;
+  modifications: KitchenModificationSummary[];
+}
+
+export interface DailyMealAggregation {
+  brands: Array<{ key: string; name: string; orderCount: number }>;
+  rows: DailyMealAggregationRow[];
+  total: number;
+}
+
 export interface KitchenSticker {
   key: string;
   label: string;
@@ -65,11 +80,39 @@ export const KITCHEN_CATEGORY_LABELS: Record<KitchenCategory, string> = {
 };
 
 function normalizeLabel(value: string) {
-  return compactWhitespace(value).toLocaleLowerCase('ar');
+  return compactWhitespace(
+    value
+      .replace(/^\*+\s*/u, '')
+      .replace(/\(\s+/gu, '(')
+      .replace(/\s+\)/gu, ')'),
+  ).toLocaleLowerCase('ar');
+}
+
+const IMPORTED_DETAILS_NOTE_PATTERN = /^تفاصيل\s*(?:الطلب\s*المستوردة|الشيت)\s*:/u;
+const NON_COOKING_NOTE_SEGMENT_PATTERN = /^(?:رسوم التوصيل\s*:|حساب العميل\s*:|حساب التوصيل\s*:|مدفوع\b|دفع\b|دفعت\b|فودافون كاش|انستا\s*باي|انستاباي)/iu;
+
+// Import-generated notes embed the raw sheet meal list and delivery/payment
+// metadata as " - "-separated segments; strip those so only cooking comments
+// appear next to the meal.
+function stripImportedDetailsNote(notes: string) {
+  return notes
+    .replace(/(?:^|\n|\s+-\s+)تفاصيل(?:\s+الطلب\s+المستوردة|\s*الشيت)\s*:\s*.*?(?=\s+-\s+رسوم التوصيل\s*:|\n|$)/gu, '')
+    .split('\n')
+    .map(line => line
+      .split(/\s+-\s+/)
+      .filter(segment => {
+        const trimmed = segment.trim();
+        return trimmed.length > 0
+          && !IMPORTED_DETAILS_NOTE_PATTERN.test(trimmed)
+          && !NON_COOKING_NOTE_SEGMENT_PATTERN.test(trimmed);
+      })
+      .join(' - '))
+    .filter(line => line.trim().length > 0)
+    .join('\n');
 }
 
 function normalizeInstruction(notes: string) {
-  const value = compactWhitespace(notes);
+  const value = compactWhitespace(stripImportedDetailsNote(notes));
   if (!value) {
     return '';
   }
@@ -185,14 +228,17 @@ export function aggregateKitchenOrders({ orders, brands, meals, packages, date, 
 
     bucket.orderIds.add(order.id);
 
-    const generalInstruction = normalizeInstruction(order.notes);
+    const isImportedOrder = (order.imported_meal_details ?? []).length > 0
+      || /تفاصيل\s*(?:الطلب\s*المستوردة|الشيت)\s*:/u.test(order.notes)
+      || Boolean(getRecoveredSheetMealsForPhone(order.phone));
+    const generalInstruction = isImportedOrder ? '' : normalizeInstruction(order.notes);
     const mealCustomizationMap = new Map(
       (order.meal_customizations ?? []).map(item => [item.key, normalizeInstruction(item.notes)]),
     );
     const resolvedMeals = resolveOrderMeals(order, meals, packages).map(meal => ({
       label: meal.label,
       category: meal.category ?? 'uncategorized' as const,
-      instruction: combineInstructions(generalInstruction, mealCustomizationMap.get(meal.customizationKey)),
+      instruction: combineInstructions(generalInstruction, meal.instruction, mealCustomizationMap.get(meal.customizationKey)),
     }));
 
     for (const meal of resolvedMeals) {
@@ -252,5 +298,60 @@ export function aggregateKitchenOrders({ orders, brands, meals, packages, date, 
     totalMealCount: brandsSummary.reduce((sum, brand) => sum + brand.totalMealCount, 0),
     totalDistinctMeals: brandsSummary.reduce((sum, brand) => sum + brand.meals.length, 0),
     brands: brandsSummary,
+  };
+}
+
+export function aggregateDailyMealsByBrand({ orders, brands, meals, packages, date }: Omit<AggregateKitchenOrdersOptions, 'brandId'>): DailyMealAggregation {
+  const summaries = brands
+    .map(brand => ({ brand, summary: aggregateKitchenOrders({ orders, brands, meals, packages, date, brandId: brand.id }) }))
+    .filter(item => item.summary.orderCount > 0);
+  const rowMap = new Map<string, DailyMealAggregationRow>();
+
+  for (const { brand, summary } of summaries) {
+    for (const meal of summary.brands.flatMap(item => item.meals)) {
+      const key = normalizeLabel(meal.label);
+      const row = rowMap.get(key) ?? {
+        key,
+        label: meal.label,
+        category: meal.category,
+        countsByBrand: {},
+        total: 0,
+        modifications: [],
+      };
+      row.countsByBrand[brand.id] = (row.countsByBrand[brand.id] ?? 0) + meal.count;
+      row.total += meal.count;
+      for (const modification of meal.modifications) {
+        const modKey = `${key}::${normalizeLabel(modification.instruction)}`;
+        const existingMod = row.modifications.find(item => item.key === modKey);
+        if (existingMod) {
+          existingMod.count += modification.count;
+        } else {
+          row.modifications.push({
+            key: modKey,
+            label: `${row.label} - ${modification.instruction}`,
+            instruction: modification.instruction,
+            count: modification.count,
+          });
+        }
+      }
+      rowMap.set(key, row);
+    }
+  }
+
+  const rows = [...rowMap.values()]
+    .map(row => ({
+      ...row,
+      modifications: [...row.modifications].sort((left, right) => right.count - left.count || left.instruction.localeCompare(right.instruction, 'ar')),
+    }))
+    .sort((left, right) =>
+      compareCategory(left.category, right.category) || right.total - left.total || left.label.localeCompare(right.label, 'ar'),
+    );
+
+  return {
+    brands: summaries
+      .map(({ brand, summary }) => ({ key: brand.id, name: brand.name, orderCount: summary.orderCount }))
+      .sort((left, right) => left.name.localeCompare(right.name, 'ar')),
+    rows,
+    total: rows.reduce((sum, row) => sum + row.total, 0),
   };
 }

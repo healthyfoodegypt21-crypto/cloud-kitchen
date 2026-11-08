@@ -133,6 +133,9 @@ export function extractLegacyOrderMetadata(notes: string | null) {
       locationLink: "",
       mealCustomizations: [] as OrderMealCustomization[],
       packageMealSnapshot: [] as OrderMealSnapshotItem[],
+      customerAmount: null as number | null,
+      deliveryFee: null as number | null,
+      importedMealDetails: [] as string[],
     };
   }
 
@@ -143,6 +146,9 @@ export function extractLegacyOrderMetadata(notes: string | null) {
   let locationLink = "";
   let mealCustomizations: OrderMealCustomization[] = [];
   let packageMealSnapshot: OrderMealSnapshotItem[] = [];
+  let customerAmount: number | null = null;
+  let deliveryFee: number | null = null;
+  let importedMealDetails: string[] = [];
 
   for (const line of lines) {
     if (line.startsWith("رقم بديل:")) {
@@ -187,6 +193,14 @@ export function extractLegacyOrderMetadata(notes: string | null) {
       } catch {
         packageMealSnapshot = [];
       }
+    } else if (line.startsWith("حساب العميل:")) {
+      const parsed = Number(line.replace("حساب العميل:", "").trim());
+      customerAmount = Number.isFinite(parsed) ? parsed : null;
+    } else if (line.startsWith("حساب التوصيل:")) {
+      const parsed = Number(line.replace("حساب التوصيل:", "").trim());
+      deliveryFee = Number.isFinite(parsed) ? parsed : null;
+    } else if (/^تفاصيل\s*الشيت\s*:/u.test(line)) {
+      importedMealDetails = line.replace(/^تفاصيل\s*الشيت\s*:/u, "").split(" | ").map(item => compactWhitespace(item)).filter(Boolean);
     } else if (line.trim()) {
       remainingLines.push(line);
     }
@@ -199,6 +213,9 @@ export function extractLegacyOrderMetadata(notes: string | null) {
     locationLink,
     mealCustomizations,
     packageMealSnapshot,
+    ...(customerAmount !== null ? { customerAmount } : {}),
+    ...(deliveryFee !== null ? { deliveryFee } : {}),
+    ...(importedMealDetails.length > 0 ? { importedMealDetails } : {}),
   };
 }
 
@@ -209,6 +226,9 @@ export function buildOrderNotesWithMetadata(input: {
   locationLink?: string;
   mealCustomizations?: OrderMealCustomization[];
   packageMealSnapshot?: OrderMealSnapshotItem[];
+  customerAmount?: number;
+  deliveryFee?: number;
+  importedMealDetails?: string[];
 }) {
   const mealCustomizations = (input.mealCustomizations ?? [])
     .map((item) => ({
@@ -233,6 +253,9 @@ export function buildOrderNotesWithMetadata(input: {
     input.locationLink ? `رابط الموقع: ${input.locationLink}` : '',
     mealCustomizations.length > 0 ? `تخصيصات الوجبات: ${JSON.stringify(mealCustomizations)}` : '',
     packageMealSnapshot.length > 0 ? `وجبات الباقة: ${JSON.stringify(packageMealSnapshot)}` : '',
+    input.customerAmount !== undefined ? `حساب العميل: ${input.customerAmount}` : '',
+    input.deliveryFee !== undefined ? `حساب التوصيل: ${input.deliveryFee}` : '',
+    input.importedMealDetails && input.importedMealDetails.length > 0 ? `تفاصيل الشيت: ${input.importedMealDetails.join(' | ')}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -288,17 +311,23 @@ export function buildDetailedAddressSearchQuery(parts: {
   address_house_number?: string;
   address_street?: string;
   address_area?: string;
+  address_floor?: string;
+  address_apartment?: string;
   address?: string;
 }) {
   const houseNumber = compactWhitespace(parts.address_house_number ?? '');
   const street = compactWhitespace(parts.address_street ?? '');
   const area = compactWhitespace(parts.address_area ?? '');
+  const floor = compactWhitespace(parts.address_floor ?? '');
+  const apartment = compactWhitespace(parts.address_apartment ?? '');
   const fallbackAddress = compactWhitespace(parts.address ?? '');
 
   const detailedQuery = [
     houseNumber ? `بيت ${houseNumber}` : '',
     street ? `شارع ${street}` : '',
     area ? `منطقة ${area}` : '',
+    floor ? `الدور ${floor}` : '',
+    apartment ? `شقة ${apartment}` : '',
     'مصر',
   ].filter(Boolean).join('، ');
 

@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChefHat, ClipboardList, CookingPot, Loader2, Package2, Printer, Tags } from 'lucide-react';
+import { ChefHat, ClipboardList, CookingPot, Loader2, Package2, Printer, Tags, Table2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import KitchenStickerPrintSheet from '@/components/KitchenStickerPrintSheet';
+import KitchenReportPrintSheet from '@/components/KitchenReportPrintSheet';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
 import { Brand } from '@/hooks/useBrands';
 import { hasCompleteDemoOrders } from '@/lib/demoOrders';
-import { aggregateKitchenOrders, buildKitchenStickers, KITCHEN_CATEGORY_LABELS, KitchenCategory } from '@/lib/kitchen';
+import { aggregateDailyMealsByBrand, aggregateKitchenOrders, buildKitchenStickers, KITCHEN_CATEGORY_LABELS, KitchenCategory } from '@/lib/kitchen';
 import { cn, formatArabicDate, getArabicWeekday, getTodayDateValue } from '@/lib/utils';
 import { Meal, MENU_CATEGORY_ORDER, PackagePlan } from '@/types/menu';
 import { Order } from '@/types/order';
@@ -84,6 +85,7 @@ export default function Kitchen({
     ? 'كل الشركات'
     : (brands.find(brand => brand.id === selectedBrandId)?.name ?? 'براند');
   const stickers = useMemo(() => buildKitchenStickers(summary, meals), [summary, meals]);
+  const dailyMealAggregation = useMemo(() => aggregateDailyMealsByBrand({ orders, brands, meals, packages, date: selectedDate }), [brands, meals, orders, packages, selectedDate]);
 
   useEffect(() => {
     if (!printMode) {
@@ -105,7 +107,7 @@ export default function Kitchen({
 
   return (
     <>
-    <div className={cn('space-y-4 print:space-y-3', printMode === 'stickers' && 'print:hidden')}>
+    <div className={cn('space-y-4 print:space-y-3', printMode && 'print:hidden')}>
       <div className="flex flex-wrap items-start justify-between gap-3 print:hidden">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
@@ -198,6 +200,53 @@ export default function Kitchen({
         </Card>
       )}
 
+      {!loading && dailyMealAggregation.rows.length > 0 && (
+        <Card className="rounded-3xl border-0 shadow-sm print:rounded-xl print:shadow-none print:border">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-xl"><Table2 className="h-5 w-5 text-primary" />تجميع الوجبات اليومية</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">إجمالي الوجبات المشتركة بين الصفحات، مع كمية كل صفحة والإجمالي النهائي.</p>
+            </div>
+            <Badge variant="secondary">{dailyMealAggregation.total} وجبة</Badge>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-right text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  <th className="p-3 font-semibold">اسم الوجبة</th>
+                  {dailyMealAggregation.brands.map(brand => <th key={brand.key} className="p-3 text-center font-semibold">{brand.name}</th>)}
+                  <th className="p-3 text-center font-semibold">الإجمالي المطلوب</th>
+                  <th className="p-3 font-semibold">الكومنتات / التعديلات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyMealAggregation.rows.map(row => (
+                  <tr key={row.key} className="border-b last:border-0">
+                    <td className="p-3 font-medium">{row.label}</td>
+                    {dailyMealAggregation.brands.map(brand => <td key={brand.key} className="p-3 text-center">{row.countsByBrand[brand.key] ?? 0}</td>)}
+                    <td className="p-3 text-center font-bold text-primary">{row.total}</td>
+                    <td className="p-3">
+                      {row.modifications.length === 0 ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <div className="space-y-1">
+                          {row.modifications.map(modification => (
+                            <div key={modification.key} className="flex items-start justify-between gap-2 text-xs">
+                              <span className="text-muted-foreground">{modification.instruction}</span>
+                              <Badge variant="outline" className="shrink-0 rounded-full px-2 py-0">{modification.count}</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : groupedCategories.length === 0 ? (
@@ -259,6 +308,7 @@ export default function Kitchen({
         </div>
       )}
     </div>
+    {printMode === 'report' && <KitchenReportPrintSheet summary={summary} dateLabel={formattedDate} brandLabel={selectedBrandName} />}
     {printMode === 'stickers' && <KitchenStickerPrintSheet stickers={stickers} />}
     </>
   );

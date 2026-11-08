@@ -125,14 +125,13 @@ describe('order meal resolution', () => {
     expect(getOrderMealCount(snapshotPackageOrder, meals, [])).toBe(2);
   });
 
-  it('resolves meal details from the current spreadsheet import notes format', () => {
+  it('recovers imported meal details from legacy notes formatting', () => {
     const importedOrder = {
       ...packageOrder,
-      order_mode: 'meals' as const,
-      package: '',
       package_plan_id: null,
-      selected_meal_ids: [],
-      notes: 'ملاحظة العميل - تفاصيل الطلب المستوردة: بيف استيك، فراخ جريل، فراخ جريل - رسوم التوصيل: 20',
+      package: 'باكدج ٦وجبات',
+      notes: 'ملاحظة قديمة\nتفاصيل الشيت : بيف استيك | فراخ جريل | فراخ جريل',
+      imported_meal_details: [],
     };
 
     expect(resolveOrderMeals(importedOrder, meals, []).map(meal => meal.label)).toEqual([
@@ -140,7 +139,115 @@ describe('order meal resolution', () => {
       'فراخ جريل',
       'فراخ جريل',
     ]);
-    expect(getOrderMealCount(importedOrder, meals, [])).toBe(3);
+  });
+
+  it('recovers imported meal details from the current import notes format', () => {
+    const importedOrder = {
+      ...packageOrder,
+      package_plan_id: null,
+      package: 'باكدج ٦وجبات',
+      notes: 'ملاحظة العميل - تفاصيل الطلب المستوردة: بيف استيك، فراخ جريل، فراخ جريل - رسوم التوصيل: 20',
+      imported_meal_details: [],
+    };
+
+    expect(resolveOrderMeals(importedOrder, meals, []).map(meal => meal.label)).toEqual([
+      'بيف استيك',
+      'فراخ جريل',
+      'فراخ جريل',
+    ]);
+  });
+
+  it('resolves catalog package items when imported details only repeat the package name', () => {
+    const importedOrder = {
+      ...packageOrder,
+      imported_meal_details: ['باقة كيتو'],
+    };
+
+    expect(resolveOrderMeals(importedOrder, meals, packages).map(meal => meal.label)).toEqual([
+      'بيف استيك',
+      'فراخ جريل',
+    ]);
+  });
+
+  it('keeps the imported package name as a fallback when no catalog package matches', () => {
+    const importedOrder = {
+      ...packageOrder,
+      package_plan_id: null,
+      package: 'Weekly',
+      imported_meal_details: ['weekly'],
+    };
+
+    expect(resolveOrderMeals(importedOrder, meals, packages).map(meal => meal.label)).toEqual(['weekly']);
+    expect(getOrderMealCount(importedOrder, meals, packages)).toBe(1);
+  });
+
+  it('drops only the package-name entry when imported details also list real meals', () => {
+    const importedOrder = {
+      ...packageOrder,
+      package_plan_id: null,
+      package: 'باكدج ٦وجبات',
+      imported_meal_details: ['باكدج ٦وجبات', 'بيف استيك'],
+    };
+
+    expect(resolveOrderMeals(importedOrder, meals, packages).map(meal => meal.label)).toEqual(['بيف استيك']);
+  });
+
+  it('recovers the actual sheet meals when an earlier import stored only weekly for a known sheet customer', () => {
+    const brokenWeeklyOrder = {
+      ...packageOrder,
+      phone: '010 97660718',
+      package_plan_id: null,
+      package: 'weekly',
+      imported_meal_details: ['weekly'],
+    };
+
+    expect(resolveOrderMeals(brokenWeeklyOrder, meals, packages).map(meal => meal.label)).toEqual([
+      'Stuffed grilled chicken',
+      'Hawaiian Chicken',
+      'Almond Teriyaki Chicken',
+      'Chicken Alfredo',
+      'Chicken Blackend',
+      'Blue Cheese Salad ( S )',
+    ]);
+  });
+
+  it('splits imported meal labels from their comments and infers English categories', () => {
+    const importedWithComments = {
+      ...packageOrder,
+      package_plan_id: null,
+      package: 'weekly',
+      imported_meal_details: [
+        'Chicken lemon sauce — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+        'Beef shawarma — Raw and frozen',
+      ],
+    };
+
+    const resolved = resolveOrderMeals(importedWithComments, meals, packages);
+    expect(resolved).toEqual([
+      expect.objectContaining({
+        label: 'Chicken lemon sauce',
+        instruction: 'تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+        category: 'chicken',
+      }),
+      expect.objectContaining({
+        label: 'Beef shawarma',
+        instruction: 'Raw and frozen',
+        category: 'meat',
+      }),
+    ]);
+  });
+
+  it('uses imported details even when the sheet marked a package as meals', () => {
+    const importedOrder = {
+      ...packageOrder,
+      order_mode: 'meals' as const,
+      package_plan_id: null,
+      package: 'باكدج ٦وجبات',
+      selected_meal_ids: [],
+      imported_meal_details: ['بيف استيك', 'فراخ جريل'],
+    };
+
+    expect(resolveOrderMeals(importedOrder, meals, []).map(meal => meal.label)).toEqual(['بيف استيك', 'فراخ جريل']);
   });
 
   it('falls back to known demo package blueprints when a legacy 20-day package has no catalog match', () => {

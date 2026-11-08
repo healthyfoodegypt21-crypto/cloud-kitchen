@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateKitchenOrders } from '@/lib/kitchen';
+import { aggregateDailyMealsByBrand, aggregateKitchenOrders } from '@/lib/kitchen';
 import { Meal, PackagePlan } from '@/types/menu';
 import { Order } from '@/types/order';
 
@@ -210,6 +210,89 @@ const orders: Order[] = [
 ];
 
 describe('aggregateKitchenOrders', () => {
+  it('uses imported meal details when an imported package has no catalog package link', () => {
+    const importedOrder = {
+      ...orders[0],
+      id: 'imported-order',
+      order_mode: 'package' as const,
+      package: 'باكدج ٦وجبات',
+      package_plan_id: null,
+      selected_meal_ids: [],
+      imported_meal_details: ['بيف استيك', 'فراخ جريل', 'فراخ جريل'],
+    };
+    const aggregation = aggregateKitchenOrders({
+      orders: [importedOrder],
+      brands,
+      meals,
+      packages: [],
+      date: '2026-03-22',
+      brandId: 'brand-1',
+    });
+
+    expect(aggregation.totalMealCount).toBe(3);
+    expect(aggregation.brands[0].meals.find(meal => meal.label === 'بيف استيك')?.count).toBe(1);
+    expect(aggregation.brands[0].meals.find(meal => meal.label === 'فراخ جريل')?.count).toBe(2);
+  });
+
+  it('groups imported sheet meals and attaches per-meal comments next to the item while ignoring delivery notes', () => {
+    const importedOrder1 = {
+      ...orders[0],
+      id: 'imported-sheet-1',
+      phone: '01999999991',
+      order_mode: 'package' as const,
+      package: 'weekly',
+      package_plan_id: null,
+      selected_meal_ids: [],
+      meal_customizations: [],
+      notes: 'قبل الساعة 6 - تفاصيل الطلب المستوردة: شاورما، شاورما - رسوم التوصيل: 80',
+      imported_meal_details: [
+        'شاورما',
+        'شاورما — بدون تومية',
+      ],
+    };
+    const importedOrder2 = {
+      ...importedOrder1,
+      id: 'imported-sheet-2',
+      phone: '01999999992',
+      notes: 'مدفوع انستاباي - تفاصيل الطلب المستوردة: شاورما',
+      imported_meal_details: [
+        'شاورما',
+        'شاورما — عيش صاج إضافي',
+      ],
+    };
+
+    const summary = aggregateKitchenOrders({
+      orders: [importedOrder1, importedOrder2],
+      brands,
+      meals,
+      packages: [],
+      date: '2026-03-22',
+      brandId: 'all',
+    });
+
+    const shawarma = summary.brands[0].meals.find(meal => meal.label === 'شاورما');
+
+    expect(summary.totalMealCount).toBe(4);
+    expect(shawarma?.count).toBe(4);
+    expect(shawarma?.modifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ instruction: 'بدون تومية', count: 1 }),
+      expect.objectContaining({ instruction: 'عيش صاج إضافي', count: 1 }),
+    ]));
+    expect(shawarma?.modifications).toHaveLength(2);
+  });
+
+  it('builds daily shared-meal totals with one quantity column per brand', () => {
+    const aggregation = aggregateDailyMealsByBrand({ orders, brands, meals, packages, date: '2026-03-22' });
+    const beef = aggregation.rows.find(row => row.label === 'بيف استيك');
+    const chicken = aggregation.rows.find(row => row.label === 'فراخ جريل');
+
+    expect(aggregation.brands.map(brand => brand.name)).toEqual(['Healthy Food', 'Healthy Station']);
+    expect(beef?.countsByBrand).toEqual({ 'brand-1': 3, 'brand-2': 1 });
+    expect(beef?.total).toBe(4);
+    expect(chicken?.countsByBrand).toEqual({ 'brand-1': 2 });
+    expect(chicken?.total).toBe(2);
+  });
+
   it('groups repeated meals and nests modified versions beneath the same meal', () => {
     const summary = aggregateKitchenOrders({
       orders,

@@ -39,7 +39,50 @@ describe('order sheet import parsing', () => {
 
     expect(cell(row, ['التلفون', 'الهاتف'])).toBe(1000252654);
     expect(cell(row, ['الاوردر', 'رقم الطلب'])).toBe('باكدج');
-    expect(consolidateRows([row, { التفاصيل: 'وجبة 2' }])).toHaveLength(1);
+    const consolidated = consolidateRows([row, { الاسم: '', 'التلفون ': '', الاوردر: '', التفاصيل: 'وجبة 2', العدد: 2 }]);
+    expect(consolidated).toHaveLength(1);
+    expect(consolidated[0].__mealItems).toEqual(['وجبة 1', 'وجبة 2', 'وجبة 2']);
+  });
+
+  it('extracts multiline meal comments and skips template placeholder rows', () => {
+    const rows = [
+      {
+        الاسم: 'منه الله إيهاب',
+        الرقم: 1091440346,
+        الاوردر: 'باكدج غدا اسبوعي',
+        التفاصيل: 'كبدة مكرونة صوص أحمر\nتقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+        الكميه: 2,
+      },
+      {
+        الاسم: '',
+        الرقم: '',
+        الاوردر: '',
+        التفاصيل: 'Shawarma chicken\nتقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+        الكميه: 1,
+      },
+      {
+        الاسم: 'الاسم 20',
+        الرقم: 'الرقم 20',
+        الاوردر: 'الاوردر 20',
+        التفاصيل: 'الوجبة 20',
+        الكميه: 'الكمية 20',
+      },
+      {
+        الاسم: '',
+        الرقم: '',
+        الاوردر: '',
+        التفاصيل: '....................',
+        الكميه: '......',
+      },
+    ];
+
+    const consolidated = consolidateRows(rows);
+    expect(consolidated).toHaveLength(1);
+    expect(consolidated[0].__mealItems).toEqual([
+      'كبدة مكرونة صوص أحمر — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+      'كبدة مكرونة صوص أحمر — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+      'Shawarma chicken — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+    ]);
   });
 
   it('restores the leading zero when Excel stores an Egyptian mobile as a number', () => {

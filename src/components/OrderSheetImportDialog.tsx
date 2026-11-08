@@ -32,7 +32,7 @@ type Props = {
 };
 
 const aliases = {
-  orderNumber: ['رقم الطلب', 'رقم الاوردر', 'الاوردر', 'الأوردر', 'اوردر', 'order number', 'order_number', 'id'],
+  orderNumber: ['رقم الطلب', 'رقم الاوردر', 'order number', 'order_number', 'id', 'الاوردر', 'الأوردر', 'اوردر'],
   name: ['اسم العميل', 'العميل', 'الاسم', 'name', 'customer name', 'customer_name'],
   phone: ['الهاتف', 'رقم الهاتف', 'التليفون', 'التلفون', 'رقم التلفون', 'رقم التليفون', 'الموبايل', 'الرقم', 'phone', 'mobile'],
   phoneSecondary: ['هاتف بديل', 'تليفون بديل', 'تلفون بديل', 'رقم بديل', 'phone secondary', 'phone_secondary'],
@@ -40,8 +40,9 @@ const aliases = {
   locationLink: ['رابط الموقع', 'لوكيشن', 'الموقع', 'location link', 'location_link', 'map link'],
   brand: ['البراند', 'العلامة', 'brand', 'brand name', 'brand_id'],
   date: ['تاريخ التنفيذ', 'تاريخ الطلب', 'execution date', 'execution_date', 'date'],
-  package: ['الباقة', 'اسم الباقة', 'package', 'package name', 'package_plan_id'],
-  meals: ['الوجبات', 'الوجبة', 'التفاصيل', 'تفاصيل الطلب', 'الأصناف', 'الطلب', 'الأوردر', 'اوردر', 'details', 'meals', 'meal', 'selected_meal_ids'],
+  package: ['الباقة', 'اسم الباقة', 'الاوردر', 'الأوردر', 'اوردر', 'package', 'package name', 'package_plan_id'],
+  meals: ['التفاصيل', 'تفاصيل الطلب', 'الوجبات', 'الوجبة', 'الأصناف', 'الطلب', 'details', 'meals', 'meal', 'selected_meal_ids'],
+  quantity: ['العدد', 'الكميه', 'الكمية', 'عدد', 'كميه', 'كمية', 'quantity', 'qty', 'count'],
   mode: ['نوع الطلب', 'order mode', 'order_mode'],
   region: ['المنطقة', 'الحي', 'region', 'area'],
   mealType: ['نوع اليوم', 'meal type', 'meal_type'],
@@ -53,24 +54,99 @@ const aliases = {
   notes: ['ملاحظات', 'notes', 'note'],
 };
 
-type ImportRow = ExcelRow & { __sourceRow?: number };
+type ImportRow = ExcelRow & { __sourceRow?: number; __mealItems?: string[] };
+
+function isPlaceholderCustomerRow(name: string, rawPhone: unknown) {
+  const phoneText = text(rawPhone);
+  if (/^(?:الاسم|اسم)\s*\d+$/u.test(name) || /^(?:الرقم|رقم)\s*\d+$/u.test(phoneText)) {
+    return true;
+  }
+  return /^[\s._…-]+$/u.test(name) && /^[\s._…-]+$/u.test(phoneText);
+}
+
+function isPlaceholderMealText(value: string) {
+  const trimmed = compactWhitespace(value);
+  if (!trimmed) return true;
+  return /^(?:[\s._…-]+|الوجب[ةه]\s*\d+|الإجمالي|الاجمالي|total)$/iu.test(trimmed);
+}
+
+export function parseImportedQuantity(value: unknown) {
+  const normalized = normalizeArabicDigits(text(value)).replace(/[^\d.-]/g, '');
+  if (!normalized) return 1;
+  const parsed = Math.floor(Number(normalized));
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  return Math.min(parsed, 100);
+}
+
+export function formatImportedMealCell(rawValue: unknown, quantityValue?: unknown): string[] {
+  if (rawValue === null || rawValue === undefined) return [];
+  const rawString = String(rawValue).trim();
+  if (!rawString || isPlaceholderMealText(rawString)) return [];
+
+  const lines = rawString
+    .split(/\r?\n/u)
+    .map(line => compactWhitespace(line))
+    .filter(line => line && !isPlaceholderMealText(line));
+
+  if (lines.length === 0) return [];
+
+  const quantity = parseImportedQuantity(quantityValue);
+
+  if (lines.length > 1) {
+    const mealName = lines[0].replace(/^\*+\s*/u, '').trim();
+    const comment = lines.slice(1).join(' - ');
+    if (!mealName) return [];
+    const entry = comment ? `${mealName} — ${comment}` : mealName;
+    return Array.from({ length: quantity }, () => entry);
+  }
+
+  const singleLine = lines[0];
+  const splitItems = singleLine
+    .split(/\s*[،|;]\s*|\s*,(?!\d)\s*/u)
+    .map(item => compactWhitespace(item.replace(/^\*+\s*/u, '')))
+    .filter(item => item && !isPlaceholderMealText(item));
+
+  if (splitItems.length === 0) return [];
+  if (splitItems.length === 1) {
+    return Array.from({ length: quantity }, () => splitItems[0]);
+  }
+  return splitItems;
+}
 
 export function consolidateRows(rows: ExcelRow[]) {
   const consolidated: ImportRow[] = [];
   let current: ImportRow | null = null;
 
   rows.forEach((row, index) => {
-    const hasCustomerIdentity = Boolean(text(cell(row, aliases.name)) || text(cell(row, aliases.phone)));
+    const rawName = text(cell(row, aliases.name));
+    const rawPhone = cell(row, aliases.phone);
+    const hasCustomerIdentity = Boolean(rawName || text(rawPhone));
+
     if (hasCustomerIdentity) {
       if (current) consolidated.push(current);
-      current = { ...row, __sourceRow: index + 2 };
+      if (isPlaceholderCustomerRow(rawName, rawPhone)) {
+        current = null;
+        return;
+      }
+      const initialMeals = formatImportedMealCell(cell(row, aliases.meals), cell(row, aliases.quantity));
+      current = {
+        ...row,
+        ...(initialMeals.length > 0 ? { التفاصيل: initialMeals.join('، ') } : {}),
+        __mealItems: initialMeals,
+        __sourceRow: index + 2,
+      };
       return;
     }
 
-    const details = text(cell(row, aliases.meals));
-    if (current && details) {
-      const existingDetails = text(cell(current, aliases.meals));
-      current = { ...current, التفاصيل: [existingDetails, details].filter(Boolean).join('، ') };
+    if (!current) return;
+    const moreMeals = formatImportedMealCell(cell(row, aliases.meals), cell(row, aliases.quantity));
+    if (moreMeals.length > 0) {
+      const nextMealItems = [...(current.__mealItems ?? []), ...moreMeals];
+      current = {
+        ...current,
+        التفاصيل: nextMealItems.join('، '),
+        __mealItems: nextMealItems,
+      };
     }
   });
 
@@ -89,8 +165,21 @@ function normalizeHeader(value: string) {
 
 export function cell(row: ExcelRow, keys: string[]) {
   const entries = Object.entries(row);
-  const match = entries.find(([key]) => keys.some(alias => normalizeHeader(key) === normalizeHeader(alias)));
-  return match?.[1];
+  let fallbackMatch: unknown = undefined;
+
+  for (const alias of keys) {
+    const normalizedAlias = normalizeHeader(alias);
+    const match = entries.find(([key]) => normalizeHeader(key) === normalizedAlias);
+    if (!match) continue;
+    if (fallbackMatch === undefined) {
+      fallbackMatch = match[1];
+    }
+    if (text(match[1]) !== '') {
+      return match[1];
+    }
+  }
+
+  return fallbackMatch;
 }
 
 function text(value: unknown) {
@@ -98,7 +187,20 @@ function text(value: unknown) {
 }
 
 export function normalizeImportedPhone(value: unknown) {
-  const digits = normalizePhone(normalizeArabicDigits(text(value)));
+  const normalizedText = normalizeArabicDigits(text(value));
+  const digits = normalizePhone(normalizedText);
+  if (digits.length > 14) {
+    const firstEgyptianMatch = normalizedText.match(/(?:\+?20\s*|0020\s*)?0?1[0125](?:[\s-]*\d){8}/u);
+    if (firstEgyptianMatch) {
+      const matchedDigits = normalizePhone(firstEgyptianMatch[0]);
+      const localMatched = matchedDigits.startsWith('0020')
+        ? matchedDigits.slice(4)
+        : matchedDigits.startsWith('20') && matchedDigits.length === 12
+          ? matchedDigits.slice(2)
+          : matchedDigits;
+      return /^1\d{9}$/.test(localMatched) ? `0${localMatched}` : localMatched;
+    }
+  }
   const localDigits = digits.startsWith('0020') ? digits.slice(4) : digits.startsWith('20') && digits.length === 12 ? digits.slice(2) : digits;
   return /^1\d{9}$/.test(localDigits) ? `0${localDigits}` : localDigits;
 }
@@ -116,8 +218,8 @@ export function parsePastedOrder(value: string): ExcelRow | null {
     { key: 'رابط الموقع', aliases: aliases.locationLink },
     { key: 'البراند', aliases: aliases.brand },
     { key: 'تاريخ التنفيذ', aliases: aliases.date },
-    { key: 'الباقة', aliases: aliases.package },
-    { key: 'التفاصيل', aliases: aliases.meals },
+    { key: 'الباقة', aliases: aliases.package.filter(alias => !['الاوردر', 'الأوردر', 'اوردر'].includes(alias)) },
+    { key: 'التفاصيل', aliases: [...aliases.meals, 'الاوردر', 'الأوردر', 'اوردر'] },
     { key: 'نوع الطلب', aliases: aliases.mode },
     { key: 'المنطقة', aliases: aliases.region },
     { key: 'نوع اليوم', aliases: aliases.mealType },
@@ -178,7 +280,7 @@ function dateValue(value: unknown) {
 }
 
 function listValue(value: unknown) {
-  return text(value).split(/[,،|;]/).map(item => compactWhitespace(item)).filter(Boolean);
+  return formatImportedMealCell(value);
 }
 
 function findBrand(value: unknown, brands: Brand[]) {
@@ -337,7 +439,13 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
         ...current,
         rowsBySheet: {
           ...current.rowsBySheet,
-          [sheetName]: currentRows.map((row, index) => index === 0 ? { ...row, [field]: value } : row),
+          [sheetName]: currentRows.map((row, index) => index === 0
+            ? {
+                ...row,
+                [field]: value,
+                ...(field === 'التفاصيل' ? { __mealItems: formatImportedMealCell(value) } : {}),
+              }
+            : row),
         },
       };
     });
@@ -415,13 +523,16 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
 
       const packageValue = text(cell(row, aliases.package));
       const packagePlan = packages.find(item => item.id === packageValue || item.name.toLowerCase() === packageValue.toLowerCase());
-      const mealNames = listValue(cell(row, aliases.meals));
+      const mealNames = Array.isArray(row.__mealItems) && row.__mealItems.length > 0
+        ? row.__mealItems
+        : listValue(cell(row, aliases.meals));
       const selectedMealIds = mealNames.map(nameValue => meals.find(meal => meal.id === nameValue || meal.name.toLowerCase() === nameValue.toLowerCase())?.id).filter((id): id is string => Boolean(id));
       const modeValue = text(cell(row, aliases.mode)).toLowerCase();
-      const orderMode: OrderMode = packagePlan || packageValue || modeValue.includes('package') || modeValue.includes('باقة') ? 'package' : 'meals';
+      const isMenuMealsOrder = packageValue === 'وجبات من المنيو' || modeValue.includes('meal') || modeValue.includes('وجبات');
+      const orderMode: OrderMode = !isMenuMealsOrder && (packagePlan || packageValue || modeValue.includes('package') || modeValue.includes('باقة')) ? 'package' : 'meals';
       const customerAmount = parseImportedAmount(cell(row, aliases.customerAmount)) || parseImportedAmount(cell(row, aliases.price)) || packagePlan?.price || 0;
       const deliveryFee = parseImportedAmount(cell(row, aliases.deliveryFee));
-      const importedDetails = selectedMealIds.length === mealNames.length
+      const importedDetails = mealNames.length === 0
         ? ''
         : `تفاصيل الطلب المستوردة: ${mealNames.join('، ')}`;
       const deliveryNote = deliveryFee > 0 ? `رسوم التوصيل: ${deliveryFee}` : '';
@@ -445,6 +556,9 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
         notes: [text(cell(row, aliases.notes)), text(cell(row, aliases.region)), importedDetails, deliveryNote].filter(Boolean).join(' - '),
         status: mapStatus(cell(row, aliases.status)),
         price: customerAmount + deliveryFee,
+        customer_amount: customerAmount,
+        delivery_fee: deliveryFee,
+        imported_meal_details: mealNames,
         selected_meal_ids: selectedMealIds,
         source: mapSource(cell(row, aliases.source)),
         brand_id: brand.id,

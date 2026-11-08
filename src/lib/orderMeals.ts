@@ -8,6 +8,7 @@ export interface ResolvedOrderMealItem {
   id: string;
   label: string;
   customizationKey: string;
+  instruction?: string;
   category: Meal['category'] | null;
   calories: number | null;
   protein: number | null;
@@ -16,7 +17,362 @@ export interface ResolvedOrderMealItem {
 }
 
 function normalizeLabel(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ar');
+  return value
+    .replace(/^\*+\s*/u, '')
+    .replace(/\(\s+/gu, '(')
+    .replace(/\s+\)/gu, ')')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('ar');
+}
+
+function normalizeOrderPhone(value: string) {
+  const digits = value.replace(/\D/g, '');
+  const localDigits = digits.startsWith('0020')
+    ? digits.slice(4)
+    : digits.startsWith('20') && digits.length === 12
+      ? digits.slice(2)
+      : digits;
+  return /^1\d{9}$/.test(localDigits) ? `0${localDigits}` : localDigits;
+}
+
+export function parseMealLabelAndInstruction(rawLabel: string): { label: string; instruction?: string } {
+  const trimmed = rawLabel.trim();
+  if (!trimmed) {
+    return { label: '' };
+  }
+
+  if (/\r?\n/u.test(trimmed)) {
+    const lines = trimmed
+      .split(/\r?\n/u)
+      .map(line => line.trim().replace(/\s+/g, ' '))
+      .filter(Boolean);
+    const label = (lines[0] ?? '').replace(/^\*+\s*/u, '').trim();
+    const instruction = lines.slice(1).join(' - ').trim();
+    return { label, ...(instruction ? { instruction } : {}) };
+  }
+
+  const separatorMatch = trimmed.match(/^(.*?)\s+—\s+(.+)$/u);
+  if (separatorMatch) {
+    const label = separatorMatch[1].replace(/^\*+\s*/u, '').trim().replace(/\s+/g, ' ');
+    const instruction = separatorMatch[2].trim().replace(/\s+/g, ' ');
+    return { label, ...(instruction ? { instruction } : {}) };
+  }
+
+  return { label: trimmed.replace(/^\*+\s*/u, '').trim().replace(/\s+/g, ' ') };
+}
+
+const RECOVERED_SHEET_MEALS_BY_PHONE: Record<string, string[]> = {
+  '01091440346': [
+    'Marbella meatballs — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+    'كبدة مكرونة صوص أحمر — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+    'كبدة مكرونة صوص أحمر — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+    'Chicken lemon sauce — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+    'Chicken lemon sauce — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+    'Shawarma chicken — تقليل الزيت - الخضار السوتيه في طبق منفرد خارج الوجبة',
+  ],
+  '01111011894': [
+    'Grilled chicken',
+    'oats . nuts . yogurt. honey',
+    'cup cake',
+    'Fruit Salad',
+    'tuna salad',
+  ],
+  '01288979597': [
+    'Russian beef',
+    'chicken shish taouk',
+  ],
+  '01066612162': [
+    'Beef shawarma',
+    'Russian beef',
+    'chicken piccata',
+    'chicken shish taouk',
+    'Grilled chicken',
+    'chicken veggie',
+    'Fruit Salad',
+  ],
+  '01151869330': [
+    'Beef shawarma',
+    'Russian beef',
+    'chicken piccata',
+    'chicken shish taouk',
+    'Grilled chicken',
+    'chicken veggie',
+    'Fruit Salad',
+  ],
+  '01155581855': [
+    'Beef shawarma',
+    'Russian beef',
+    'chicken piccata',
+    'chicken shish taouk',
+    'Grilled chicken',
+    'chicken veggie',
+    'Fruit Salad',
+  ],
+  '01097092441': [
+    'Beef shawarma',
+    'Russian beef',
+    'chicken piccata',
+    'chicken shish taouk',
+    'Grilled chicken',
+    'chicken veggie',
+    'Fruit Salad',
+  ],
+  '01008546572': [
+    'Shish kabab',
+    'Shish kabab',
+    'Oriental kofta',
+    'Oriental kofta',
+    'Beef chipotle',
+    'Beef chipotle',
+    'Beef stroganoff',
+    'Beef stroganoff',
+    'Chicken cashew',
+    'Chicken cashew',
+    'Almond teriyaki chicken',
+    'Almond teriyaki chicken',
+    'Mexican chicken',
+    'Mexican chicken',
+    'Stuffed grilled chicken',
+    'Stuffed grilled chicken',
+    'Four beans salad ( L )',
+  ],
+  '01005073772': [
+    'Almond teriyaki chicken',
+    'Chicken Alfredo',
+    'Chicken Alfredo',
+    'Herb grilled chicken',
+    'Almond meat ball',
+    'Beef and vegetable',
+    'Beef chipotle',
+    'Beef stroganoff',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+  ],
+  '01097660718': [
+    'Stuffed grilled chicken',
+    'Hawaiian Chicken',
+    'Almond Teriyaki Chicken',
+    'Chicken Alfredo',
+    'Chicken Blackend',
+    'Blue Cheese Salad ( S )',
+  ],
+  '01050404294': [
+    'Grilled calamari',
+    'Shrimp and carb',
+    'Grilled seafood',
+    'Shish kabab',
+    'Oriental kofta',
+    'Chicken Alfredo',
+    'Almond teriyaki chicken',
+    'Chocolate cupcakes',
+    'Chocolate cupcakes',
+    'Chocolate cupcakes',
+    'Chocolate cupcakes',
+    'Chocolate cupcakes',
+    'Chocolate cupcakes',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+    'Chicken mini pizza',
+  ],
+  '01142659047': [
+    'Shish kabab',
+    'Chicken alfredo',
+    'Chicken shish taouk',
+    'Cashew chicken',
+    'Dill lemon fish',
+    'Chicken piccata',
+    'Mix grilled',
+    'Protein Box',
+    'Mexican Chicken',
+    'Beef and vegetables',
+    'chicken caeser salad ( S )',
+    'chicken caeser salad ( S )',
+    'Green salad ( S )',
+    'Greek Salad ( S )',
+    'Four beans salad ( L )',
+  ],
+  '01016592603': [
+    'Shish kabab',
+    'Chicken alfredo',
+    'Chicken shish taouk',
+    'Cashew chicken',
+    'Dill lemon fish',
+    'Chicken piccata',
+    'Mix grilled',
+    'chicken caeser salad ( S )',
+    'Green salad ( S )',
+    'Greek Salad ( S )',
+    'Mexican Chicken — ( protein box plus )',
+    'Beef Steak — ( protein box plus )',
+    'Stuffed grilled chicken — ( protein box plus )',
+    'Mix Sea Food — ( protein box plus )',
+    'Chicken Shawarma — ( protein box plus )',
+  ],
+  '01240911908': [
+    'Mexican Chicken — ( protein box plus )',
+    'Beef Steak — ( protein box plus )',
+    'Stuffed grilled chicken — ( protein box plus )',
+    'Mix Sea Food — ( protein box plus )',
+    'Chicken Shawarma — ( protein box plus )',
+  ],
+  '01286500789': [
+    'Mexican Chicken — ( protein box plus )',
+    'Beef Steak — ( protein box plus )',
+    'Stuffed grilled chicken — ( protein box plus )',
+    'Mix Sea Food — ( protein box plus )',
+    'Chicken Shawarma — ( protein box plus )',
+  ],
+  '01299982637': [
+    'Chicken tandoori — Raw and frozen',
+    'Chicken shish tawook — Raw and frozen',
+    'Chicken shawarma — Raw and frozen',
+    'Chicken Burger — Raw and frozen',
+    'Chicken herb — Raw and frozen',
+    'Mexican chicken — Raw and frozen',
+    'Sweet and sour chicken — Raw and frozen',
+    'Steak with herbs — Raw and frozen',
+    'Kofta — Raw and frozen',
+    'Beef shawarma — Raw and frozen',
+    'Beef Burger — Raw and frozen',
+    'Beef kebab — Raw and frozen',
+    'Beef BBQ — Raw and frozen',
+    'Beef sriracha — Raw and frozen',
+  ],
+  '01126818256': [
+    'Mexican Chicken — ( protein box plus )',
+    'Beef Steak — ( protein box plus )',
+    'Beef Steak — ( protein box plus )',
+    'Stuffed grilled chicken — ( protein box plus )',
+    'Chicken Shawarma — ( protein box plus )',
+  ],
+  '01222217139': [
+    'Mexican Chicken — ( protein box plus )',
+    'Mexican Chicken — ( protein box plus )',
+    'Mexican Chicken — ( protein box plus )',
+    'Beef Steak — ( protein box plus )',
+    'Beef Steak — ( protein box plus )',
+  ],
+  '01112004754': [
+    'Shish kabab',
+    'Chicken alfredo',
+    'Chicken shish taouk',
+    'Cashew chicken',
+    'Dill lemon fish',
+    'Chicken piccata',
+    'Mix grilled',
+    'chicken caeser salad ( S )',
+    'Green salad ( S )',
+    'Greek Salad ( S )',
+  ],
+  '01007560984': [
+    'Chicken tandoori — Raw and frozen',
+    'Chicken shish tawook — Raw and frozen',
+    'Chicken shawarma — Raw and frozen',
+    'Chicken Burger — Raw and frozen',
+    'Chicken herb — Raw and frozen',
+    'Mexican chicken — Raw and frozen',
+    'Sweet and sour chicken — Raw and frozen',
+    'Steak with herbs — Raw and frozen',
+    'Kofta — Raw and frozen',
+    'Beef shawarma — Raw and frozen',
+    'Beef Burger — Raw and frozen',
+    'Beef kebab — Raw and frozen',
+    'Beef BBQ — Raw and frozen',
+    'Beef sriracha — Raw and frozen',
+  ],
+  '01096072216': [
+    'Shish kabab — كل حاجه تكون منفصله الكارب منفصل لوحده والخضار منفصل لوحده والبروتين منفصل لوحده - الخضار يكون جزر فقط',
+    'Chicken alfredo — كل حاجه تكون منفصله الكارب منفصل لوحده والخضار منفصل لوحده والبروتين منفصل لوحده - الخضار يكون جزر فقط',
+    'Chicken shish taouk — كل حاجه تكون منفصله الكارب منفصل لوحده والخضار منفصل لوحده والبروتين منفصل لوحده - الخضار يكون جزر فقط',
+    'Cashew chicken — كل حاجه تكون منفصله الكارب منفصل لوحده والخضار منفصل لوحده والبروتين منفصل لوحده - الخضار يكون جزر فقط',
+    'Dill lemon fish — كل حاجه تكون منفصله الكارب منفصل لوحده والخضار منفصل لوحده والبروتين منفصل لوحده - الخضار يكون جزر فقط',
+    'Chicken piccata — كل حاجه تكون منفصله الكارب منفصل لوحده والخضار منفصل لوحده والبروتين منفصل لوحده - الخضار يكون جزر فقط',
+    'Mix grilled — كل حاجه تكون منفصله الكارب منفصل لوحده والخضار منفصل لوحده والبروتين منفصل لوحده - الخضار يكون جزر فقط',
+    'chicken caeser salad ( S )',
+    'Green salad ( S )',
+    'Greek Salad ( S )',
+  ],
+  '01221973925': [
+    'Shish kabab',
+    'Chicken alfredo',
+    'Chicken shish taouk',
+    'Cashew chicken',
+    'Dill lemon fish',
+    'Chicken piccata',
+    'Mix grilled',
+    'chicken caeser salad ( S )',
+    'Green salad ( S )',
+    'Greek Salad ( S )',
+  ],
+  '01106206727': [
+    'meatball+125g protein — بروتين 84,5 جم بروتين . كارب 66جم . دهون 67,5 جم سعر حراري 375 وحبه اساسيه',
+    'Greek salad ( L )',
+    'Chicken mini pizza',
+  ],
+  '01000252654': [
+    'الواجبه الاولى ( عبارة عن ١٠٠جرام رز بسمتى صافى بعد التسوية +٢٠٠جرام استيك مشوى )',
+    'chicken ceasar salad',
+  ],
+  '01271320535': [
+    'Beef shawarma',
+    'Russian beef',
+    'chicken piccata',
+    'chicken shish taouk',
+    'Grilled chicken',
+    'chicken veggie',
+    'fruit salad',
+  ],
+  '01095868305': [
+    'Beef shawarma',
+    'Russian beef',
+    'Grilled chicken',
+    'chicken veggie',
+    'fruit salad',
+  ],
+  '01003574100': [
+    'chicken fettuccine',
+    'italian chicken',
+    'BBQ',
+    'steak tejano',
+    'shish kebab',
+    'chicken shawarma',
+    'fruit salad',
+  ],
+  '01007247405': [
+    'Beef shawarma',
+    'Russian beef',
+    'chicken piccata',
+    'chicken shish taouk',
+    'Grilled chicken',
+    'chicken veggie',
+    'fruit salad',
+  ],
+};
+
+function isOrderTypeOrPackageLabel(detail: string, orderPackage: string) {
+  const normalized = normalizeLabel(detail);
+  if (!normalized) return true;
+  if (normalized === normalizeLabel(orderPackage)) return true;
+  return /^(?:weekly|week|monthly|daily|وجبات من المنيو|باكدج.*|باقة.*|package.*)$/iu.test(normalized);
+}
+
+export function getRecoveredSheetMealsForPhone(phone: string): string[] | null {
+  const normalized = normalizeOrderPhone(phone);
+  return RECOVERED_SHEET_MEALS_BY_PHONE[normalized] ?? null;
 }
 
 function buildPackageLookup(packages: PackagePlan[]) {
@@ -50,27 +406,27 @@ function scoreMealNameMatch(targetMealName: string, mealName: string) {
 function inferCategoryFromMealLabel(mealLabel: string): Meal['category'] | null {
   const normalizedMealLabel = normalizeLabel(mealLabel);
 
-  if (/(سلطة|سلطه|سالاد|سيزر|فتوش|تبولة|تبوله|كينوا جاردن)/.test(normalizedMealLabel)) {
+  if (/(سلطة|سلطه|سالاد|سيزر|فتوش|تبولة|تبوله|كينوا جاردن|salad|caesar|caeser)/i.test(normalizedMealLabel)) {
     return 'salad';
   }
 
-  if (/(سناكس|سناك|بار|راب|بايتس|ميني ساندوتش|تشيبس)/.test(normalizedMealLabel)) {
+  if (/(سناكس|سناك|بار|راب|بايتس|ميني ساندوتش|تشيبس|cup\s*cake|cupcake|oats|mini\s*pizza)/i.test(normalizedMealLabel)) {
     return 'snacks';
   }
 
-  if (/(لحم|بيف|ستيك|كفتة|ميداليون)/.test(normalizedMealLabel)) {
-    return 'meat';
-  }
-
-  if (/(دجاج|تشيكن|فراخ)/.test(normalizedMealLabel)) {
-    return 'chicken';
-  }
-
-  if (/(سمك|سالمون|فيش|تونة|سي باس)/.test(normalizedMealLabel)) {
+  if (/(سمك|سالمون|فيش|تونة|سي باس|fish|salmon|tuna|shrimp|calamari|seafood|sea\s*food)/i.test(normalizedMealLabel)) {
     return 'fish';
   }
 
-  if (/(ميكس|شاورما)/.test(normalizedMealLabel)) {
+  if (/(دجاج|تشيكن|فراخ|chicken|shish\s*taouk|shish\s*tawook|piccata|fettuccine|teriyaki|alfredo|tandoori)/i.test(normalizedMealLabel)) {
+    return 'chicken';
+  }
+
+  if (/(لحم|بيف|ستيك|استيك|كفتة|كفته|كبدة|كبده|ميداليون|beef|steak|kofta|meat\s*ball|meatball|kabab|kebab)/i.test(normalizedMealLabel)) {
+    return 'meat';
+  }
+
+  if (/(ميكس|شاورما|mix|bbq|protein\s*box)/i.test(normalizedMealLabel)) {
     return 'mix';
   }
 
@@ -197,9 +553,19 @@ function findDemoPackageSnapshot(order: Order) {
   return [];
 }
 
-function getImportedMealDetails(order: Order) {
-  const detailsLine = order.notes.match(/(?:^|\n| - )تفاصيل(?:\s+الطلب\s+المستوردة|\s*الشيت)\s*:\s*(.*?)(?=\s+-\s+|\n|$)/u)?.[1] ?? '';
-  return detailsLine.split(/\s*\|\s*|\s*،\s*/u).map(item => item.trim()).filter(Boolean);
+export function getImportedMealDetails(order: Order) {
+  if ((order.imported_meal_details ?? []).length > 0) {
+    return order.imported_meal_details ?? [];
+  }
+
+  const detailsLine = order.notes.match(/(?:^|\n| - )تفاصيل(?:\s+الطلب\s+المستوردة|\s*الشيت)\s*:\s*(.*?)(?=\s+-\s+رسوم التوصيل\s*:|\n|$)/u)?.[1] ?? '';
+  if (!detailsLine) return [];
+
+  if (detailsLine.includes('|')) {
+    return detailsLine.split(/\s*\|\s*/u).map(item => item.trim()).filter(Boolean);
+  }
+
+  return detailsLine.split(/\s*،\s*/u).map(item => item.trim()).filter(Boolean);
 }
 
 export function resolveOrderMeals(order: Order, meals: Meal[], packages: PackagePlan[]): ResolvedOrderMealItem[] {
@@ -222,21 +588,39 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
   };
 
   const importedMealDetails = getImportedMealDetails(order);
-  if (importedMealDetails.length > 0) {
-    return importedMealDetails.map((label, index) => {
-      const matchedMeal = findMealByLabel(label, order.brand_id, meals);
+  const mapImportedMeal = (rawLabel: string, index: number) => {
+    const parsed = parseMealLabelAndInstruction(rawLabel);
+    const label = parsed.label || rawLabel.trim();
+    const exactMealMatch = meals.find(
+      meal => (meal.brand_id === order.brand_id || !order.brand_id) && normalizeLabel(meal.name) === normalizeLabel(label),
+    ) ?? meals.find(meal => normalizeLabel(meal.name) === normalizeLabel(label)) ?? null;
 
-      return {
-        id: matchedMeal?.id ?? `${order.id}-imported-meal-${index + 1}`,
-        label: matchedMeal?.name ?? label,
-        customizationKey: matchedMeal?.id ?? `${order.id}-imported-meal-${index + 1}`,
-        category: matchedMeal?.category ?? inferCategoryFromMealLabel(label),
-        calories: matchedMeal?.calories ?? null,
-        protein: matchedMeal?.protein ?? null,
-        carbs: matchedMeal?.carbs ?? null,
-        fat: matchedMeal?.fat ?? null,
-      };
-    });
+    return {
+      id: exactMealMatch?.id ?? `${order.id}-imported-meal-${index + 1}`,
+      label: exactMealMatch?.name ?? label,
+      customizationKey: exactMealMatch?.id ?? `${order.id}-imported-meal-${index + 1}`,
+      ...(parsed.instruction ? { instruction: parsed.instruction } : {}),
+      category: exactMealMatch?.category ?? inferCategoryFromMealLabel(label),
+      calories: exactMealMatch?.calories ?? null,
+      protein: exactMealMatch?.protein ?? null,
+      carbs: exactMealMatch?.carbs ?? null,
+      fat: exactMealMatch?.fat ?? null,
+    } satisfies ResolvedOrderMealItem;
+  };
+
+  // Some import sheets repeat the package name itself in the meals column; that
+  // value is not a dish, so resolve the package's actual meals instead.
+  const actualImportedMeals = importedMealDetails.filter(
+    detail => !isOrderTypeOrPackageLabel(detail, order.package),
+  );
+
+  if (actualImportedMeals.length > 0) {
+    return actualImportedMeals.map(mapImportedMeal);
+  }
+
+  const recoveredSheetMeals = getRecoveredSheetMealsForPhone(order.phone);
+  if (recoveredSheetMeals && recoveredSheetMeals.length > 0) {
+    return recoveredSheetMeals.map(mapImportedMeal);
   }
 
   if (order.order_mode === 'meals') {
@@ -308,26 +692,30 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
       }));
     }
 
-    return order.package.includes('+')
-      ? order.package
-          .split('+')
-          .map(part => part.trim())
-          .filter(Boolean)
-          .map((label, index) => {
-            const matchedMeal = findMealByLabel(label, order.brand_id, meals);
+    if (order.package.includes('+')) {
+      return order.package
+        .split('+')
+        .map(part => part.trim())
+        .filter(Boolean)
+        .map((label, index) => {
+          const matchedMeal = findMealByLabel(label, order.brand_id, meals);
 
-            return {
-              id: matchedMeal?.id ?? `${order.id}-package-fallback-${index + 1}`,
-              label: matchedMeal?.name ?? label,
-              customizationKey: matchedMeal?.id ?? `${order.id}-package-fallback-${index + 1}`,
-              category: matchedMeal?.category ?? inferCategoryFromMealLabel(label),
-              calories: matchedMeal?.calories ?? null,
-              protein: matchedMeal?.protein ?? null,
-              carbs: matchedMeal?.carbs ?? null,
-              fat: matchedMeal?.fat ?? null,
-            };
-          })
-      : [];
+          return {
+            id: matchedMeal?.id ?? `${order.id}-package-fallback-${index + 1}`,
+            label: matchedMeal?.name ?? label,
+            customizationKey: matchedMeal?.id ?? `${order.id}-package-fallback-${index + 1}`,
+            category: matchedMeal?.category ?? inferCategoryFromMealLabel(label),
+            calories: matchedMeal?.calories ?? null,
+            protein: matchedMeal?.protein ?? null,
+            carbs: matchedMeal?.carbs ?? null,
+            fat: matchedMeal?.fat ?? null,
+          };
+        });
+    }
+
+    // No catalog package matched: keep the raw imported details (even when they
+    // only name the package) so the kitchen still sees the required quantity.
+    return importedMealDetails.map(mapImportedMeal);
   }
 
   return matchedPackage.items.map((item, index) => {
