@@ -4,9 +4,9 @@ import { useMenuCatalog } from '@/hooks/useMenuCatalog';
 import OrdersPage from '@/pages/Orders';
 
 export default function OrdersRoute() {
-  const { orders, loading, addOrder, updateStatus, refresh, seedDemoOrders } = useOrders();
+  const { orders, loading, addOrder, saveImportedOrder, updateStatus, updateOrdersStatus, refresh, seedDemoOrders } = useOrders();
   const { brands } = useBrands();
   const { meals, packages } = useMenuCatalog();
 
-  return <OrdersPage orders={orders} loading={loading} onRefresh={refresh} addOrder={addOrder} updateStatus={updateStatus} seedDemoOrders={seedDemoOrders} brands={brands} meals={meals} packages={packages} />;
+  return <OrdersPage orders={orders} loading={loading} onRefresh={refresh} addOrder={addOrder} saveImportedOrder={saveImportedOrder} updateStatus={updateStatus} updateOrdersStatus={updateOrdersStatus} seedDemoOrders={seedDemoOrders} brands={brands} meals={meals} packages={packages} />;
 }

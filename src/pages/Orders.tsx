@@ -13,9 +13,11 @@ import { Order, OrderStatus, STATUS_LABELS } from '@/types/order';
 import OrderCard from '@/components/OrderCard';
 import NewOrderDialog from '@/components/NewOrderDialog';
 import OrderSheetImportDialog from '@/components/OrderSheetImportDialog';
-import { CalendarDays, Filter, Loader2, Printer, RotateCcw, Search } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { CalendarDays, CheckCheck, Filter, Loader2, Printer, RotateCcw, Search } from 'lucide-react';
 import { Brand } from '@/hooks/useBrands';
 import { formatEGPCurrency, getTodayDateValue } from '@/lib/utils';
+import { toast } from 'sonner';
 
 type DatePreset = 'today' | 'week' | 'month' | 'custom';
 
@@ -62,6 +64,8 @@ interface Props {
   loading: boolean;
   onRefresh: () => void;
   addOrder: (order: Omit<Order, 'id' | 'created_at'>) => Promise<boolean>;
+  saveImportedOrder: (order: Omit<Order, 'id' | 'created_at'>) => Promise<'imported' | 'duplicate' | 'failed'>;
+  updateOrdersStatus: (ids: string[], status: OrderStatus) => Promise<boolean>;
   updateStatus: (id: string, status: OrderStatus) => Promise<void>;
   seedDemoOrders: (brands: Brand[]) => Promise<boolean>;
   brands: Brand[];
@@ -69,10 +73,12 @@ interface Props {
   packages: PackagePlan[];
 }
 
-export default function Orders({ orders, loading, onRefresh, addOrder, updateStatus, seedDemoOrders, brands, meals, packages }: Props) {
+export default function Orders({ orders, loading, onRefresh, addOrder, saveImportedOrder, updateOrdersStatus, updateStatus, seedDemoOrders, brands, meals, packages }: Props) {
   const { role } = useAuth();
   const [draftFilters, setDraftFilters] = useState<FilterState>(() => createDefaultFilters());
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(() => createDefaultFilters());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
   const hasAttemptedAutoSeedRef = useRef(false);
 
   const setDraftFilter = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
@@ -154,6 +160,20 @@ export default function Orders({ orders, loading, onRefresh, addOrder, updateSta
     () => filtered.filter(order => order.status !== 'cancelled'),
     [filtered],
   );
+  const ordersToBulkConfirm = useMemo(
+    () => filtered.filter(order => order.status === 'new'),
+    [filtered],
+  );
+  const canBulkConfirmOrders = role === 'owner' || role === 'call_center';
+
+  const confirmVisibleOrders = async () => {
+    setBulkUpdating(true);
+    const updated = await updateOrdersStatus(ordersToBulkConfirm.map(order => order.id), 'confirmed');
+    setBulkUpdating(false);
+    setBulkConfirmOpen(false);
+    onRefresh();
+    if (updated) toast.success(`تم تأكيد ${ordersToBulkConfirm.length} طلب دفعة واحدة`);
+  };
 
   useEffect(() => {
     if (role !== 'owner' || brands.length === 0 || loading || hasAttemptedAutoSeedRef.current) {
@@ -175,7 +195,7 @@ export default function Orders({ orders, loading, onRefresh, addOrder, updateSta
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-foreground">الطلبات</h1>
         <div className="flex flex-wrap gap-2">
-          <OrderSheetImportDialog addOrder={addOrder} onImported={onRefresh} brands={brands} meals={meals} packages={packages} />
+          <OrderSheetImportDialog saveImportedOrder={saveImportedOrder} onImported={onRefresh} brands={brands} meals={meals} packages={packages} />
           <NewOrderDialog onCreated={onRefresh} addOrder={addOrder} />
         </div>
       </div>
@@ -266,6 +286,15 @@ export default function Orders({ orders, loading, onRefresh, addOrder, updateSta
           </div>
 
           <div className="flex flex-wrap justify-end gap-2">
+            {canBulkConfirmOrders && <Button
+              variant="outline"
+              className="rounded-2xl gap-2"
+              onClick={() => setBulkConfirmOpen(true)}
+              disabled={ordersToBulkConfirm.length === 0 || bulkUpdating}
+            >
+              <CheckCheck className="h-4 w-4" />
+              تأكيد الطلبات الجديدة المعروضة ({ordersToBulkConfirm.length})
+            </Button>}
             <Button
               variant="outline"
               className="rounded-2xl gap-2"
@@ -303,6 +332,22 @@ export default function Orders({ orders, loading, onRefresh, addOrder, updateSta
         </div>
       )}
     </div>
+    <AlertDialog open={bulkConfirmOpen} onOpenChange={setBulkConfirmOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>تأكيد الطلبات دفعة واحدة؟</AlertDialogTitle>
+          <AlertDialogDescription>
+            سيتم نقل {ordersToBulkConfirm.length} طلب جديد ظاهر في القائمة إلى حالة "تم التأكيد". الطلبات خارج الفلاتر الحالية لن تتغير.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={bulkUpdating}>رجوع</AlertDialogCancel>
+          <AlertDialogAction onClick={() => void confirmVisibleOrders()} disabled={bulkUpdating || ordersToBulkConfirm.length === 0}>
+            {bulkUpdating ? 'جارٍ التأكيد...' : 'تأكيد الكل'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <InvoicePrintSheet orders={printableOrders} brands={brands} />
     </>
   );

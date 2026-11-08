@@ -8,6 +8,7 @@ import { buildDemoOrders, clearLocalDemoOrders, DEMO_ORDER_NUMBER_PREFIX, getLoc
 import { Order, OrderStatus, OrderSource, MealType, OrderMode } from '@/types/order';
 import { toast } from 'sonner';
 import { buildOrderNotesWithMetadata, compactWhitespace, extractLegacyOrderMetadata, formatDetailedAddress, hasDetailedAddressParts } from '@/lib/utils';
+import { getOrderImportFingerprint, hasDuplicateOrderImport, ImportedOrder } from '@/lib/orderImport';
 
 type OrderRow = Database['public']['Tables']['orders']['Row'] & {
   phone_secondary: string;
@@ -237,6 +238,91 @@ export function useOrders() {
     return true;
   };
 
+  const saveImportedOrder = async (order: ImportedOrder): Promise<'imported' | 'duplicate' | 'failed'> => {
+    const fingerprint = getOrderImportFingerprint(order);
+    const localOrders = getLocalDemoOrders();
+    if (localOrders.some(existing => existing.order_number === order.order_number || getOrderImportFingerprint(existing) === fingerprint)) {
+      return 'duplicate';
+    }
+
+    if (isSupabaseUnavailable()) {
+      return await addOrder(order) ? 'imported' : 'failed';
+    }
+
+    const existingResponse = await supabase
+      .from('orders')
+      .select('order_number, customer_name, phone, phone_secondary, address, execution_date, order_mode, package, package_plan_id, meal_type, notes, price, selected_meal_ids, brand_id')
+      .eq('brand_id', order.brand_id)
+      .eq('phone', order.phone)
+      .eq('execution_date', order.execution_date);
+
+    if (existingResponse.error) {
+      if (isSupabaseNetworkError(existingResponse.error)) {
+        markSupabaseUnavailable();
+        return await addOrder(order) ? 'imported' : 'failed';
+      }
+
+      toast.error('تعذر التحقق من الطلبات السابقة؛ لم يتم استيراد هذا الطلب لتجنب التكرار.');
+      console.error(existingResponse.error);
+      return 'failed';
+    }
+
+    if (hasDuplicateOrderImport(order, existingResponse.data ?? [])) {
+      markSupabaseAvailable();
+      return 'duplicate';
+    }
+
+    const address = hasDetailedAddressParts(order)
+      ? formatDetailedAddress(order)
+      : compactWhitespace(order.address);
+    const notes = buildOrderNotesWithMetadata({
+      notes: order.notes,
+      phoneSecondary: order.phone_secondary,
+      executionDate: order.execution_date,
+      locationLink: order.location_link,
+      mealCustomizations: order.meal_customizations,
+      packageMealSnapshot: order.package_meal_snapshot,
+    });
+    const { error } = await supabase.from('orders').insert({
+      order_number: order.order_number,
+      customer_name: order.customer_name,
+      phone: order.phone,
+      address,
+      address_house_number: order.address_house_number,
+      address_street: order.address_street,
+      address_area: order.address_area,
+      address_floor: order.address_floor,
+      address_apartment: order.address_apartment,
+      package: order.package,
+      package_plan_id: order.package_plan_id,
+      meal_type: order.meal_type,
+      order_mode: order.order_mode,
+      notes,
+      status: order.status,
+      price: order.price,
+      execution_date: order.execution_date,
+      phone_secondary: order.phone_secondary,
+      selected_meal_ids: order.selected_meal_ids,
+      source: order.source,
+      brand_id: order.brand_id,
+      created_by: order.created_by,
+    });
+
+    if (error) {
+      if (error.code === '23505') return 'duplicate';
+      if (isSupabaseNetworkError(error)) {
+        markSupabaseUnavailable();
+        return await addOrder(order) ? 'imported' : 'failed';
+      }
+
+      toast.error(error.message);
+      return 'failed';
+    }
+
+    markSupabaseAvailable();
+    return 'imported';
+  };
+
   const updateStatus = async (id: string, status: OrderStatus) => {
     const localDemoOrders = getLocalDemoOrders();
     const localDemoOrderExists = localDemoOrders.some((order) => order.id === id);
@@ -264,6 +350,57 @@ export function useOrders() {
     }
 
     markSupabaseAvailable();
+  };
+
+  const updateOrdersStatus = async (ids: string[], status: OrderStatus) => {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length === 0) return true;
+
+    const localOrders = getLocalDemoOrders();
+    const localOrderIds = new Set(localOrders.map(order => order.id));
+    const localIds = uniqueIds.filter(id => localOrderIds.has(id));
+    const databaseIds = uniqueIds.filter(id => !localOrderIds.has(id));
+    let updatedDatabaseIds: string[] = [];
+
+    if (databaseIds.length > 0) {
+      if (isSupabaseUnavailable()) {
+        toast.error('الاتصال بقاعدة البيانات غير متاح؛ لم يتم تأكيد الطلبات المحفوظة على الخادم.');
+        return false;
+      }
+
+      const { data, error } = await supabase
+        .from('orders')
+        .update({ status })
+        .in('id', databaseIds)
+        .eq('status', 'new')
+        .select('id');
+
+      if (error) {
+        if (isSupabaseNetworkError(error)) markSupabaseUnavailable();
+        else toast.error(error.message);
+        return false;
+      }
+
+      updatedDatabaseIds = (data ?? []).map(order => order.id);
+      markSupabaseAvailable();
+    }
+
+    const nextLocalOrders = localOrders.map(order => (
+      localIds.includes(order.id) && order.status === 'new'
+        ? { ...order, status }
+        : order
+    ));
+    if (nextLocalOrders.some((order, index) => order.status !== localOrders[index]?.status)) {
+      saveLocalDemoOrders(nextLocalOrders);
+      syncLocalOrders(localOrders, nextLocalOrders);
+    }
+
+    if (updatedDatabaseIds.length !== databaseIds.length) {
+      toast.error('تغيرت حالة بعض الطلبات أثناء التأكيد. حدّث القائمة وراجع الطلبات المتبقية.');
+      return false;
+    }
+
+    return true;
   };
 
   const seedDemoOrders = async (brands: Brand[], options?: { silent?: boolean }) => {
@@ -357,5 +494,5 @@ export function useOrders() {
     return true;
   };
 
-  return { orders, loading, addOrder, updateStatus, refresh: fetchOrders, seedDemoOrders };
+  return { orders, loading, addOrder, saveImportedOrder, updateStatus, updateOrdersStatus, refresh: fetchOrders, seedDemoOrders };
 }

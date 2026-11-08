@@ -16,13 +16,15 @@ import { hasPageAccess } from '@/lib/permissions';
 import { Meal, PackagePlan } from '@/types/menu';
 import { Order, OrderMode, OrderSource, OrderStatus } from '@/types/order';
 import { compactWhitespace, getTodayDateValue, normalizePhone } from '@/lib/utils';
+import { getImportedOrderNumber } from '@/lib/orderImport';
 
 type ImportTarget = 'orders' | 'customers';
 type ImportMethod = 'excel' | 'text' | 'image';
 type ExcelRow = Record<string, unknown>;
+type SaveImportedOrderResult = 'imported' | 'duplicate' | 'failed';
 
 type Props = {
-  addOrder: (order: Omit<Order, 'id' | 'created_at'>) => Promise<boolean>;
+  saveImportedOrder: (order: Omit<Order, 'id' | 'created_at'>) => Promise<SaveImportedOrderResult>;
   onImported: () => void;
   brands: Brand[];
   meals: Meal[];
@@ -210,26 +212,7 @@ function mapMealType(value: unknown): 'lunch' | 'full_day' {
   return raw.includes('full') || raw.includes('كامل') || raw.includes('يوم') ? 'full_day' : 'lunch';
 }
 
-function isPackageLikeOrderNumber(value: string) {
-  const raw = value.toLowerCase();
-  return raw.includes('باكدج') || raw.includes('باقة') || raw.includes('package') || ['weekly', 'week', 'monthly', 'daily'].includes(raw);
-}
-
-export function createImportedOrderNumber(rawValue: unknown, packageValue: string, usedOrderNumbers: Set<string>, sequence: number) {
-  const raw = text(rawValue);
-  const normalizedPackage = packageValue.toLowerCase().trim();
-  const canUseRawValue = raw && !isPackageLikeOrderNumber(raw) && raw.toLowerCase() !== normalizedPackage && !usedOrderNumbers.has(raw);
-  if (canUseRawValue) {
-    usedOrderNumbers.add(raw);
-    return raw;
-  }
-
-  const generated = `IMP-${Date.now()}-${sequence}-${Math.random().toString(36).slice(2, 8)}`;
-  usedOrderNumbers.add(generated);
-  return generated;
-}
-
-export default function OrderSheetImportDialog({ addOrder, onImported, brands, meals, packages }: Props) {
+export default function OrderSheetImportDialog({ saveImportedOrder, onImported, brands, meals, packages }: Props) {
   const { role, pagePermissions, isDemoMode } = useAuth();
   const { upsertCustomer } = useCustomers();
   const [open, setOpen] = useState(false);
@@ -239,10 +222,11 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
   const [target, setTarget] = useState<ImportTarget | ''>('');
   const [workbook, setWorkbook] = useState<{ sheets: string[]; rowsBySheet: Record<string, ExcelRow[]> } | null>(null);
   const [sheetName, setSheetName] = useState('');
-  const [sheetTargets, setSheetTargets] = useState<Record<string, string>>({});
+  const [selectedBrandId, setSelectedBrandId] = useState('');
+  const [executionDate, setExecutionDate] = useState('');
   const [fileName, setFileName] = useState('');
   const [importing, setImporting] = useState(false);
-  const [result, setResult] = useState<{ imported: number; skipped: string[] } | null>(null);
+  const [result, setResult] = useState<{ imported: number; duplicates: number; skipped: string[] } | null>(null);
 
   const rows = useMemo(() => workbook?.rowsBySheet[sheetName] ?? [], [sheetName, workbook]);
 
@@ -252,7 +236,8 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
     setReadingImage(false);
     setWorkbook(null);
     setSheetName('');
-    setSheetTargets({});
+    setSelectedBrandId('');
+    setExecutionDate('');
     setFileName('');
     setResult(null);
     setTarget('');
@@ -262,7 +247,8 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
     setMethod(nextMethod);
     setWorkbook(null);
     setSheetName('');
-    setSheetTargets({});
+    setSelectedBrandId('');
+    setExecutionDate('');
     setFileName('');
     setResult(null);
     setTarget('');
@@ -282,13 +268,9 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
       const parsed = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
       const rowsBySheet = Object.fromEntries(parsed.SheetNames.map(name => [name, XLSX.utils.sheet_to_json<ExcelRow>(parsed.Sheets[name], { defval: '' })]));
       setWorkbook({ sheets: parsed.SheetNames, rowsBySheet });
-      setSheetName(parsed.SheetNames[0] ?? '');
-      setSheetTargets(Object.fromEntries(parsed.SheetNames.map(name => {
-        const sheetRows = rowsBySheet[name];
-        const matchedBrand = brands.find(brand => name.toLowerCase().includes(brand.name.toLowerCase()));
-        const hasCustomerColumns = sheetRows.some(row => Boolean(text(cell(row, aliases.name)) || text(cell(row, aliases.phone))));
-        return [name, matchedBrand?.id ?? (hasCustomerColumns ? 'unselected' : 'skip')];
-      })));
+      setSheetName(parsed.SheetNames.find(name => consolidateRows(rowsBySheet[name]).length > 0) ?? parsed.SheetNames[0] ?? '');
+      setSelectedBrandId('');
+      setExecutionDate('');
       setFileName(file.name);
       setResult(null);
     } catch {
@@ -309,7 +291,7 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
     setTarget('orders');
     setWorkbook({ sheets: [sheet], rowsBySheet: { [sheet]: [row] } });
     setSheetName(sheet);
-    setSheetTargets({ [sheet]: matchedBrand?.id ?? 'unselected' });
+    setSelectedBrandId(matchedBrand?.id ?? '');
     setFileName(sourceName);
     setResult(null);
     return true;
@@ -372,43 +354,43 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
       return;
     }
 
-    const activeSheets = workbook.sheets.filter(name => sheetTargets[name] && sheetTargets[name] !== 'skip' && sheetTargets[name] !== 'unselected');
+    const activeSheets = workbook.sheets.filter(name => consolidateRows(workbook.rowsBySheet[name]).length > 0);
     if (activeSheets.length === 0) {
-      toast.error('اربط شيتًا واحدًا على الأقل ببراند أو اختر براندًا للشيت الذي يحتوي على العملاء.');
+      toast.error('الملف لا يحتوي على صفوف طلبات يمكن استيرادها.');
       return;
     }
 
-    if (!activeSheets.some(sheet => consolidateRows(workbook.rowsBySheet[sheet]).length > 0)) {
-      toast.error('الشيت المختار لا يحتوي على صفوف بيانات.');
+    const brand = brands.find(item => item.id === selectedBrandId);
+    if (!brand) {
+      toast.error('اختر العلامة التجارية التي يتبع لها الملف بالكامل.');
+      return;
+    }
+
+    if (target === 'orders' && method === 'excel' && !executionDate) {
+      toast.error('حدد تاريخ تنفيذ جميع الطلبات المستوردة.');
       return;
     }
 
     setImporting(true);
     const skipped: string[] = [];
     let imported = 0;
-    const usedOrderNumbers = new Set<string>();
+    let duplicates = 0;
+    const importedFingerprints = new Set<string>();
 
-    for (const sheet of activeSheets) {
-      const brand = brands.find(item => item.id === sheetTargets[sheet]);
-      if (!brand) continue;
-
-      for (const [index, row] of consolidateRows(workbook.rowsBySheet[sheet]).entries()) {
+    try {
+      for (const sheet of activeSheets) {
+        for (const [index, row] of consolidateRows(workbook.rowsBySheet[sheet]).entries()) {
       const rowNumber = row.__sourceRow ?? index + 2;
       const name = text(cell(row, aliases.name));
       const phone = normalizeImportedPhone(cell(row, aliases.phone));
-      const rowBrand = findBrand(cell(row, aliases.brand), brands) ?? brand;
 
       if (!name || !phone) {
         skipped.push(`صف ${rowNumber}: الاسم أو الهاتف غير موجود`);
         continue;
       }
-      if (!brand) {
-        skipped.push(`صف ${rowNumber}: البراند غير معروف أو غير محدد`);
-        continue;
-      }
 
       const customerSaved = await upsertCustomer({
-        brand_id: rowBrand.id,
+        brand_id: brand.id,
         name,
         phone,
         phone_secondary: normalizeImportedPhone(cell(row, aliases.phoneSecondary)),
@@ -439,13 +421,12 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
       const orderMode: OrderMode = packagePlan || packageValue || modeValue.includes('package') || modeValue.includes('باقة') ? 'package' : 'meals';
       const customerAmount = parseImportedAmount(cell(row, aliases.customerAmount)) || parseImportedAmount(cell(row, aliases.price)) || packagePlan?.price || 0;
       const deliveryFee = parseImportedAmount(cell(row, aliases.deliveryFee));
-      const orderNumber = createImportedOrderNumber(cell(row, aliases.orderNumber), packageValue, usedOrderNumbers, imported + index + 1);
       const importedDetails = selectedMealIds.length === mealNames.length
         ? ''
         : `تفاصيل الطلب المستوردة: ${mealNames.join('، ')}`;
       const deliveryNote = deliveryFee > 0 ? `رسوم التوصيل: ${deliveryFee}` : '';
-      const added = await addOrder({
-        order_number: orderNumber,
+      const order: Omit<Order, 'id' | 'created_at'> = {
+        order_number: text(cell(row, aliases.orderNumber)),
         customer_name: name,
         phone,
         phone_secondary: normalizeImportedPhone(cell(row, aliases.phoneSecondary)),
@@ -456,7 +437,7 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
         address_area: '',
         address_floor: '',
         address_apartment: '',
-        execution_date: dateValue(cell(row, aliases.date)),
+        execution_date: target === 'orders' && method === 'excel' ? executionDate : dateValue(cell(row, aliases.date)),
         order_mode: orderMode,
         package: packagePlan?.name ?? packageValue,
         package_plan_id: packagePlan?.id ?? null,
@@ -466,17 +447,32 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
         price: customerAmount + deliveryFee,
         selected_meal_ids: selectedMealIds,
         source: mapSource(cell(row, aliases.source)),
-        brand_id: rowBrand.id,
+        brand_id: brand.id,
         created_by: null,
-      });
-
-      if (added) imported += 1;
-      else skipped.push(`صف ${rowNumber}: تعذر حفظ الطلب`);
+      };
+      order.order_number = getImportedOrderNumber(order);
+      const fingerprint = JSON.stringify([order.brand_id, order.order_number]);
+      if (importedFingerprints.has(fingerprint)) {
+        duplicates += 1;
+        continue;
       }
+      importedFingerprints.add(fingerprint);
+
+      const saved = await saveImportedOrder(order);
+      if (saved === 'imported') imported += 1;
+      else if (saved === 'duplicate') duplicates += 1;
+          else skipped.push(`صف ${rowNumber}: تعذر حفظ الطلب`);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'حدث خطأ غير متوقع أثناء الاستيراد';
+      console.error('Order import stopped unexpectedly', error);
+      skipped.push(`توقف الاستيراد بعد حفظ ${imported} طلب: ${message}`);
+    } finally {
+      setImporting(false);
     }
 
-    setResult({ imported, skipped });
-    setImporting(false);
+    setResult({ imported, duplicates, skipped });
     onImported();
     if (imported > 0) toast.success(`تم استيراد ${imported} ${target === 'orders' ? 'طلب' : 'عميل'}`);
   };
@@ -510,6 +506,11 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
             <Label htmlFor="order-sheet-file">ملف Excel</Label>
             <Input id="order-sheet-file" type="file" accept=".xlsx,.xls,.csv" onChange={event => { void handleFile(event.target.files?.[0]); event.currentTarget.value = ''; }} />
           </div>
+          {target === 'orders' && workbook && <div className="grid gap-2 sm:col-span-2">
+            <Label htmlFor="import-execution-date">تاريخ تنفيذ كل الطلبات في الملف</Label>
+            <Input id="import-execution-date" type="date" value={executionDate} onChange={event => setExecutionDate(event.target.value)} />
+            <p className="text-xs text-muted-foreground">سيُستخدم هذا التاريخ لكل الطلبات في جميع الشيتات، حتى لو كان الملف يحتوي على تواريخ أخرى.</p>
+          </div>}
         </div>}
 
         {method === 'text' && <div className="grid gap-3">
@@ -528,8 +529,12 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
 
         {workbook && <div className="grid gap-4">
           <div className="grid gap-3">
-            <Label>{workbook.sheets.length === 1 ? 'العلامة التجارية' : 'توزيع الشيتات على العلامات التجارية'}</Label>
-            <div className="grid gap-2 sm:grid-cols-2">{workbook.sheets.map(sheet => <div key={sheet} className="grid grid-cols-[1fr_1.2fr] items-center gap-2 rounded-lg border p-2"><span className="truncate text-sm font-medium" title={sheet}>{sheet}</span><Select value={sheetTargets[sheet] ?? 'unselected'} onValueChange={value => setSheetTargets(current => ({ ...current, [sheet]: value }))}><SelectTrigger><SelectValue placeholder="اختر البراند" /></SelectTrigger><SelectContent><SelectItem value="unselected">اختر البراند</SelectItem><SelectItem value="skip">تجاهل هذا الشيت</SelectItem>{brands.map(brand => <SelectItem key={brand.id} value={brand.id}>{brand.name}</SelectItem>)}</SelectContent></Select></div>)}</div>
+            <Label htmlFor="import-brand">العلامة التجارية للملف بالكامل</Label>
+            <Select value={selectedBrandId} onValueChange={setSelectedBrandId}>
+              <SelectTrigger id="import-brand"><SelectValue placeholder="اختر العلامة التجارية مرة واحدة" /></SelectTrigger>
+              <SelectContent>{brands.map(brand => <SelectItem key={brand.id} value={brand.id}>{brand.name}</SelectItem>)}</SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">سيتم استيراد كل الشيتات التي تحتوي على بيانات عملاء لهذه العلامة، وتجاهل الشيتات الأخرى تلقائيًا.</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
             <div className="grid gap-2"><Label>معاينة الشيت</Label><Select value={sheetName} onValueChange={setSheetName}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{workbook.sheets.map(sheet => <SelectItem key={sheet} value={sheet}>{sheet}</SelectItem>)}</SelectContent></Select></div>
@@ -555,9 +560,9 @@ export default function OrderSheetImportDialog({ addOrder, onImported, brands, m
           <p className="text-xs text-muted-foreground">الأعمدة المدعومة تشمل: اسم العميل، الهاتف، البراند، العنوان، تاريخ التنفيذ، الباقة، الوجبات، السعر، الحالة والملاحظات.</p>
         </div>}
 
-        {result && <div className="grid gap-2 rounded-lg border p-3 text-sm"><div className="flex items-center gap-2 text-green-700"><CheckCircle2 className="h-4 w-4" />تم حفظ {result.imported} صف.</div>{result.skipped.length > 0 && <div className="text-destructive"><div className="mb-1 flex items-center gap-2"><AlertCircle className="h-4 w-4" />تم تجاهل {result.skipped.length} صف:</div><ul className="max-h-28 list-disc overflow-y-auto pr-5">{result.skipped.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}</div>}
+        {result && <div className="grid gap-2 rounded-lg border p-3 text-sm"><div className="flex items-center gap-2 text-green-700"><CheckCircle2 className="h-4 w-4" />تم استيراد {result.imported} {target === 'orders' ? 'طلب' : 'عميل'}.</div>{result.duplicates > 0 && <p className="text-amber-700">تم تجاهل {result.duplicates} طلب مكرر لتجنب تكرار التنفيذ.</p>}{result.skipped.length > 0 && <div className="text-destructive"><div className="mb-1 flex items-center gap-2"><AlertCircle className="h-4 w-4" />تعذر حفظ {result.skipped.length} صف:</div><ul className="max-h-28 list-disc overflow-y-auto pr-5">{result.skipped.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}</div>}
 
-        <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>إغلاق</Button><Button onClick={() => void importRows()} disabled={!target || !workbook || rows.length === 0 || importing || readingImage} className="gap-2">{importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}تأكيد الاستيراد</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>إغلاق</Button><Button onClick={() => void importRows()} disabled={!target || !workbook || rows.length === 0 || !selectedBrandId || (target === 'orders' && method === 'excel' && !executionDate) || importing || readingImage} className="gap-2">{importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}استيراد الطلبات دفعة واحدة</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );
