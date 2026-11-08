@@ -49,12 +49,16 @@ function normalizeDigits(value: string) {
     .replace(/[٫٬]/g, (separator) => separator === '٫' ? '.' : ',');
 }
 
-function parseNumber(value: string) {
+export function parseLocalizedNumber(value: string) {
   const normalized = normalizeDigits(value).replace(/\s/g, '');
   const withoutThousands = normalized.replace(/,(?=\d{3}(?:\D|$))/g, '');
   const decimalNormalized = withoutThousands.replace(',', '.');
   const result = Number(decimalNormalized);
   return Number.isFinite(result) ? result : null;
+}
+
+export function normalizeDigitsInText(value: string) {
+  return normalizeDigits(value);
 }
 
 function normalizeName(value: string) {
@@ -155,7 +159,7 @@ function similarityScore(source: string, candidate: string) {
 
 const FUZZY_MATCH_THRESHOLD = 0.5;
 
-function matchInventoryItem(name: string, items: SmartPurchaseCatalogItem[]) {
+export function matchCatalogItem(name: string, items: SmartPurchaseCatalogItem[]) {
   const normalizedName = normalizeName(name);
   const exact = items.find((candidate) => (
     normalizeName(candidate.name) === normalizedName
@@ -178,6 +182,8 @@ function matchInventoryItem(name: string, items: SmartPurchaseCatalogItem[]) {
 
   return best ? { id: best.candidate.id, confidence: best.score } : { id: '', confidence: 0 };
 }
+
+export const PURCHASE_UNIT_ALTERNATIVES = UNIT_ALTERNATIVES;
 
 export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCatalogItem[]): SmartPurchaseParseResult {
   let supplierName = '';
@@ -206,8 +212,8 @@ export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCata
     }
 
     const match = line.match(linePattern);
-    const quantity = match ? parseNumber(match[2]) : null;
-    const unitPrice = match ? parseNumber(match[4]) : null;
+    const quantity = match ? parseLocalizedNumber(match[2]) : null;
+    const unitPrice = match ? parseLocalizedNumber(match[4]) : null;
     const sourceName = match?.[1]?.trim().replace(/[:：-]\s*$/, '') ?? '';
 
     if (!match || !sourceName || quantity === null || quantity <= 0 || unitPrice === null || unitPrice < 0) {
@@ -215,7 +221,7 @@ export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCata
       return;
     }
 
-    const matched = matchInventoryItem(sourceName, items);
+    const matched = matchCatalogItem(sourceName, items);
     lines.push({
       id: `smart-purchase-${index}`,
       sourceName,

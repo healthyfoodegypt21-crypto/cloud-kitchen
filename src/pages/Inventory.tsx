@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, Loader2, PackagePlus, Pencil, Plus, Search, ShoppingCart, Trash2, WalletCards, X } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, Loader2, PackagePlus, Pencil, Plus, Printer, Search, ShoppingCart, Trash2, WalletCards, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +23,8 @@ import FefoPanel from '@/components/inventory/FefoPanel';
 import InventoryAuditLog from '@/components/inventory/InventoryAuditLog';
 import InventoryReports from '@/components/inventory/InventoryReports';
 import BarcodeInput from '@/components/inventory/BarcodeInput';
+import WithdrawalQuickEntry, { type WithdrawalPlan } from '@/components/inventory/WithdrawalQuickEntry';
+import WithdrawalSheetPrintSheet from '@/components/inventory/WithdrawalSheetPrintSheet';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 import type { OperationalInventoryItem } from '@/types/operationalInventory';
 
@@ -55,12 +57,24 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const [editingItem, setEditingItem] = useState<OperationalInventoryItem | null>(null);
   const [categoryDraft, setCategoryDraft] = useState({ nameAr: '', nameEn: '', code: '' });
   const [line, setLine] = useState<DraftLine>({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' });
-  const [lines, setLines] = useState<DraftLine[]>([]);
   const [purchaseItemId, setPurchaseItemId] = useState('');
   const [supplierName, setSupplierName] = useState('');
   const [purchaserName, setPurchaserName] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [printSheet, setPrintSheet] = useState(false);
+
+  useEffect(() => {
+    if (!printSheet) return;
+    const timeoutId = window.setTimeout(() => window.print(), 60);
+    return () => window.clearTimeout(timeoutId);
+  }, [printSheet]);
+
+  useEffect(() => {
+    const resetPrint = () => setPrintSheet(false);
+    window.addEventListener('afterprint', resetPrint);
+    return () => window.removeEventListener('afterprint', resetPrint);
+  }, []);
 
   const { items, categories, movements, purchaseRequests, withdrawals, batches, countApprovals, locations, itemRequests, notifications, alerts, inventoryValue, loading, partialError, offline, offlineSnapshotAt, hasMoreMovements, loadMoreMovements, invoke, markNotificationRead } = useOperationalInventory(brandId, hub.brandIds);
   const canManage = !isDemoMode && hasPageAccess(role, pagePermissions, 'inventory');
@@ -93,13 +107,8 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const lowStockCount = items.filter((item) => item.status === 'active' && item.minStock > 0 && item.availableQuantity <= item.minStock).length;
   const todayWithdrawalValue = withdrawals.filter((entry) => entry.withdrawalDate === new Date().toISOString().slice(0, 10)).reduce((sum, entry) => sum + entry.totalValue, 0);
 
-  const reset = () => { setMode(null); setLine({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' }); setLines([]); setPurchaseItemId(''); setItemDraft(emptyItemDraft); setEditingItem(null); setSupplierName(''); setPurchaserName(''); setNotes(''); };
-  const addLine = () => {
-    if (!line.itemId || !Number.isFinite(number(line.quantity)) || number(line.quantity) <= 0) { toast.error('اختر الصنف وأدخل كمية موجبة وصحيحة'); return; }
-    setLines((current) => [...current, { ...line }]);
-    setLine({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' });
-  };
-  const linesForSubmission = () => line.itemId && number(line.quantity) > 0 ? [...lines, line] : lines;
+  const reset = () => { setMode(null); setLine({ itemId: '', quantity: '', unitCost: '', locationName: 'main', reason: '', batchNo: '', expiryDate: '' }); setPurchaseItemId(''); setItemDraft(emptyItemDraft); setEditingItem(null); setSupplierName(''); setPurchaserName(''); setNotes(''); };
+  const linesForSubmission = () => (line.itemId && number(line.quantity) > 0 ? [line] : []);
 
   const startPurchaseRequest = (item: OperationalInventoryItem) => {
     setPurchaseItemId(item.id);
@@ -194,14 +203,6 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     }
   };
 
-  const submitPurchase = async () => {
-    const submissionLines = linesForSubmission();
-    if (submissionLines.length === 0 || submissionLines.some((entry) => !Number.isFinite(number(entry.quantity)) || number(entry.quantity) <= 0 || !Number.isFinite(number(entry.unitCost ?? '0')) || number(entry.unitCost ?? '0') < 0)) { toast.error('أدخل كمية وسعرًا صحيحين لكل بند شراء'); return; }
-    if (!requireValidLocations(submissionLines.map((entry) => entry.locationName))) return;
-    const result = await invoke('inventory_submit_purchase_request', { _brand_id: brandId, _supplier_name: supplierName, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), unit_cost: number(entry.unitCost || '0'), location_name: entry.locationName, notes: entry.reason, batch_no: entry.batchNo, expiry_date: entry.expiryDate || null })), _notes: notes });
-    if (result) { toast.success('تم إرسال إشعار لمدير المخزن. لن يزداد المخزون قبل الاعتماد.'); reset(); }
-  };
-
   const submitStoreDirectPurchase = async () => {
     const submissionLines = linesForSubmission();
     if (submissionLines.length === 0 || !purchaserName.trim()
@@ -242,6 +243,53 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     }
   };
 
+  // Executes the quick-entry plan in order: opening balances for first-time
+  // items, the shared withdrawal itself, then waste/count adjustments for any
+  // reviewed discrepancies between the sheet and the system balance.
+  const submitQuickWithdrawal = async (plan: WithdrawalPlan) => {
+    for (const opening of plan.openings) {
+      const result = await invoke('inventory_record_manual_movement', {
+        _brand_id: brandId, _item_id: opening.itemId, _movement_type: 'purchase_receipt',
+        _quantity: opening.quantity, _unit_cost: 0, _location_name: opening.locationName,
+        _notes: opening.reason, _batch_no: '', _expiry_date: null,
+      });
+      if (!result) return false;
+    }
+
+    if (plan.withdrawals.length > 0) {
+      const result = await invoke('inventory_post_shared_daily_withdrawal', {
+        _hub_id: hub.id, _consumer_brand_id: brandId,
+        _lines: plan.withdrawals.map((entry) => ({ item_id: entry.itemId, quantity: entry.quantity, location_name: entry.locationName, reason: entry.reason })),
+        _notes: plan.notes,
+      });
+      if (!result) return false;
+    }
+
+    for (const waste of plan.waste) {
+      const result = await invoke('inventory_record_manual_movement', {
+        _brand_id: brandId, _item_id: waste.itemId, _movement_type: 'waste',
+        _quantity: waste.quantity, _unit_cost: null, _location_name: waste.locationName,
+        _notes: waste.reason, _batch_no: '', _expiry_date: null,
+      });
+      if (!result) return false;
+    }
+
+    for (const count of plan.counts) {
+      const result = await invoke('inventory_post_count', {
+        _brand_id: brandId, _item_id: count.itemId, _physical_quantity: count.physicalQuantity,
+        _location_name: count.locationName, _reason: count.reason,
+      });
+      if (!result) return false;
+    }
+
+    const extras = plan.openings.length + plan.waste.length + plan.counts.length;
+    toast.success(extras > 0
+      ? `تم تسجيل ${plan.withdrawals.length} سطر سحب مع ${extras} حركة مرتبطة (رصيد أول مدة/هالك/تسوية)`
+      : `تم تسجيل ${plan.withdrawals.length} سطر سحب من المخزن`);
+    reset();
+    return true;
+  };
+
   const postCount = async () => {
     if (!line.itemId || !Number.isFinite(number(line.quantity)) || number(line.quantity) < 0) { toast.error('اختر الصنف وأدخل رصيدًا فعليًا صحيحًا'); return; }
     if (!requireValidLocations([line.locationName])) return;
@@ -277,7 +325,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const pendingReceipts = purchaseRequests.filter((request) => request.status === 'purchased_pending_receipt').length;
   const unreadNotifications = notifications.filter((notification) => !notification.isRead);
 
-  return <div dir="rtl" className="space-y-5">
+  return <div dir="rtl" className={printSheet ? 'space-y-5 print:hidden' : 'space-y-5'}>
     <header className="flex flex-col gap-4 rounded-2xl border bg-gradient-to-l from-primary/10 via-card to-card p-5 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <p className="text-sm font-medium text-primary">{hub.name} · يخدم {hub.brandIds.length} علامات تجارية</p>
@@ -285,6 +333,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
         <p className="mt-1 text-sm text-muted-foreground">رصيد واحد مشترك للعلامات، مع تسجيل سحب الوجبات المشتركة من المخزن.</p>
       </div>
       {canManage && <div className="flex flex-wrap gap-2">
+        <Button variant="outline" onClick={() => setPrintSheet(true)}><Printer className="ml-2 h-4 w-4" />ورقة مسحوبات للطباعة</Button>
         <Button variant="outline" onClick={() => void runSubmit(generateAlerts)} disabled={submitting}><AlertTriangle className="ml-2 h-4 w-4" />توليد التنبيهات</Button>
         <Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />سحب من المخزن</Button>
         <Button variant="outline" onClick={() => setMode('movement')}><Plus className="ml-2 h-4 w-4" />حركة مخزون</Button>
@@ -391,12 +440,10 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       {mode === 'category' && <div className="space-y-3"><Field label="اسم الفئة بالعربية" value={categoryDraft.nameAr} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameAr: value }))} /><Field label="الكود (إنجليزي بلا مسافات)" value={categoryDraft.code} onChange={(value) => setCategoryDraft((current) => ({ ...current, code: value }))} /><Field label="الاسم بالإنجليزية" value={categoryDraft.nameEn} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameEn: value }))} /><Button className="w-full" onClick={() => void runSubmit(createCategory)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الفئة</Button></div>}
       {mode === 'movement' && <div className="space-y-3"><div className="space-y-1"><Label htmlFor="movement-action">نوع الحركة</Label><select id="movement-action" className="h-10 w-full rounded-md border bg-background px-3" value={movementAction} onChange={(event) => { if (event.target.value === 'deposit' || event.target.value === 'waste') setMovementAction(event.target.value); }}><option value="deposit">إضافة رصيد</option><option value="waste">تسجيل هالك</option></select></div><LineEditor items={items} locations={locations} line={line} setLine={setLine} showCost={movementAction === 'deposit'} /><Button className="w-full" onClick={() => void runSubmit(postMovement)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}{movementAction === 'deposit' ? 'تأكيد الإيداع' : 'تأكيد الهالك'}</Button></div>}
       {mode === 'count' && <div className="space-y-3"><LineEditor items={items} locations={locations} line={line} setLine={setLine} quantityLabel="الرصيد الفعلي بعد الجرد" /><Button className="w-full" onClick={() => void runSubmit(postCount)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="ml-2 h-4 w-4" />}إرسال للمراجعة</Button></div>}
-      {mode === 'withdrawal' && <div className="space-y-4">
-        <MultiLineForm items={items} locations={locations} lines={lines} line={line} setLine={setLine} addLine={addLine} removeLine={(index) => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} showCost={false} />
-      </div>}
+      {mode === 'withdrawal' && <WithdrawalQuickEntry items={items} locations={locations} defaultLocation={locations[0]?.code ?? 'main'} submitting={submitting} onSubmit={submitQuickWithdrawal} onCancel={reset} />}
       {mode === 'purchase' && <PurchaseOrderBuilder items={items} categories={categories} locations={locations} initialItemId={purchaseItemId} onSubmit={(orderLines, orderSupplier, orderNotes) => runSubmit(() => submitConsolidatedPurchase(orderLines, orderSupplier, orderNotes))} onCreateNewItem={createPurchaseItem} />}
-      {mode === 'withdrawal' && <div className="space-y-3"><Label>ملاحظات السحب</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="مثال: تجهيز وردية الغداء المشتركة" /><Button className="w-full" onClick={() => void runSubmit(postWithdrawal)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <WalletCards className="ml-2 h-4 w-4" />}تأكيد السحب من المخزن</Button></div>}
     </DialogContent></Dialog>
+    {printSheet && <WithdrawalSheetPrintSheet hubName={hub.name} items={items} categories={categories} />}
   </div>;
 }
 
@@ -418,7 +465,6 @@ function LineEditor({ items, locations, line, setLine, showCost = false, quantit
     <div className="space-y-1 sm:col-span-2"><Label>السبب / الملاحظات</Label><Input value={line.reason} onChange={(event) => setLine((current) => ({ ...current, reason: event.target.value }))} /></div>
   </div>;
 }
-function MultiLineForm({ items, locations, lines, line, setLine, addLine, removeLine, showCost }: { items: OperationalInventoryItem[]; locations: { code: string; name: string }[]; lines: DraftLine[]; line: DraftLine; setLine: React.Dispatch<React.SetStateAction<DraftLine>>; addLine: () => void; removeLine: (index: number) => void; showCost: boolean }) { return <div className="space-y-3"><LineEditor items={items} locations={locations} line={line} setLine={setLine} showCost={showCost} /><Button type="button" variant="outline" className="w-full" onClick={addLine}><Plus className="ml-2 h-4 w-4" />إضافة السطر</Button>{lines.length > 0 && <div className="space-y-2 rounded-xl border p-3">{lines.map((entry, index) => { const item = items.find((candidate) => candidate.id === entry.itemId); const cost = showCost ? number(entry.unitCost || '0') : item?.averageCost ?? 0; return <div className="flex items-center justify-between text-sm" key={`${entry.itemId}-${index}`}><span>{item?.name} — {entry.quantity} × {formatEGPCurrency(cost)} — {entry.locationName}</span><Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeLine(index)}>حذف</Button></div>; })}</div>}</div>; }
 function ItemForm({ draft, setDraft, categories, locations, allowOpeningStock, onSave, submitting = false }: { draft: ItemDraft; setDraft: React.Dispatch<React.SetStateAction<ItemDraft>>; categories: { code: string; name_ar: string }[]; locations: { code: string; name: string }[]; allowOpeningStock: boolean; onSave: () => void; submitting?: boolean }) {
   const update = (key: keyof ItemDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const updateUnit = (key: 'purchaseUnit' | 'usageUnit', value: string) => setDraft((current) => {
