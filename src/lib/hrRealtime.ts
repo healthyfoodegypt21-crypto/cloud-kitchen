@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { markSupabaseAvailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
+import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import {
   DuplicateAttendanceError,
   computeAttendanceHours,
@@ -231,7 +232,7 @@ function describeAuditRow(row: Record<string, unknown>) {
 }
 
 async function loadAuditLog() {
-  const client = supabase as any;
+  const client = asSupabaseLooseClient(supabase);
   const { data, error } = await client
     .from('audit_logs')
     .select('id, actor_user_id, table_name, record_id, action_type, old_data, new_data, created_at')
@@ -287,7 +288,7 @@ function writeLegacyMigrationFlag(primaryBrandId: string) {
 }
 
 export async function loadHrSnapshot(primaryBrandId: string): Promise<HrSnapshot> {
-  const client = supabase as any;
+  const client = asSupabaseLooseClient(supabase);
   const [employeesRes, attendanceRes, advancesRes, deductionsRes, bonusesRes, settingsRes, locksRes] = await Promise.all([
     client.from('employees').select('*').order('full_name'),
     client.from('employee_attendance').select('*').order('attendance_date', { ascending: false }),
@@ -336,7 +337,7 @@ export async function migrateLegacyLocalHrData(primaryBrandId: string, actorUser
   const localBonuses = getBonuses();
   const localSettings = getHrSettings();
   const localLockedMonths = getLockedMonths();
-  const client = supabase as any;
+  const client = asSupabaseLooseClient(supabase);
 
   const employeePayloads = localEmployees.map((employee) => ({
     brand_id: primaryBrandId,
@@ -479,7 +480,7 @@ export async function migrateLegacyLocalHrData(primaryBrandId: string, actorUser
 export function subscribeToHrRealtime(onChange: () => void) {
   const channel = HR_REALTIME_TABLES.reduce((current, tableName) => (
     current.on('postgres_changes', { event: '*', schema: 'public', table: tableName }, onChange)
-  ), (supabase as any).channel('hr-realtime'));
+  ), supabase.channel('hr-realtime'));
 
   return channel.subscribe();
 }
@@ -519,7 +520,7 @@ function buildEmployeePayload(input: HrEmployeeInput, actorUserId: string | null
 }
 
 export async function saveEmployee(input: HrEmployeeInput, primaryBrandId: string, actorUserId: string | null) {
-  const client = supabase as any;
+  const client = asSupabaseLooseClient(supabase);
   const payload = buildEmployeePayload(input, actorUserId);
   const response = input.id
     ? await client.from('employees').update(payload).eq('id', input.id).select('*').single()
@@ -535,7 +536,7 @@ export async function saveEmployee(input: HrEmployeeInput, primaryBrandId: strin
 }
 
 export async function removeEmployee(employeeId: string) {
-  const response = await (supabase as any).from('employees').delete().eq('id', employeeId);
+  const response = await asSupabaseLooseClient(supabase).from('employees').delete().eq('id', employeeId);
   if (response.error) {
     throw new Error(response.error.message || 'تعذر حذف الموظف');
   }
@@ -547,7 +548,7 @@ export async function saveAttendanceRecord(
   settings: HrSettings,
   actorUserId: string | null,
 ) {
-  const client = supabase as any;
+  const client = asSupabaseLooseClient(supabase);
   const hours = computeAttendanceHours({ check_in: input.check_in, check_out: input.check_out, status: input.status }, employee, settings);
   const payload = {
     employee_id: input.employee_id,
@@ -575,7 +576,7 @@ export async function saveAttendanceRecord(
 }
 
 export async function removeAttendanceRecord(attendanceId: string) {
-  const response = await (supabase as any).from('employee_attendance').delete().eq('id', attendanceId);
+  const response = await asSupabaseLooseClient(supabase).from('employee_attendance').delete().eq('id', attendanceId);
   if (response.error) {
     throw new Error(response.error.message || 'تعذر حذف الحضور');
   }
@@ -586,7 +587,7 @@ export async function createAdvance(
   actorUserId: string | null,
   actorName: string,
 ) {
-  const response = await (supabase as any).from('hr_advances').insert({
+  const response = await asSupabaseLooseClient(supabase).from('hr_advances').insert({
     employee_id: input.employee_id,
     advance_date: input.date,
     amount: toNumber(input.amount),
@@ -606,14 +607,14 @@ export async function createAdvance(
 
 export async function settleAdvance(advanceId: string, currentRepaidAmount: number, currentAmount: number, amount: number) {
   const nextRepaidAmount = Math.min(currentAmount, currentRepaidAmount + Math.max(0, toNumber(amount)));
-  const response = await (supabase as any).from('hr_advances').update({ repaid_amount: nextRepaidAmount }).eq('id', advanceId);
+  const response = await asSupabaseLooseClient(supabase).from('hr_advances').update({ repaid_amount: nextRepaidAmount }).eq('id', advanceId);
   if (response.error) {
     throw new Error(response.error.message || 'تعذر تسجيل السداد');
   }
 }
 
 export async function removeAdvance(advanceId: string) {
-  const response = await (supabase as any).from('hr_advances').delete().eq('id', advanceId);
+  const response = await asSupabaseLooseClient(supabase).from('hr_advances').delete().eq('id', advanceId);
   if (response.error) {
     throw new Error(response.error.message || 'تعذر حذف السلفة');
   }
@@ -624,7 +625,7 @@ export async function createDeduction(
   actorUserId: string | null,
   actorName: string,
 ) {
-  const response = await (supabase as any).from('hr_deductions').insert({
+  const response = await asSupabaseLooseClient(supabase).from('hr_deductions').insert({
     employee_id: input.employee_id,
     deduction_date: input.date,
     amount: toNumber(input.amount),
@@ -640,7 +641,7 @@ export async function createDeduction(
 }
 
 export async function removeDeduction(deductionId: string) {
-  const response = await (supabase as any).from('hr_deductions').delete().eq('id', deductionId);
+  const response = await asSupabaseLooseClient(supabase).from('hr_deductions').delete().eq('id', deductionId);
   if (response.error) {
     throw new Error(response.error.message || 'تعذر حذف الخصم');
   }
@@ -651,7 +652,7 @@ export async function createBonus(
   actorUserId: string | null,
   actorName: string,
 ) {
-  const response = await (supabase as any).from('hr_bonuses').insert({
+  const response = await asSupabaseLooseClient(supabase).from('hr_bonuses').insert({
     employee_id: input.employee_id,
     bonus_date: input.date,
     amount: toNumber(input.amount),
@@ -667,14 +668,14 @@ export async function createBonus(
 }
 
 export async function removeBonus(bonusId: string) {
-  const response = await (supabase as any).from('hr_bonuses').delete().eq('id', bonusId);
+  const response = await asSupabaseLooseClient(supabase).from('hr_bonuses').delete().eq('id', bonusId);
   if (response.error) {
     throw new Error(response.error.message || 'تعذر حذف المكافأة');
   }
 }
 
 export async function persistHrSettings(primaryBrandId: string, settings: HrSettings, actorUserId: string | null) {
-  const response = await (supabase as any).from('hr_settings').upsert({
+  const response = await asSupabaseLooseClient(supabase).from('hr_settings').upsert({
     brand_id: primaryBrandId,
     grace_period_minutes: Math.max(0, Math.round(toNumber(settings.grace_period_minutes, DEFAULT_SETTINGS.grace_period_minutes))),
     updated_by: actorUserId,
@@ -689,7 +690,7 @@ export async function persistHrSettings(primaryBrandId: string, settings: HrSett
 }
 
 export async function lockHrMonth(primaryBrandId: string, year: number, month: number, actorUserId: string | null) {
-  const response = await (supabase as any).from('hr_month_locks').insert({
+  const response = await asSupabaseLooseClient(supabase).from('hr_month_locks').insert({
     brand_id: primaryBrandId,
     month_key: monthKey(year, month),
     locked_by: actorUserId,
@@ -701,7 +702,7 @@ export async function lockHrMonth(primaryBrandId: string, year: number, month: n
 }
 
 export async function unlockHrMonth(primaryBrandId: string, year: number, month: number) {
-  const response = await (supabase as any).from('hr_month_locks').delete().eq('brand_id', primaryBrandId).eq('month_key', monthKey(year, month));
+  const response = await asSupabaseLooseClient(supabase).from('hr_month_locks').delete().eq('brand_id', primaryBrandId).eq('month_key', monthKey(year, month));
   if (response.error) {
     throw new Error(response.error.message || 'تعذر فتح الشهر');
   }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Download, Flame, Loader2, Search, Star, TrendingUp, Users, Repeat, Sparkles, Wallet } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -61,7 +61,7 @@ export default function Customers({ customers, orders, loading, brands, storageM
     }, {});
   }, [orders]);
 
-  const getCustomerSegment = (customer: Customer): SegmentFilter => {
+  const getCustomerSegment = useCallback((customer: Customer): SegmentFilter => {
     const lastOrderTime = new Date(customer.last_order_at ?? customer.updated_at).getTime();
 
     if (customer.order_count >= 5) {
@@ -77,7 +77,7 @@ export default function Customers({ customers, orders, loading, brands, storageM
     }
 
     return 'repeat';
-  };
+  }, [fourteenDaysAgo, sevenDaysAgo, thirtyDaysAgo]);
 
   const filteredCustomers = useMemo(() => {
     const rawQuery = search.trim().toLowerCase();
@@ -119,7 +119,7 @@ export default function Customers({ customers, orders, loading, brands, storageM
     });
 
     return nextCustomers;
-  }, [brandFilter, customers, search, segmentFilter, sortBy]);
+  }, [brandFilter, customers, getCustomerSegment, search, segmentFilter, sortBy]);
 
   const summary = useMemo(() => {
     const vipCustomer = filteredCustomers.reduce<Customer | null>((best, customer) => {
@@ -151,7 +151,7 @@ export default function Customers({ customers, orders, loading, brands, storageM
       estimatedRecoverableRevenue,
       topRevenueCustomer,
     };
-  }, [customerRevenue, filteredCustomers]);
+  }, [customerRevenue, filteredCustomers, getCustomerSegment]);
 
   const recoveryCandidates = useMemo(() => {
     return filteredCustomers
@@ -162,7 +162,7 @@ export default function Customers({ customers, orders, loading, brands, storageM
         return rightRevenue - leftRevenue || right.order_count - left.order_count;
       })
       .slice(0, 3);
-  }, [customerRevenue, filteredCustomers]);
+  }, [customerRevenue, filteredCustomers, getCustomerSegment]);
 
   const exportToExcel = async () => {
     const XLSX = await import('xlsx');

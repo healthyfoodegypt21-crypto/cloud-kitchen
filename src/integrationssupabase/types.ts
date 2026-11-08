@@ -41,6 +41,7 @@ export type Database = {
         }
         Relationships: []
       }
+           assigned_to: string | null
       brands: {
         Row: {
           color: string
@@ -68,6 +69,7 @@ export type Database = {
           address_apartment: string
           address_area: string
           address_floor: string
+           assigned_to?: string | null
           address_house_number: string
           address_street: string
           brand_id: string
@@ -95,6 +97,7 @@ export type Database = {
           notes?: string
           phone: string
           phone_secondary?: string
+           assigned_to?: string | null
           updated_at?: string
         }
         Update: {
@@ -120,6 +123,229 @@ export type Database = {
             columns: ["brand_id"]
             isOneToOne: false
             referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      menu_companies: {
+        Row: {
+          contact_person: string
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          notes: string
+          phone: string
+          phone_numbers: string[]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          contact_person?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          notes?: string
+          phone?: string
+          phone_numbers?: string[]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          contact_person?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          notes?: string
+          phone?: string
+          phone_numbers?: string[]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      menu_company_categories: {
+        Row: {
+          company_id: string
+          created_at: string
+          display_order: number
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_company_categories_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "menu_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      menu_company_meals: {
+        Row: {
+          calories: number | null
+          carbs: number | null
+          category_id: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          description: string
+          display_order: number
+          fat: number | null
+          fiber: number | null
+          id: string
+          metadata: Json
+          name: string
+          price: number | null
+          protein: number | null
+          updated_at: string
+        }
+        Insert: {
+          calories?: number | null
+          carbs?: number | null
+          category_id: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          display_order?: number
+          fat?: number | null
+          fiber?: number | null
+          id?: string
+          metadata?: Json
+          name: string
+          price?: number | null
+          protein?: number | null
+          updated_at?: string
+        }
+        Update: {
+          calories?: number | null
+          carbs?: number | null
+          category_id?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          display_order?: number
+          fat?: number | null
+          fiber?: number | null
+          id?: string
+          metadata?: Json
+          name?: string
+          price?: number | null
+          protein?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_company_meals_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "menu_company_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_company_meals_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "menu_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      menu_ingredients: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_ingredients_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "menu_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      menu_meal_ingredients: {
+        Row: {
+          created_at: string
+          display_order: number
+          id: string
+          ingredient_id: string
+          meal_id: string
+          weight_after_grams: number | null
+          weight_before_grams: number | null
+        }
+        Insert: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          ingredient_id: string
+          meal_id: string
+          weight_after_grams?: number | null
+          weight_before_grams?: number | null
+        }
+        Update: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          ingredient_id?: string
+          meal_id?: string
+          weight_after_grams?: number | null
+          weight_before_grams?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_meal_ingredients_ingredient_id_fkey"
+            columns: ["ingredient_id"]
+            isOneToOne: false
+            referencedRelation: "menu_ingredients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_meal_ingredients_meal_id_fkey"
+            columns: ["meal_id"]
+            isOneToOne: false
+            referencedRelation: "menu_company_meals"
             referencedColumns: ["id"]
           },
         ]

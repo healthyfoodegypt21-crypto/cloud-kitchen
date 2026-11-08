@@ -189,6 +189,22 @@ export default function PurchaseReceiptPanel({ brandId, canManage }: Props) {
       return;
     }
 
+    // Client-side guard: accepted + rejected can never exceed the remaining
+    // quantity, and every rejected quantity needs a recorded reason.
+    for (const line of lines) {
+      const source = request.lines.find((entry) => entry.id === line.line_id);
+      if (!source) continue;
+      const remaining = Math.max(source.quantity - source.receivedQuantity - source.rejectedQuantity, 0);
+      if (line.received_quantity < 0 || line.rejected_quantity < 0 || line.received_quantity + line.rejected_quantity > remaining) {
+        toast.error(`الكمية المدخلة لبند "${source.itemName}" تتجاوز المتبقي (${remaining})`);
+        return;
+      }
+      if (line.rejected_quantity > 0 && !line.rejection_reason.trim()) {
+        toast.error(`اكتب سبب رفض الكمية المرفوضة لبند "${source.itemName}"`);
+        return;
+      }
+    }
+
     setSavingId(request.id);
     const { error } = await asSupabaseLooseClient(supabase).rpc('inventory_receive_purchase_request_v2', {
       _request_id: request.id,

@@ -42,4 +42,24 @@ describe('smart purchase message parsing', () => {
 
     expect(result.lines[0]).toMatchObject({ quantity: 2.5, unitPrice: 12.5, sourceUnit: null });
   });
+
+  it('fuzzy-matches invoice typos with reduced confidence for manual review', () => {
+    const result = parseSmartPurchaseMessage('طماطمم 5 kg x 30', inventoryItems);
+
+    expect(result.lines[0].itemId).toBe('tomato');
+    expect(result.lines[0].matchConfidence).toBeLessThan(1);
+  });
+
+  it('does not collapse a longer invoice name into a shorter different item', () => {
+    const result = parseSmartPurchaseMessage('Rice flour 1 bag x 80', inventoryItems);
+
+    expect(result.lines[0].itemId).toBe('');
+  });
+
+  it('marks exact matches with full confidence', () => {
+    const result = parseSmartPurchaseMessage('طماطم 5 kg x 30', inventoryItems);
+
+    expect(result.lines[0].itemId).toBe('tomato');
+    expect(result.lines[0].matchConfidence).toBe(1);
+  });
 });

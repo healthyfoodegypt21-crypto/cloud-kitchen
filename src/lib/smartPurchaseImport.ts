@@ -4,6 +4,8 @@ export type SmartPurchaseCatalogItem = {
   id: string;
   name: string;
   sku?: string;
+  purchaseUnit?: string;
+  usageUnit?: string;
 };
 
 export type SmartPurchaseLine = {
@@ -13,6 +15,8 @@ export type SmartPurchaseLine = {
   quantity: number;
   unitPrice: number;
   sourceUnit: InventoryUnit | null;
+  confirmedUnit: boolean;
+  matchConfidence: number;
 };
 
 export type SmartPurchaseParseResult = {
@@ -74,14 +78,105 @@ export function normalizePurchaseUnit(value: string | undefined): InventoryUnit 
   return UNIT_PATTERNS.find(([pattern]) => pattern.test(value))?.[1] ?? null;
 }
 
+export function unitMatchesInventory(sourceUnit: InventoryUnit | null, item: SmartPurchaseCatalogItem | null): boolean {
+  if (!sourceUnit || !item) {
+    return true;
+  }
+
+  return sourceUnit === normalizePurchaseUnit(item.purchaseUnit) || sourceUnit === normalizePurchaseUnit(item.usageUnit);
+}
+
+function tokenSet(value: string) {
+  return new Set(normalizeName(value).split(' ').filter(Boolean));
+}
+
+function editDistanceAtMostOne(left: string, right: string) {
+  if (left === right) return true;
+  const lengthDiff = Math.abs(left.length - right.length);
+  if (lengthDiff > 1) return false;
+
+  if (lengthDiff === 0) {
+    let mismatches = 0;
+    for (let index = 0; index < left.length; index += 1) {
+      if (left[index] !== right[index]) mismatches += 1;
+      if (mismatches > 1) return false;
+    }
+    return true;
+  }
+
+  const [shorter, longer] = left.length < right.length ? [left, right] : [right, left];
+  let i = 0;
+  let j = 0;
+  let skipped = false;
+  while (i < shorter.length && j < longer.length) {
+    if (shorter[i] === longer[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    if (skipped) return false;
+    skipped = true;
+    j += 1;
+  }
+  return true;
+}
+
+function tokensMatch(source: string, candidate: string) {
+  if (source === candidate) return true;
+  if (source.length >= 3 && candidate.startsWith(source)) return true;
+  if (candidate.length >= 3 && source.startsWith(candidate)) return true;
+  return source.length >= 4 && candidate.length >= 4 && editDistanceAtMostOne(source, candidate);
+}
+
+// Token-level fuzzy score: BOTH sides must be fully covered by the other
+// (equal, prefix, or one-edit typo), so "Rice flour" never collapses into
+// "Rice" while "chiken" still matches "chicken".
+function similarityScore(source: string, candidate: string) {
+  const sourceTokens = [...tokenSet(source)];
+  const candidateTokens = [...tokenSet(candidate)];
+  if (sourceTokens.length === 0 || candidateTokens.length === 0) {
+    return 0;
+  }
+
+  const candidateCovered = candidateTokens.filter((candidateToken) =>
+    sourceTokens.some((sourceToken) => tokensMatch(sourceToken, candidateToken)),
+  ).length;
+  const sourceCovered = sourceTokens.filter((sourceToken) =>
+    candidateTokens.some((candidateToken) => tokensMatch(sourceToken, candidateToken)),
+  ).length;
+  if (candidateCovered < candidateTokens.length || sourceCovered < sourceTokens.length) {
+    return 0;
+  }
+
+  const exactPairs = candidateTokens.filter((candidateToken) => sourceTokens.includes(candidateToken)).length;
+  const precision = exactPairs / Math.max(sourceTokens.length, candidateTokens.length);
+  return 0.5 + precision * 0.5;
+}
+
+const FUZZY_MATCH_THRESHOLD = 0.5;
+
 function matchInventoryItem(name: string, items: SmartPurchaseCatalogItem[]) {
   const normalizedName = normalizeName(name);
-  const item = items.find((candidate) => (
+  const exact = items.find((candidate) => (
     normalizeName(candidate.name) === normalizedName
     || normalizeName(candidate.sku ?? '') === normalizedName
   ));
+  if (exact) {
+    return { id: exact.id, confidence: 1 };
+  }
 
-  return item?.id ?? '';
+  const best = items
+    .map((candidate) => ({
+      candidate,
+      score: Math.max(
+        similarityScore(name, candidate.name),
+        candidate.sku ? similarityScore(name, candidate.sku) : 0,
+      ),
+    }))
+    .filter((entry) => entry.score >= FUZZY_MATCH_THRESHOLD)
+    .sort((left, right) => right.score - left.score)[0];
+
+  return best ? { id: best.candidate.id, confidence: best.score } : { id: '', confidence: 0 };
 }
 
 export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCatalogItem[]): SmartPurchaseParseResult {
@@ -120,13 +215,16 @@ export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCata
       return;
     }
 
+    const matched = matchInventoryItem(sourceName, items);
     lines.push({
       id: `smart-purchase-${index}`,
       sourceName,
-      itemId: matchInventoryItem(sourceName, items),
+      itemId: matched.id,
       quantity,
       unitPrice,
       sourceUnit: normalizePurchaseUnit(match[3]),
+      confirmedUnit: true,
+      matchConfidence: matched.confidence,
     });
   });
 

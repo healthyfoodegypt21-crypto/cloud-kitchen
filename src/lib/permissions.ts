@@ -9,6 +9,7 @@ export type AppPageId =
   | 'customers'
   | 'leaderboard'
   | 'menu-packages'
+  | 'companies-menus'
   | 'inventory'
   | 'purchases'
   | 'hr'
@@ -22,6 +23,7 @@ export const ALL_PAGES: { id: AppPageId; label: string }[] = [
   { id: 'customers', label: 'العملاء' },
   { id: 'leaderboard', label: 'لوحة الصدارة' },
   { id: 'menu-packages', label: 'المنيو والباقات' },
+  { id: 'companies-menus', label: 'الشركات والمنيو' },
   { id: 'inventory', label: 'المخزون' },
   { id: 'purchases', label: 'المشتريات' },
   { id: 'hr', label: 'الموارد البشرية' },

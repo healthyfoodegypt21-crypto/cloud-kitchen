@@ -8,7 +8,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { useBrands } from '@/hooks/useBrands';
 import { supabase } from '@/integrations/supabase/client';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
-import Procurement from '@/pages/Procurement';
 
 export default function PurchasesRoute() {
   const { brands } = useBrands();
@@ -101,6 +100,20 @@ export default function PurchasesRoute() {
 
     let storagePath = '';
     try {
+      const invoiceNumber = submission.invoiceNumber.trim();
+      if (invoiceNumber) {
+        const { data: duplicateData } = await asSupabaseLooseClient(supabase)
+          .from('supplier_invoices')
+          .select('id')
+          .eq('brand_id', brandId)
+          .eq('invoice_number', invoiceNumber)
+          .limit(1);
+        if (Array.isArray(duplicateData) && duplicateData.length > 0) {
+          toast.error(`رقم الفاتورة "${invoiceNumber}" مسجل مسبقًا لهذه العلامة؛ راجع سجل الفواتير لتجنب التكرار.`);
+          return false;
+        }
+      }
+
       if (submission.invoiceFile) {
         const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
         if (!allowedTypes.includes(submission.invoiceFile.type) || submission.invoiceFile.size > 12 * 1024 * 1024) {

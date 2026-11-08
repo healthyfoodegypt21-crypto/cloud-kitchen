@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
-import { parseSmartPurchaseMessage, type SmartPurchaseCatalogItem, type SmartPurchaseLine } from '@/lib/smartPurchaseImport';
+import { parseSmartPurchaseMessage, unitMatchesInventory, type SmartPurchaseCatalogItem, type SmartPurchaseLine } from '@/lib/smartPurchaseImport';
 import { convertInvoiceLineToPurchaseUnit } from '@/lib/procurementUnits';
 import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
 
@@ -39,6 +39,31 @@ type Props = {
 
 type ReviewLine = SmartPurchaseLine;
 
+async function downscaleImage(file: File, maxDimension: number): Promise<Blob | File> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+    if (scale >= 1) {
+      bitmap.close();
+      return file;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const context = canvas.getContext('2d');
+    if (!context) {
+      bitmap.close();
+      return file;
+    }
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    return blob ?? file;
+  } catch {
+    return file;
+  }
+}
+
 export default function SmartPurchaseImportDialog({
   open,
   inventoryItems,
@@ -69,6 +94,7 @@ export default function SmartPurchaseImportDialog({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const ocrAbortRef = useRef<AbortController | null>(null);
 
   const selectedItems = useMemo(
     () => new Map(inventoryItems.map((item) => [item.id, item])),
@@ -83,14 +109,33 @@ export default function SmartPurchaseImportDialog({
     })),
     [lines, selectedItems],
   );
-  const total = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
+  // The invoice total must reflect what will actually be recorded: converted
+  // purchase-unit lines. Unmatched/unconvertible lines are excluded so the paid
+  // amount can never exceed the real recorded value.
+  const total = lines.reduce((sum, line) => {
+    const converted = convertedLines.get(line.id);
+    return sum + (converted ? converted.quantity * converted.unitPrice : 0);
+  }, 0);
   const invoiceTotal = Math.max(0, total + taxAmount - discountAmount);
+  const paymentConsistencyError = useMemo(() => {
+    if (paymentMethod === 'credit' && !dueDate) {
+      return 'الشراء الآجل يتطلب تحديد تاريخ الاستحقاق.';
+    }
+    if (paymentMethod !== 'credit' && dueDate) {
+      return 'تاريخ الاستحقاق يُستخدم مع الشراء الآجل فقط.';
+    }
+    if (paymentMethod === 'cash' && lines.length > 0 && paidAmount === 0) {
+      return 'الدفع نقدًا يتطلب إدخال المبلغ المدفوع كاملًا.';
+    }
+    return '';
+  }, [paymentMethod, dueDate, paidAmount, lines.length]);
   const canSubmit = lines.length > 0
     && Boolean(purchaserName.trim())
     && taxAmount >= 0
     && discountAmount >= 0
     && paidAmount >= 0
     && paidAmount <= invoiceTotal
+    && !paymentConsistencyError
     && lines.every((line) => Boolean(selectedItems.get(line.itemId)) && convertedLines.get(line.id) !== null);
 
   useEffect(() => {
@@ -147,22 +192,43 @@ export default function SmartPurchaseImportDialog({
 
     setImageFile(file);
     setIsReadingImage(true);
+    const controller = new AbortController();
+    ocrAbortRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 60_000);
     try {
+      // Downscale large photos before OCR to keep the browser responsive.
+      const ocrSource = await downscaleImage(file, 1600);
       const { createWorker } = await import('tesseract.js');
       const worker = await createWorker('ara+eng');
       try {
-        const { data } = await worker.recognize(file);
+        const recognizePromise = worker.recognize(ocrSource);
+        const { data } = await Promise.race([
+          recognizePromise,
+          new Promise<never>((_, reject) => {
+            controller.signal.addEventListener('abort', () => reject(new Error('تم إلغاء قراءة الصورة')));
+          }),
+        ]);
         setMessage(data.text);
         applyParse(data.text);
       } finally {
         await worker.terminate();
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'تعذر قراءة الصورة';
-      toast.error(`تعذر استخراج النص من الصورة: ${message}`);
+      if (controller.signal.aborted) {
+        toast.error('استغرقت قراءة الصورة وقتًا طويلًا أو أُلغيت. جرّب صورة أوضح.');
+      } else {
+        const message = error instanceof Error ? error.message : 'تعذر قراءة الصورة';
+        toast.error(`تعذر استخراج النص من الصورة: ${message}`);
+      }
     } finally {
+      window.clearTimeout(timeoutId);
+      ocrAbortRef.current = null;
       setIsReadingImage(false);
     }
+  };
+
+  const cancelImageRead = () => {
+    ocrAbortRef.current?.abort();
   };
 
   const updateLine = (id: string, update: Partial<ReviewLine>) => {
@@ -265,6 +331,7 @@ export default function SmartPurchaseImportDialog({
             {isReadingImage ? (
               <div className="flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> جارٍ استخراج النص من الصورة...
+                <Button type="button" variant="ghost" size="sm" className="mr-auto" onClick={cancelImageRead}>إلغاء</Button>
               </div>
             ) : imagePreview ? (
               <div className="flex items-start gap-3 rounded-lg border p-2">
@@ -311,6 +378,8 @@ export default function SmartPurchaseImportDialog({
           <div className="space-y-2"><Label htmlFor="smart-invoice-file">الفاتورة (PDF أو صورة)</Label><Input id="smart-invoice-file" type="file" accept=".pdf,image/jpeg,image/png,image/webp" onChange={(event) => setInvoiceFile(event.target.files?.[0] ?? null)} /></div>
         </div>
 
+        {paymentConsistencyError && <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{paymentConsistencyError}</p>}
+
         {lines.length > 0 ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -326,6 +395,9 @@ export default function SmartPurchaseImportDialog({
                     <div className="space-y-1">
                       <Label>النص المستخرج</Label>
                       <div className="truncate rounded-md bg-muted px-3 py-2 text-sm" dir="auto">{line.sourceName}</div>
+                      {line.itemId && line.matchConfidence < 1 && (
+                        <p className="text-xs font-medium text-amber-600">مطابقة تقريبية — راجع الصنف المختار قبل التسجيل</p>
+                      )}
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor={`smart-item-${line.id}`}>صنف المخزون</Label>
@@ -335,7 +407,7 @@ export default function SmartPurchaseImportDialog({
                         value={line.itemId}
                         onChange={(event) => {
                           const nextItem = inventoryItems.find((candidate) => candidate.id === event.target.value);
-                          updateLine(line.id, { itemId: event.target.value, confirmedUnit: unitMatchesInventory(line.sourceUnit, nextItem) });
+                          updateLine(line.id, { itemId: event.target.value, confirmedUnit: unitMatchesInventory(line.sourceUnit, nextItem ?? null) });
                         }}
                       >
                         <option value="">اختر الصنف المطابق</option>

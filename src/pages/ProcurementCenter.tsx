@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Download, FileText, Loader2, PackagePlus, Plus, Printer, Search, ShoppingBasket, TrendingUp, Users } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, Download, FileText, Loader2, PackagePlus, Plus, Printer, Search, ShoppingBasket, Trash2, TrendingUp, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,6 +13,10 @@ import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import { supabase } from '@/integrations/supabase/client';
 import { suggestPurchaseQuantity } from '@/lib/procurementUnits';
 import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
+import AutoReorderDialog from '@/components/procurement/AutoReorderDialog';
+import PriceHistoryPanel from '@/components/procurement/PriceHistoryPanel';
+import ProcurementKpis from '@/components/procurement/ProcurementKpis';
+import SupplierDirectory from '@/components/procurement/SupplierDirectory';
 
 type Supplier = {
   id: string;
@@ -115,6 +119,7 @@ type DirectDraft = {
 const PAGE_SIZE = 20;
 const records = (value: unknown) => Array.isArray(value) ? value.filter(isRecord) : [];
 const number = (value: unknown) => Number(value ?? 0);
+const isFiniteValue = (value: unknown) => Number.isFinite(Number(value ?? NaN));
 const money = (value: number) => new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', maximumFractionDigits: 2 }).format(value);
 const today = () => new Date().toISOString().slice(0, 10);
 const emptyDirectDraft = (): DirectDraft => ({
@@ -152,14 +157,22 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
   const [supplierDraft, setSupplierDraft] = useState({ id: '', name: '', phone: '', email: '', paymentTerms: '', leadTimeDays: '0', notes: '' });
   const [savingId, setSavingId] = useState('');
   const [paymentDrafts, setPaymentDrafts] = useState<Record<string, { amount: string; method: 'cash' | 'bank_transfer' | 'credit'; reference: string }>>({});
+  const [totalSpend, setTotalSpend] = useState(0);
+  const [cleaningOrphans, setCleaningOrphans] = useState(false);
+  const [autoReorderOpen, setAutoReorderOpen] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState<Array<{ id: string; requestId: string; totalAmount: number; approvalLimit: number; requestedBy: string; notes: string; createdAt: string }>>([]);
+  const loadVersion = useRef(0);
 
   const load = useCallback(async () => {
+    const requestVersion = ++loadVersion.current;
+    const isStale = () => requestVersion !== loadVersion.current;
     if (!brandId) {
       setSuppliers([]);
       setItems([]);
       setRequests([]);
       setInvoices([]);
       setTotalCount(0);
+      setTotalSpend(0);
       setLoading(false);
       return;
     }
@@ -175,10 +188,13 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
     ]);
     const initialError = supplierResult.error || itemResult.error || balanceResult.error;
     if (initialError) {
-      toast.error(initialError.message || 'تعذر تحميل بيانات الموردين أو الأصناف');
-      setLoading(false);
+      if (!isStale()) {
+        toast.error(initialError.message || 'تعذر تحميل بيانات الموردين أو الأصناف');
+        setLoading(false);
+      }
       return;
     }
+    if (isStale()) return;
 
     const balanceMap = new Map<string, number>();
     records(balanceResult.data).forEach((row) => {
@@ -212,10 +228,13 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
     }
     const { data: requestData, error: requestError, count } = await requestQuery.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     if (requestError) {
-      toast.error(requestError.message || 'تعذر تحميل سجل المشتريات');
-      setLoading(false);
+      if (!isStale()) {
+        toast.error(requestError.message || 'تعذر تحميل سجل المشتريات');
+        setLoading(false);
+      }
       return;
     }
+    if (isStale()) return;
 
     const requestRows = records(requestData);
     setTotalCount(count ?? 0);
@@ -226,10 +245,13 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
         .in('purchase_request_id', requestIds)
       : { data: [], error: null };
     if (lineError) {
-      toast.error(lineError.message || 'تعذر تحميل بنود المشتريات');
-      setLoading(false);
+      if (!isStale()) {
+        toast.error(lineError.message || 'تعذر تحميل بنود المشتريات');
+        setLoading(false);
+      }
       return;
     }
+    if (isStale()) return;
 
     const itemMap = new Map(nextItems.map((item) => [item.id, item]));
     const nextRequests = requestRows.map((row) => ({
@@ -271,16 +293,42 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
       .select('id,purchase_request_id,supplier_id,invoice_number,invoice_date,due_date,total_amount,paid_amount,status,invoice_storage_path')
       .eq('brand_id', brandId).order('invoice_date', { ascending: false }).limit(200);
     if (invoiceError) {
-      toast.error(invoiceError.message || 'تعذر تحميل فواتير الموردين');
-      setLoading(false);
+      if (!isStale()) {
+        toast.error(invoiceError.message || 'تعذر تحميل فواتير الموردين');
+        setLoading(false);
+      }
       return;
     }
+    if (isStale()) return;
     const supplierMap = new Map(records(supplierResult.data).map((row) => [String(row.id), String(row.name)]));
     setInvoices(records(invoiceData).map((row) => ({
       id: String(row.id), requestId: String(row.purchase_request_id ?? ''), supplierName: supplierMap.get(String(row.supplier_id)) ?? 'مورد',
       number: String(row.invoice_number), date: String(row.invoice_date ?? ''), dueDate: String(row.due_date ?? ''),
       total: number(row.total_amount), paid: number(row.paid_amount), status: String(row.status),
       storagePath: String(row.invoice_storage_path ?? ''),
+    })));
+
+    // Aggregate spend across ALL purchased requests (single-column payload),
+    // so the KPI is not limited to the currently rendered page.
+    const { data: spendData } = await client.from('inventory_purchase_requests')
+      .select('total_amount')
+      .eq('brand_id', brandId)
+      .not('purchased_at', 'is', null)
+      .limit(5000);
+    if (isStale()) return;
+    setTotalSpend(records(spendData).reduce((sum, row) => sum + number(row.total_amount), 0));
+
+    const { data: approvalData } = await client.from('inventory_purchase_approvals')
+      .select('id,purchase_request_id,total_amount,approval_limit,requested_by,notes,created_at')
+      .eq('brand_id', brandId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(50);
+    if (isStale()) return;
+    setPendingApprovals(records(approvalData).map((row) => ({
+      id: String(row.id), requestId: String(row.purchase_request_id), totalAmount: number(row.total_amount),
+      approvalLimit: number(row.approval_limit), requestedBy: String(row.requested_by ?? ''),
+      notes: String(row.notes ?? ''), createdAt: String(row.created_at),
     })));
     setLoading(false);
   }, [brandId, fromDate, page, purchaserName, search, statusFilter, toDate]);
@@ -304,8 +352,6 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
   );
   const pending = requests.filter((request) => request.status === 'pending_procurement');
   const directItem = items.find((item) => item.id === directDraft.itemId);
-  const currentSpend = requests.filter((request) => request.purchasedAt)
-    .reduce((sum, request) => sum + request.lines.reduce((lineSum, line) => lineSum + number(line.quantity) * number(line.unitCost), 0), 0);
   const latestPrices = useMemo(() => {
     const sorted = requests.filter((request) => request.purchasedAt)
       .sort((left, right) => right.purchasedAt.localeCompare(left.purchasedAt));
@@ -349,8 +395,12 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
   const finishPurchase = async (request: PurchaseRequest) => {
     const draft = drafts[request.id];
     if (!draft?.purchaserName.trim() || draft.lines.length === 0
-      || draft.lines.some((line) => number(line.quantity) <= 0 || number(line.unitCost) < 0)) {
+      || draft.lines.some((line) => !isFiniteValue(line.quantity) || !isFiniteValue(line.unitCost) || number(line.quantity) <= 0 || number(line.unitCost) < 0)) {
       toast.error('أدخل اسم المشتري والكمية والسعر الفعلي لكل بند');
+      return;
+    }
+    if (![draft.taxAmount, draft.discountAmount, draft.paidAmount].every(isFiniteValue)) {
+      toast.error('أدخل أرقامًا صحيحة للضريبة والخصم والمبلغ المدفوع');
       return;
     }
     const subtotal = draft.lines.reduce((sum, line) => sum + number(line.quantity) * number(line.unitCost), 0);
@@ -364,6 +414,19 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
     setSavingId(request.id);
     let storagePath = '';
     try {
+      // Client-side duplicate invoice guard (the DB unique index enforces it too).
+      const invoiceNumber = draft.invoiceNumber.trim();
+      if (invoiceNumber) {
+        const { data: duplicateData } = await asSupabaseLooseClient(supabase)
+          .from('supplier_invoices')
+          .select('id')
+          .eq('brand_id', brandId)
+          .eq('invoice_number', invoiceNumber)
+          .limit(1);
+        if (records(duplicateData).length > 0) {
+          throw new Error(`رقم الفاتورة "${invoiceNumber}" مسجل مسبقًا لهذه العلامة؛ راجع سجل الفواتير لتجنب التكرار.`);
+        }
+      }
       storagePath = await uploadInvoice(draft.invoiceFile, brandId);
       const { error } = await asSupabaseLooseClient(supabase).rpc('inventory_complete_procurement_purchase_v2', {
         _request_id: request.id,
@@ -397,7 +460,8 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
 
   const recordDirectPurchase = async () => {
     const item = items.find((entry) => entry.id === directDraft.itemId);
-    if (!brandId || !item || number(directDraft.quantity) <= 0 || number(directDraft.unitCost) < 0 || !directDraft.purchaserName.trim()) {
+    if (!brandId || !item || !isFiniteValue(directDraft.quantity) || !isFiniteValue(directDraft.unitCost)
+      || number(directDraft.quantity) <= 0 || number(directDraft.unitCost) < 0 || !directDraft.purchaserName.trim()) {
       toast.error('اختر الصنف وأدخل كمية وسعرًا صحيحين واسم المشتري');
       return;
     }
@@ -447,7 +511,12 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
   };
 
   const submitShortages = async () => {
-    const lines = Object.entries(selectedShortages).filter(([, quantity]) => number(quantity) > 0)
+    const selectedEntries = Object.entries(selectedShortages);
+    if (selectedEntries.some(([, quantity]) => !isFiniteValue(quantity))) {
+      toast.error('أدخل كميات رقمية صحيحة للأصناف المحددة');
+      return;
+    }
+    const lines = selectedEntries.filter(([, quantity]) => number(quantity) > 0)
       .map(([itemId, quantity]) => {
         const item = items.find((candidate) => candidate.id === itemId);
         const factor = item && item.conversionFactor > 0 ? item.conversionFactor : 1;
@@ -483,9 +552,73 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
     await load();
   };
 
+  // Auto reorder: one purchase request per preferred supplier.
+  const submitAutoReorder = async (lines: Array<{ itemId: string; quantity: number; unitCost: number; supplierId: string }>, orderNotes: string) => {    if (!brandId || lines.length === 0) {
+      toast.error('لا توجد أصناف صالحة لإنشاء أمر الشراء');
+      return false;
+    }
+
+    const bySupplier = new Map<string, typeof lines>();
+    for (const line of lines) {
+      const key = line.supplierId || '';
+      const group = bySupplier.get(key) ?? [];
+      group.push(line);
+      bySupplier.set(key, group);
+    }
+
+    for (const [supplierId, group] of bySupplier) {
+      const supplier = suppliers.find((entry) => entry.id === supplierId);
+      const { error } = await asSupabaseLooseClient(supabase).rpc('inventory_submit_purchase_request_v2', {
+        _brand_id: brandId,
+        _supplier_id: supplierId || null,
+        _supplier_name: supplier?.name ?? '',
+        _lines: group.map((line) => ({
+          item_id: line.itemId,
+          quantity: line.quantity,
+          unit_cost: line.unitCost,
+          location_name: 'main',
+          notes: 'أمر شراء تلقائي من النواقص',
+        })),
+        _notes: orderNotes,
+      });
+      if (error) {
+        toast.error(error.message || 'تعذر إنشاء أمر الشراء التلقائي');
+        return false;
+      }
+    }
+
+    toast.success(`تم إنشاء ${bySupplier.size} أمر شراء تلقائي من ${lines.length} صنف`);
+    setPage(0);
+    setStatusFilter('all');
+    await load();
+    return true;
+  };
+
+  const reviewApproval = async (approvalId: string, approve: boolean) => {
+    const reviewNotes = approve ? '' : window.prompt('اكتب سبب رفض الاعتماد:')?.trim() ?? '';
+    if (!approve && !reviewNotes) return;
+    setSavingId(approvalId);
+    const { error } = await asSupabaseLooseClient(supabase).rpc('inventory_review_purchase_approval', {
+      _approval_id: approvalId,
+      _approve: approve,
+      _notes: reviewNotes,
+    });
+    setSavingId('');
+    if (error) {
+      toast.error(error.message || 'تعذر مراجعة الاعتماد');
+      return;
+    }
+    toast.success(approve ? 'تم اعتماد طلب الشراء' : 'تم رفض طلب الشراء');
+    await load();
+  };
+
   const saveSupplier = async () => {
     if (!brandId || !supplierDraft.name.trim()) {
       toast.error('اسم المورد مطلوب');
+      return;
+    }
+    if (!isFiniteValue(supplierDraft.leadTimeDays)) {
+      toast.error('أدخل مدة توريد رقمية صحيحة');
       return;
     }
     setSupplierSaving(true);
@@ -571,6 +704,29 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
     window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
   };
 
+  // Deletes storage files that no invoice or purchase request references
+  // anymore (left behind when an RPC failed after a successful upload).
+  const cleanupOrphanInvoices = async () => {
+    if (!brandId) return;
+    setCleaningOrphans(true);
+    try {
+      const { data, error } = await asSupabaseLooseClient(supabase).rpc('inventory_find_orphan_invoice_files', { _brand_id: brandId });
+      if (error) throw new Error(error.message);
+      const paths = records(data).map((row) => String(row.storage_path ?? '')).filter(Boolean);
+      if (paths.length === 0) {
+        toast.success('لا توجد ملفات فواتير غير مرتبطة');
+        return;
+      }
+      const { error: removeError } = await supabase.storage.from('supplier-invoices').remove(paths);
+      if (removeError) throw new Error(removeError.message);
+      toast.success(`تم حذف ${paths.length} ملف فاتورة غير مرتبط`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تنظيف ملفات الفواتير');
+    } finally {
+      setCleaningOrphans(false);
+    }
+  };
+
   const pages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const dueInvoices = invoices.filter((invoice) => invoice.total > invoice.paid);
   const activeSuppliers = suppliers.filter((supplier) => supplier.status === 'active');
@@ -596,9 +752,35 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric title="نواقص المخزن" value={String(shortages.length)} />
         <Metric title="بانتظار التنفيذ" value={String(pending.length)} />
-        <Metric title="مصروفات الصفحة" value={money(currentSpend)} />
+        <Metric title="إجمالي المصروفات" value={money(totalSpend)} />
         <Metric title="فواتير مستحقة" value={money(dueInvoices.reduce((sum, invoice) => sum + invoice.total - invoice.paid, 0))} />
       </div>
+
+      <ProcurementKpis brandId={brandId} />
+
+      {pendingApprovals.length > 0 && (
+        <Card className="border-amber-300">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-amber-600" />طلبات شراء بانتظار الاعتماد ({pendingApprovals.length})</CardTitle>
+            <CardDescription>تتجاوز هذه الطلبات حد الاعتماد التلقائي وتحتاج مراجعة مدير مختلف عن مُنشئ الطلب.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {pendingApprovals.map((approval) => (
+              <div key={approval.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3">
+                <div>
+                  <strong>{money(approval.totalAmount)}</strong>
+                  <span className="mx-2 text-sm text-muted-foreground">حد الاعتماد {money(approval.approvalLimit)}</span>
+                  <p className="text-xs text-muted-foreground">{new Date(approval.createdAt).toLocaleString('ar-EG')}{approval.notes ? ` — ${approval.notes}` : ''}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" disabled={savingId === approval.id} onClick={() => void reviewApproval(approval.id, true)}>اعتماد</Button>
+                  <Button size="sm" variant="outline" className="text-destructive" disabled={savingId === approval.id} onClick={() => void reviewApproval(approval.id, false)}>رفض</Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="shortages" className="space-y-5">
         <TabsList className="flex h-auto flex-wrap justify-start gap-1.5 rounded-2xl border bg-card p-1.5">
@@ -611,6 +793,11 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
         </TabsList>
 
         <TabsContent value="shortages" className="space-y-4">
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setAutoReorderOpen(true)} disabled={!brandId}>
+              <ShoppingBasket className="ml-2 h-4 w-4" />إنشاء أمر شراء تلقائي من النواقص
+            </Button>
+          </div>
           <Card>
             <CardHeader>
               <CardTitle>النواقص واقتراح إعادة التوريد</CardTitle>
@@ -735,7 +922,8 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
           </Card>
         </TabsContent>
 
-        <TabsContent value="prices">
+        <TabsContent value="prices" className="space-y-4">
+          <PriceHistoryPanel brandId={brandId} items={items.map((item) => ({ id: item.id, name: item.name, purchaseUnit: item.purchaseUnit }))} />
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />آخر سعر شراء ضمن النتائج المحملة</CardTitle><CardDescription>مرتبة حسب وقت التنفيذ الفعلي، وليس ترتيب إنشاء الطلب.</CardDescription></CardHeader>
             <CardContent>{latestPrices.length ? <DataTable headers={['الصنف', 'آخر سعر للوحدة', 'المورد', 'التاريخ']} rows={latestPrices.map((entry) => [entry.itemName, money(entry.price), entry.supplierName || '—', new Date(entry.date).toLocaleDateString('ar-EG')])} /> : <Empty text="لا تتوفر بيانات أسعار للمشتريات المحملة." />}</CardContent>
           </Card>
@@ -743,14 +931,16 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
 
         <TabsContent value="suppliers" className="space-y-4">
           <div className="flex justify-end"><Button onClick={() => { setSupplierDraft({ id: '', name: '', phone: '', email: '', paymentTerms: '', leadTimeDays: '0', notes: '' }); setSupplierOpen(true); }}><Plus className="ml-2 h-4 w-4" />إضافة مورد</Button></div>
-          <Card><CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" />دليل الموردين</CardTitle><CardDescription>بيانات التواصل وشروط الدفع ومدة التوريد؛ تُستخدم الأسعار لتقوية قرارات الشراء التالية.</CardDescription></CardHeader>
-            <CardContent>{suppliers.length ? <div className="overflow-x-auto"><table className="w-full text-right text-sm"><thead><tr className="border-b text-muted-foreground">{['المورد', 'الهاتف', 'البريد', 'شروط الدفع', 'مدة التوريد', 'آخر شراء', 'الحالة', 'الإجراء'].map((head) => <th className="p-2" key={head}>{head}</th>)}</tr></thead>
-              <tbody>{suppliers.map((supplier) => <tr className="border-b" key={supplier.id}><td className="p-2 font-semibold">{supplier.name}</td><td className="p-2">{supplier.phone || '—'}</td><td className="p-2">{supplier.email || '—'}</td><td className="p-2">{supplier.paymentTerms || '—'}</td><td className="p-2">{supplier.leadTimeDays} يوم</td><td className="p-2">{supplier.lastPurchaseAt ? new Date(supplier.lastPurchaseAt).toLocaleDateString('ar-EG') : '—'}</td><td className="p-2">{supplier.status === 'active' ? 'نشط' : 'موقوف'}</td><td className="p-2"><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => { setSupplierDraft({ id: supplier.id, name: supplier.name, phone: supplier.phone, email: supplier.email, paymentTerms: supplier.paymentTerms, leadTimeDays: String(supplier.leadTimeDays), notes: supplier.notes }); setSupplierOpen(true); }}>تعديل</Button><Button size="sm" variant="ghost" onClick={() => void setSupplierStatus(supplier, supplier.status === 'active' ? 'inactive' : 'active')}>{supplier.status === 'active' ? 'إيقاف' : 'إعادة تفعيل'}</Button></div></td></tr>)}</tbody>
-            </table></div> : <Empty text="لا يوجد موردون للعلامة المحددة." />}</CardContent>
-          </Card>
+          <SupplierDirectory brandId={brandId} suppliers={suppliers} onRefresh={() => void load()} />
         </TabsContent>
 
         <TabsContent value="invoices" className="space-y-3">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" disabled={cleaningOrphans} onClick={() => void cleanupOrphanInvoices()}>
+              {cleaningOrphans ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Trash2 className="ml-2 h-4 w-4" />}
+              تنظيف ملفات الفواتير غير المرتبطة
+            </Button>
+          </div>
           {dueInvoices.length ? dueInvoices.map((invoice) => {
             const draft = paymentDrafts[invoice.id] ?? { amount: '', method: 'cash' as const, reference: '' };
             const remaining = invoice.total - invoice.paid;
@@ -793,6 +983,8 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
           <Button disabled={savingId === 'direct'} onClick={() => void recordDirectPurchase()}>{savingId === 'direct' ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <PackagePlus className="ml-2 h-4 w-4" />}تسجيل الشراء</Button>
         </DialogContent>
       </Dialog>
+
+      <AutoReorderDialog open={autoReorderOpen} onOpenChange={setAutoReorderOpen} brandId={brandId} onSubmit={submitAutoReorder} />
 
       <Dialog open={supplierOpen} onOpenChange={setSupplierOpen}>
         <DialogContent>

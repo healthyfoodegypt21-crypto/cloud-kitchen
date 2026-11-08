@@ -22,13 +22,12 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
 
   const getCustomerKey = (order: Order) => `${order.brand_id ?? 'no-brand'}:${order.phone}`;
 
-  const daysAgo = (days: number) => {
-    const date = new Date();
-    date.setDate(date.getDate() - days);
-    return date.getTime();
-  };
-
   const stats = useMemo(() => {
+    const daysAgo = (days: number) => {
+      const date = new Date();
+      date.setDate(date.getDate() - days);
+      return date.getTime();
+    };
     const todayOrders = orders.filter(o => o.created_at.slice(0, 10) === today);
     const monthOrders = orders.filter(o => o.created_at.slice(0, 7) === month);
     const activeOrders = orders.filter(o => !['delivered', 'cancelled'].includes(o.status));
@@ -93,7 +92,7 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
       return acc;
     }, {});
 
-    let current = new Date();
+    const current = new Date();
     let count = 0;
 
     while (true) {
@@ -130,6 +129,11 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
   }, [stats.monthOrders]);
 
   const quickWins = useMemo(() => {
+    const daysAgo = (days: number) => {
+      const date = new Date();
+      date.setDate(date.getDate() - days);
+      return date.getTime();
+    };
     const previous14DaysStart = daysAgo(14);
     const atRiskWindowStart = daysAgo(30);
     const customerLastSeen = new Map<string, number>();
@@ -179,7 +183,7 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
         tone: 'text-success',
       },
     ];
-  }, [daysAgo, now, orders, sourceBreakdown, stats.cancelledToday]);
+  }, [now, orders, sourceBreakdown, stats.cancelledToday]);
 
   const missionLabel = stats.todaySales >= targets.dailySales && stats.todayOrderCount >= targets.dailyOrders
     ? 'تم تحقيق مهمة اليوم كاملة.'

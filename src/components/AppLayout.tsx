@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, ClipboardList, Users, LogOut, Settings, Trophy, Menu, X, UtensilsCrossed, ChefHat, Boxes, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, Users, LogOut, Settings, Trophy, Menu, X, UtensilsCrossed, ChefHat, Boxes, ShoppingCart, Building2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -16,6 +16,7 @@ const navItems: NavItem[] = [
   { to: '/purchases', label: 'المشتريات', icon: ShoppingCart, pageId: 'purchases', allowInDemo: true },
   { to: '/hr', label: 'الموارد البشرية', icon: Users, pageId: 'hr' },
   { to: '/menu-packages', label: 'المنيو والباقات', icon: UtensilsCrossed, pageId: 'menu-packages' },
+  { to: '/companies-menus', label: 'الشركات والمنيو', icon: Building2, pageId: 'companies-menus' },
   { to: '/customers', label: 'العملاء', icon: Users, pageId: 'customers', allowInDemo: true },
   { to: '/leaderboard', label: 'لوحة الصدارة', icon: Trophy, pageId: 'leaderboard', allowInDemo: true },
   { to: '/users', label: 'المستخدمون', icon: Users, pageId: 'users', ownerOnly: true },
@@ -31,6 +32,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     && (!item.ownerOnly || role === 'owner')
     && (!isDemoMode || item.allowInDemo)
     && (isDemoMode || hasPageAccess(role, pagePermissions, item.pageId)));
+
+  const deliveryNav = role === 'delivery' ? { to: '/my-orders', label: 'أوردراتي', icon: ClipboardList } : null;
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -57,7 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Nav links */}
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {visibleItems.map(({ to, label, icon: Icon }) => {
+          {(deliveryNav ? [deliveryNav] : visibleItems).map(({ to, label, icon: Icon }) => {
             const active = pathname === to;
             return (
               <Link

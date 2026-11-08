@@ -27,7 +27,7 @@ export function useSupabaseRealtimeRefresh(options: {
       return current.on('postgres_changes', config, () => {
         void onRefresh();
       });
-    }, (supabase as any).channel(channelName));
+    }, supabase.channel(channelName));
 
     channel.subscribe();
 

@@ -19,6 +19,10 @@ import { formatEGPCurrency } from '@/lib/utils';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import PurchaseOrderBuilder, { type PurchaseOrderLine } from '@/components/PurchaseOrderBuilder';
 import PurchaseReceiptPanel from '@/components/PurchaseReceiptPanel';
+import FefoPanel from '@/components/inventory/FefoPanel';
+import InventoryAuditLog from '@/components/inventory/InventoryAuditLog';
+import InventoryReports from '@/components/inventory/InventoryReports';
+import BarcodeInput from '@/components/inventory/BarcodeInput';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 import type { OperationalInventoryItem } from '@/types/operationalInventory';
 
@@ -56,10 +60,31 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const [supplierName, setSupplierName] = useState('');
   const [purchaserName, setPurchaserName] = useState('');
   const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const { items, categories, movements, purchaseRequests, withdrawals, countApprovals, locations, itemRequests, notifications, alerts, inventoryValue, loading, invoke, markNotificationRead } = useOperationalInventory(brandId, hub.brandIds);
+  const { items, categories, movements, purchaseRequests, withdrawals, batches, countApprovals, locations, itemRequests, notifications, alerts, inventoryValue, loading, partialError, offline, offlineSnapshotAt, hasMoreMovements, loadMoreMovements, invoke, markNotificationRead } = useOperationalInventory(brandId, hub.brandIds);
   const canManage = !isDemoMode && hasPageAccess(role, pagePermissions, 'inventory');
   const selectedItem = items.find((item) => item.id === line.itemId);
+
+  // Guards every mutating action so a slow RPC can never be submitted twice.
+  const runSubmit = async (action: () => Promise<void> | void) => {
+    if (submitting) return;
+    setSubmitting(true);
+    try { await action(); } finally { setSubmitting(false); }
+  };
+
+  const isKnownLocation = (code: string) => locations.some((location) => location.code === code);
+  const requireValidLocations = (codes: string[]) => {
+    if (locations.length === 0) {
+      toast.error('لا يوجد مستودع نشط لهذا المخزن. راجع إعدادات المستودعات أولًا.');
+      return false;
+    }
+    if (codes.some((code) => !isKnownLocation(code))) {
+      toast.error('اختر موقعًا صالحًا من قائمة المستودعات النشطة.');
+      return false;
+    }
+    return true;
+  };
 
   const visibleItems = useMemo(() => items.filter((item) =>
     (category === 'all' || item.category === category)
@@ -154,6 +179,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       toast.error('اختر الصنف وأدخل كمية وتكلفة صحيحتين');
       return;
     }
+    if (!requireValidLocations([line.locationName])) return;
     const mapping = { deposit: 'purchase_receipt', waste: 'waste' } as const;
     const result = await invoke('inventory_record_manual_movement', {
       _brand_id: brandId, _item_id: line.itemId, _movement_type: mapping[movementAction], _quantity: number(line.quantity),
@@ -171,6 +197,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const submitPurchase = async () => {
     const submissionLines = linesForSubmission();
     if (submissionLines.length === 0 || submissionLines.some((entry) => !Number.isFinite(number(entry.quantity)) || number(entry.quantity) <= 0 || !Number.isFinite(number(entry.unitCost ?? '0')) || number(entry.unitCost ?? '0') < 0)) { toast.error('أدخل كمية وسعرًا صحيحين لكل بند شراء'); return; }
+    if (!requireValidLocations(submissionLines.map((entry) => entry.locationName))) return;
     const result = await invoke('inventory_submit_purchase_request', { _brand_id: brandId, _supplier_name: supplierName, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), unit_cost: number(entry.unitCost || '0'), location_name: entry.locationName, notes: entry.reason, batch_no: entry.batchNo, expiry_date: entry.expiryDate || null })), _notes: notes });
     if (result) { toast.success('تم إرسال إشعار لمدير المخزن. لن يزداد المخزون قبل الاعتماد.'); reset(); }
   };
@@ -179,6 +206,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     const submissionLines = linesForSubmission();
     if (submissionLines.length === 0 || !purchaserName.trim()
       || submissionLines.some((entry) => !Number.isFinite(number(entry.quantity)) || number(entry.quantity) <= 0 || !Number.isFinite(number(entry.unitCost ?? '0')) || number(entry.unitCost ?? '0') < 0)) { toast.error('أدخل اسم المشتري وكمية وسعرًا صحيحين لكل بند'); return; }
+    if (!requireValidLocations(submissionLines.map((entry) => entry.locationName))) return;
     const result = await invoke('inventory_record_store_purchase', { _brand_id: brandId, _supplier_name: supplierName, _purchaser_name: purchaserName, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), unit_cost: number(entry.unitCost || '0'), location_name: entry.locationName, notes: entry.reason, batch_no: entry.batchNo, expiry_date: entry.expiryDate || null })), _notes: notes });
     if (result) { toast.success('تم توثيق الشراء في قسم المشتريات وإرساله للاستلام؛ لن يتغير رصيد المخزون قبل الاستلام'); reset(); }
   };
@@ -204,6 +232,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const postWithdrawal = async () => {
     const submissionLines = linesForSubmission();
     if (submissionLines.length === 0 || submissionLines.some((entry) => !Number.isFinite(number(entry.quantity)) || number(entry.quantity) <= 0)) { toast.error('أدخل كمية موجبة وصحيحة لكل بند'); return; }
+    if (!requireValidLocations(submissionLines.map((entry) => entry.locationName))) return;
     const result = await invoke('inventory_post_shared_daily_withdrawal', { _hub_id: hub.id, _consumer_brand_id: brandId, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), location_name: entry.locationName, reason: entry.reason || 'تشغيل المطبخ' })), _notes: notes });
     if (result) {
       const value = rpcNumber(result, 'total_value');
@@ -215,6 +244,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
 
   const postCount = async () => {
     if (!line.itemId || !Number.isFinite(number(line.quantity)) || number(line.quantity) < 0) { toast.error('اختر الصنف وأدخل رصيدًا فعليًا صحيحًا'); return; }
+    if (!requireValidLocations([line.locationName])) return;
     const result = await invoke('inventory_post_count', { _brand_id: brandId, _item_id: line.itemId, _physical_quantity: number(line.quantity), _location_name: line.locationName, _reason: line.reason });
     if (result) {
       const variance = rpcNumber(result, 'variance_qty');
@@ -232,6 +262,16 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     if (result) toast.success(approve ? 'تم اعتماد الجرد وتطبيق التسوية' : 'تم رفض الجرد');
   };
 
+  // Generates server-side notifications for low stock, expiring batches,
+  // due invoices, and late receipts (one per entity per day).
+  const generateAlerts = async () => {
+    const result = await invoke('inventory_generate_alerts', { _brand_id: brandId });
+    if (result !== null) {
+      const created = typeof result === 'number' ? result : 0;
+      toast.success(created > 0 ? `تم توليد ${created} تنبيه جديد` : 'لا توجد تنبيهات جديدة حاليًا');
+    }
+  };
+
   if (loading || brandsLoading) return <div className="grid min-h-[40vh] place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
 
   const pendingReceipts = purchaseRequests.filter((request) => request.status === 'purchased_pending_receipt').length;
@@ -245,6 +285,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
         <p className="mt-1 text-sm text-muted-foreground">رصيد واحد مشترك للعلامات، مع تسجيل سحب الوجبات المشتركة من المخزن.</p>
       </div>
       {canManage && <div className="flex flex-wrap gap-2">
+        <Button variant="outline" onClick={() => void runSubmit(generateAlerts)} disabled={submitting}><AlertTriangle className="ml-2 h-4 w-4" />توليد التنبيهات</Button>
         <Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />سحب من المخزن</Button>
         <Button variant="outline" onClick={() => setMode('movement')}><Plus className="ml-2 h-4 w-4" />حركة مخزون</Button>
         <Button variant="outline" onClick={() => setMode('directPurchase')}><WalletCards className="ml-2 h-4 w-4" />شراء مباشر</Button>
@@ -254,25 +295,32 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
 
     {hub.brandIds.length > 1 && <div className="flex flex-wrap gap-2">{hub.brandIds.map((id) => <Badge key={id} variant="secondary">{brands.find((brand) => brand.id === id)?.name ?? 'علامة مرتبطة بالمخزن'}</Badge>)}</div>}
 
-    {mode === 'directPurchase' && <Card className="border-primary/40"><CardHeader><CardTitle>شراء مباشر سجله مدير المخزن</CardTitle><CardDescription>يُسجل في المشتريات وينتظر اعتماد الاستلام قبل تحديث المخزون.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, unitCost: String(item?.lastPurchasePrice || (item ? item.averageCost * item.conversionFactor : 0)), locationName: item?.locationName || locations[0]?.code || 'main' })); }}><option value="">اختر الصنف</option>{items.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name} — {item.purchaseUnit}</option>)}</select></div><div className="space-y-1"><Label>اسم من قام بالشراء *</Label><Input value={purchaserName} onChange={(event) => setPurchaserName(event.target.value)} /></div><div className="space-y-1"><Label>الموقع</Label><LocationSelect locations={locations} value={line.locationName} onChange={(value) => setLine((current) => ({ ...current, locationName: value }))} /></div><div className="space-y-1"><Label>الكمية بوحدة الشراء</Label><Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} /></div><div className="space-y-1"><Label>سعر وحدة الشراء</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div><div className="space-y-1"><Label>المورد</Label><Input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} /></div><div className="space-y-1"><Label>رقم الدفعة</Label><Input value={line.batchNo} onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} /></div></div><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" /><div className="flex gap-2"><Button onClick={() => void submitStoreDirectPurchase()}><WalletCards className="ml-2 h-4 w-4" />تسجيل الشراء</Button><Button variant="outline" onClick={reset}>إلغاء</Button></div></CardContent></Card>}
+    {partialError && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertTitle>بعض البيانات غير مكتملة</AlertTitle><AlertDescription>تعذر تحميل بعض القوائم الثانوية ({partialError}). البيانات الأساسية للمخزون ظاهرة بشكل صحيح — أعد تحميل الصفحة لاستكمال الباقي.</AlertDescription></Alert>}
+
+    {offline && <Alert><AlertTriangle className="h-4 w-4" /><AlertTitle>وضع عدم الاتصال</AlertTitle><AlertDescription>يتم عرض آخر نسخة محفوظة من بيانات المخزون{offlineSnapshotAt ? ` (محفوظة في ${new Date(offlineSnapshotAt).toLocaleString('ar-EG')})` : ''}. لا يمكن تنفيذ عمليات حتى يعود الاتصال.</AlertDescription></Alert>}
+
+    {mode === 'directPurchase' && <Card className="border-primary/40"><CardHeader><CardTitle>شراء مباشر سجله مدير المخزن</CardTitle><CardDescription>يُسجل في المشتريات وينتظر اعتماد الاستلام قبل تحديث المخزون.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, unitCost: String(item?.lastPurchasePrice || (item ? item.averageCost * item.conversionFactor : 0)), locationName: item?.locationName || locations[0]?.code || 'main' })); }}><option value="">اختر الصنف</option>{items.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name} — {item.purchaseUnit}</option>)}</select></div><div className="space-y-1"><Label>اسم من قام بالشراء *</Label><Input value={purchaserName} onChange={(event) => setPurchaserName(event.target.value)} /></div><div className="space-y-1"><Label>الموقع</Label><LocationSelect locations={locations} value={line.locationName} onChange={(value) => setLine((current) => ({ ...current, locationName: value }))} /></div><div className="space-y-1"><Label>الكمية بوحدة الشراء</Label><Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} /></div><div className="space-y-1"><Label>سعر وحدة الشراء</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div><div className="space-y-1"><Label>المورد</Label><Input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} /></div><div className="space-y-1"><Label>رقم الدفعة</Label><Input value={line.batchNo} onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} /></div></div><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" /><div className="flex gap-2"><Button onClick={() => void runSubmit(submitStoreDirectPurchase)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <WalletCards className="ml-2 h-4 w-4" />}تسجيل الشراء</Button><Button variant="outline" onClick={reset} disabled={submitting}>إلغاء</Button></div></CardContent></Card>}
 
     <Tabs defaultValue="overview" dir="rtl" className="space-y-4">
-      <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl p-1 sm:w-fit">
+      <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl p-1 sm:w-fit sm:grid-cols-6">
         <TabsTrigger value="overview" className="rounded-lg py-2.5">نظرة عامة</TabsTrigger>
         <TabsTrigger value="items" className="rounded-lg py-2.5">الأصناف ({items.length})</TabsTrigger>
         <TabsTrigger value="activity" className="rounded-lg py-2.5">الحركات والجرد</TabsTrigger>
+        <TabsTrigger value="fefo" className="rounded-lg py-2.5">الصلاحية (FEFO)</TabsTrigger>
+        <TabsTrigger value="reports" className="rounded-lg py-2.5">التقارير</TabsTrigger>
+        <TabsTrigger value="audit" className="rounded-lg py-2.5">سجل التدقيق</TabsTrigger>
       </TabsList>
     <TabsContent value="overview" className="space-y-4">
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <SummaryCard title="أصناف نشطة" value={String(items.filter((item) => item.status === 'active').length)} detail="كتالوج المخزن الموحد" />
       <SummaryCard title="تحتاج إعادة طلب" value={String(lowStockCount)} detail="وصلت إلى حد إعادة الطلب" emphasis={lowStockCount > 0} />
-      <SummaryCard title="قيمة الرصيد" value={formatEGPCurrency(inventoryValue)} detail="المتاح × متوسط التكلفة" />
+      <SummaryCard title="قيمة الرصيد" value={formatEGPCurrency(inventoryValue)} detail="إجمالي الرصيد × متوسط التكلفة" />
       <SummaryCard title="صرف اليوم" value={formatEGPCurrency(todayWithdrawalValue)} detail={`${pendingReceipts} مشتريات تنتظر الاستلام`} />
     </div>
 
     {unreadNotifications.length > 0 && <section><div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-bold">إشعارات مدير المخزن</h2><p className="text-sm text-muted-foreground">طلبات الشراء الجديدة تظهر هنا فور تسجيلها.</p></div><Badge variant="destructive">{unreadNotifications.length} جديد</Badge></div><div className="grid gap-3">{unreadNotifications.map((notification) => <Card key={notification.id} className="border-amber-300"><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"><div><strong>{notification.title}</strong><p className="mt-1 text-sm text-muted-foreground">{notification.message}</p><p className="mt-1 text-xs text-muted-foreground">{new Date(notification.createdAt).toLocaleString('ar-EG')}</p></div><Button variant="outline" onClick={() => void markNotificationRead(notification.id)}>تمت القراءة</Button></CardContent></Card>)}</div></section>}
 
-    {canManage && countApprovals.length > 0 && <section><div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-bold">جرد بانتظار اعتماد مستقل</h2><p className="text-sm text-muted-foreground">لا تتغير الأرصدة إلا بعد اعتماد مستخدم مختلف عن مُعدّ الجرد، ويُطلب إعادة العد إذا تحرك المخزون بعده.</p></div><Badge variant="secondary">{countApprovals.length}</Badge></div><div className="grid gap-3">{countApprovals.map((count) => <Card key={count.id} className="border-primary/20"><CardContent className="space-y-3 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><strong>{count.countNo}</strong><p className="text-sm text-muted-foreground">أُعد بواسطة {count.countedBy === user?.id ? 'أنت' : count.countedBy || 'مستخدم غير معروف'} — {new Date(count.countedAt).toLocaleString('ar-EG')}</p>{count.notes && <p className="text-sm">{count.notes}</p>}</div><div className="flex gap-2"><Button size="sm" onClick={() => void reviewCount(count.id, true)} disabled={count.countedBy === user?.id}><Check className="ml-1 h-4 w-4" />اعتماد</Button><Button size="sm" variant="outline" className="text-destructive" onClick={() => void reviewCount(count.id, false)} disabled={count.countedBy === user?.id}><X className="ml-1 h-4 w-4" />رفض</Button></div></div><div className="overflow-x-auto"><table className="w-full min-w-[36rem] text-sm"><thead><tr className="border-b text-right text-muted-foreground"><th className="p-2">الصنف</th><th className="p-2">الموقع</th><th className="p-2">الرصيد الدفتري</th><th className="p-2">الفعلي</th><th className="p-2">الفرق</th></tr></thead><tbody>{count.lines.map((entry) => <tr key={entry.id} className="border-b last:border-0"><td className="p-2">{entry.itemName}</td><td className="p-2">{entry.locationName}</td><td className="p-2">{entry.bookQuantity}</td><td className="p-2">{entry.physicalQuantity}</td><td className="p-2 font-semibold">{entry.variance > 0 ? '+' : ''}{entry.variance}</td></tr>)}</tbody></table></div></CardContent></Card>)}</div></section>}
+    {canManage && countApprovals.length > 0 && <section><div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-bold">جرد بانتظار اعتماد مستقل</h2><p className="text-sm text-muted-foreground">لا تتغير الأرصدة إلا بعد اعتماد مستخدم مختلف عن مُعدّ الجرد، ويُطلب إعادة العد إذا تحرك المخزون بعده.</p></div><Badge variant="secondary">{countApprovals.length}</Badge></div><div className="grid gap-3">{countApprovals.map((count) => <Card key={count.id} className="border-primary/20"><CardContent className="space-y-3 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><strong>{count.countNo}</strong><p className="text-sm text-muted-foreground">أُعد بواسطة {count.countedBy === user?.id ? 'أنت' : count.countedBy || 'مستخدم غير معروف'} — {new Date(count.countedAt).toLocaleString('ar-EG')}</p>{count.notes && <p className="text-sm">{count.notes}</p>}</div><div className="flex gap-2"><Button size="sm" onClick={() => void runSubmit(() => reviewCount(count.id, true))} disabled={submitting || count.countedBy === user?.id}><Check className="ml-1 h-4 w-4" />اعتماد</Button><Button size="sm" variant="outline" className="text-destructive" onClick={() => void runSubmit(() => reviewCount(count.id, false))} disabled={submitting || count.countedBy === user?.id}><X className="ml-1 h-4 w-4" />رفض</Button></div></div><div className="overflow-x-auto"><table className="w-full min-w-[36rem] text-sm"><thead><tr className="border-b text-right text-muted-foreground"><th className="p-2">الصنف</th><th className="p-2">الموقع</th><th className="p-2">الرصيد الدفتري</th><th className="p-2">الفعلي</th><th className="p-2">الفرق</th></tr></thead><tbody>{count.lines.map((entry) => <tr key={entry.id} className="border-b last:border-0"><td className="p-2">{entry.itemName}</td><td className="p-2">{entry.locationName}</td><td className="p-2">{entry.bookQuantity}</td><td className="p-2">{entry.physicalQuantity}</td><td className="p-2 font-semibold">{entry.variance > 0 ? '+' : ''}{entry.variance}</td></tr>)}</tbody></table></div></CardContent></Card>)}</div></section>}
 
     {alerts.length > 0 && <Alert className="border-amber-300 bg-amber-50"><AlertTriangle className="h-4 w-4" /><AlertTitle>تنبيهات المخزون</AlertTitle><AlertDescription>{alerts.slice(0, 4).map((alert) => <p key={alert.id}>{alert.title}: {alert.description}</p>)}</AlertDescription></Alert>}
     </TabsContent>
@@ -280,6 +328,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     <TabsContent value="items" className="space-y-4">
     <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="relative w-full sm:max-w-sm"><Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pr-9" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث باسم الصنف أو الكود" aria-label="بحث الأصناف" /></div>
+      <BarcodeInput onScan={(code) => setQuery(code)} placeholder="امسح الباركود لاختيار الصنف" />
       <div className="flex flex-wrap gap-2"><select aria-label="تصفية حسب الفئة" className="h-10 rounded-md border bg-background px-3" value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">كل الفئات</option>{categories.map((entry) => <option key={entry.id} value={entry.code}>{entry.name_ar}</option>)}</select>{canManage && <><Button variant="outline" onClick={() => setMode('category')}><Plus className="ml-2 h-4 w-4" />فئة جديدة</Button><Button onClick={() => setMode('item')}><PackagePlus className="ml-2 h-4 w-4" />إضافة صنف</Button></>}</div>
     </div>
     <Card className="overflow-hidden">
@@ -297,8 +346,8 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
               <Button size="icon" variant="ghost" aria-label={`سحب ${item.name} من المخزن`} title="سحب من المخزن" onClick={() => { setLine({ itemId: item.id, quantity: '', unitCost: '', locationName: item.locationName, reason: '', batchNo: '', expiryDate: '' }); setMode('withdrawal'); }}><ArrowUpFromLine className="h-4 w-4" /></Button>
               <Button size="icon" variant="ghost" aria-label={`طلب ${item.name}`} title="طلب شراء" onClick={() => startPurchaseRequest(item)}><ShoppingCart className="h-4 w-4" /></Button>
               <Button size="icon" variant="ghost" aria-label={`جرد ${item.name}`} title="بدء جرد" onClick={() => { const balance = item.balances.find((entry) => entry.locationName === item.locationName); setLine({ itemId: item.id, quantity: String(balance?.onHand ?? item.onHand), unitCost: '', locationName: item.locationName, reason: '', batchNo: '', expiryDate: '' }); setMode('count'); }}><ClipboardCheck className="h-4 w-4" /></Button>
-              <Button size="icon" variant="ghost" aria-label={`${item.status === 'active' ? 'أرشفة' : 'تفعيل'} ${item.name}`} title={item.status === 'active' ? 'أرشفة' : 'تفعيل'} onClick={() => void toggleItemStatus(item)}><span className="text-xs">{item.status === 'active' ? 'أر' : 'فع'}</span></Button>
-              <Button size="icon" variant="ghost" className="text-destructive" aria-label={`حذف ${item.name}`} title="حذف" onClick={() => void deleteItem(item)}><Trash2 className="h-4 w-4" /></Button>
+              <Button size="icon" variant="ghost" aria-label={`${item.status === 'active' ? 'أرشفة' : 'تفعيل'} ${item.name}`} title={item.status === 'active' ? 'أرشفة' : 'تفعيل'} disabled={submitting} onClick={() => void runSubmit(() => toggleItemStatus(item))}><span className="text-xs">{item.status === 'active' ? 'أر' : 'فع'}</span></Button>
+              <Button size="icon" variant="ghost" className="text-destructive" aria-label={`حذف ${item.name}`} title="حذف" disabled={submitting} onClick={() => void runSubmit(() => deleteItem(item))}><Trash2 className="h-4 w-4" /></Button>
             </>}</div></td>
           </tr>;
         })}</tbody>
@@ -310,27 +359,43 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     </TabsContent>
 
     <TabsContent value="activity" className="space-y-4">
-    {itemRequests.length > 0 && <section><h2 className="mb-3 text-xl font-bold">أصناف جديدة بانتظار قبول مدير المخزن</h2><div className="grid gap-3">{itemRequests.map((request) => <Card key={request.id}><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"><div><strong>{request.itemName}{request.productBrand ? ` — ${request.productBrand}` : ''}</strong><p className="text-sm text-muted-foreground">{request.itemCode} • {request.unit} • حد أدنى {request.minStock}</p></div>{canManage && <div className="flex gap-2"><Button onClick={() => void invoke('inventory_review_item_request', { _request_id: request.id, _approve: true, _review_notes: '' })}>قبول وإضافة الصنف</Button><Button variant="outline" onClick={() => void invoke('inventory_review_item_request', { _request_id: request.id, _approve: false, _review_notes: 'مرفوض من مدير المخزن' })}>رفض</Button></div>}</CardContent></Card>)}</div></section>}
+    {itemRequests.length > 0 && <section><h2 className="mb-3 text-xl font-bold">أصناف جديدة بانتظار قبول مدير المخزن</h2><div className="grid gap-3">{itemRequests.map((request) => <Card key={request.id}><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"><div><strong>{request.itemName}{request.productBrand ? ` — ${request.productBrand}` : ''}</strong><p className="text-sm text-muted-foreground">{request.itemCode} • {request.unit} • حد أدنى {request.minStock}</p></div>{canManage && <div className="flex gap-2"><Button onClick={() => void runSubmit(() => invoke('inventory_review_item_request', { _request_id: request.id, _approve: true, _review_notes: '' }).then(() => undefined))} disabled={submitting}>قبول وإضافة الصنف</Button><Button variant="outline" onClick={() => void runSubmit(() => invoke('inventory_review_item_request', { _request_id: request.id, _approve: false, _review_notes: 'مرفوض من مدير المخزن' }).then(() => undefined))} disabled={submitting}>رفض</Button></div>}</CardContent></Card>)}</div></section>}
 
     <PurchaseReceiptPanel brandId={brandId} canManage={canManage} />
 
     <Card><CardHeader><CardTitle className="text-base">سحوبات المخزن</CardTitle><CardDescription>السحب للوجبات المشتركة يُخصم من الرصيد المركزي دون نسبته لعلامة بعينها.</CardDescription></CardHeader><CardContent className="divide-y p-0">{withdrawals.length === 0 ? <p className="p-5 text-sm text-muted-foreground">لا توجد مسحوبات مسجلة.</p> : withdrawals.slice(0, 15).map((withdrawal) => <div key={withdrawal.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"><div><strong>{withdrawal.withdrawalNo}</strong><span className="mx-2 text-muted-foreground">{withdrawal.isShared ? 'سحب مشترك' : brands.find((brand) => brand.id === withdrawal.brandId)?.name ?? 'علامة مرتبطة بالمخزن'}</span><p className="text-xs text-muted-foreground">{withdrawal.withdrawalDate} · {withdrawal.lines.length} أصناف</p></div><span className="font-medium tabular-nums">{formatEGPCurrency(withdrawal.totalValue)}</span></div>)}</CardContent></Card>
 
-    {movements.length > 0 && <section><h2 className="mb-3 text-xl font-bold">آخر الحركات</h2><Card><CardContent className="divide-y p-0">{movements.slice(0, 10).map((movement) => <div key={movement.id} className="flex items-center justify-between p-3 text-sm"><span><strong>{movement.itemName}</strong> — {movement.type} — {movement.quantity}</span><span>{formatEGPCurrency(movement.value)}</span></div>)}</CardContent></Card></section>}
+    {movements.length > 0 && <section><h2 className="mb-3 text-xl font-bold">آخر الحركات</h2><Card><CardContent className="divide-y p-0">{movements.map((movement) => <div key={movement.id} className="flex items-center justify-between p-3 text-sm"><span><strong>{movement.itemName}</strong> — {movement.type} — {movement.quantity}</span><span>{formatEGPCurrency(movement.value)}</span></div>)}</CardContent></Card>{hasMoreMovements && <Button variant="outline" className="mt-3" onClick={loadMoreMovements}>تحميل حركات أقدم</Button>}</section>}
 
+    </TabsContent>
+
+    <TabsContent value="fefo" className="space-y-4">
+      <FefoPanel batches={batches} items={items} onRecordWaste={(batch) => {
+        setMovementAction('waste');
+        setLine({ itemId: batch.itemId, quantity: String(Math.max(batch.quantityOnHand - batch.reservedQuantity, 0)), unitCost: '', locationName: batch.locationName, reason: `هالك دفعة ${batch.batchNo} منتهية الصلاحية`, batchNo: batch.batchNo, expiryDate: batch.expiryDate ?? '' });
+        setMode('movement');
+      }} />
+    </TabsContent>
+
+    <TabsContent value="reports" className="space-y-4">
+      <InventoryReports items={items} movements={movements} withdrawals={withdrawals} batches={batches} />
+    </TabsContent>
+
+    <TabsContent value="audit" className="space-y-4">
+      <InventoryAuditLog brandId={brandId} />
     </TabsContent>
     </Tabs>
 
     <Dialog open={mode !== null && mode !== 'directPurchase'} onOpenChange={(open) => !open && reset()}><DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto"><DialogHeader><DialogTitle>{mode === 'item' ? 'إضافة صنف جديد' : mode === 'editItem' ? 'تعديل بيانات الصنف' : mode === 'category' ? 'إضافة فئة' : mode === 'purchase' ? 'طلب شراء للمخزن المركزي' : mode === 'withdrawal' ? 'سحب من المخزن' : mode === 'count' ? 'إرسال جرد للمراجعة' : movementAction === 'deposit' ? 'إيداع في المخزون' : 'تسجيل هالك'}</DialogTitle><DialogDescription>{mode === 'purchase' ? 'لا يتغير الرصيد حتى يتم الاستلام الفعلي.' : mode === 'count' ? 'سيُحفظ الجرد للمراجعة ولا يتغير الرصيد قبل اعتماده من مستخدم آخر.' : mode === 'withdrawal' ? 'يُخصم السحب من المخزن المركزي دون تحديد علامة، لأنه قد يُستخدم في وجبات مشتركة.' : 'هذا المخزن يخدم العلامات المرتبطة به دون فصل الأرصدة.'}</DialogDescription></DialogHeader>
-      {(mode === 'item' || mode === 'editItem') && <ItemForm draft={itemDraft} setDraft={setItemDraft} categories={categories} locations={locations} allowOpeningStock={mode === 'item'} onSave={mode === 'item' ? createItem : updateItem} />}
-      {mode === 'category' && <div className="space-y-3"><Field label="اسم الفئة بالعربية" value={categoryDraft.nameAr} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameAr: value }))} /><Field label="الكود (إنجليزي بلا مسافات)" value={categoryDraft.code} onChange={(value) => setCategoryDraft((current) => ({ ...current, code: value }))} /><Field label="الاسم بالإنجليزية" value={categoryDraft.nameEn} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameEn: value }))} /><Button className="w-full" onClick={() => void createCategory()}>حفظ الفئة</Button></div>}
-      {mode === 'movement' && <div className="space-y-3"><div className="space-y-1"><Label htmlFor="movement-action">نوع الحركة</Label><select id="movement-action" className="h-10 w-full rounded-md border bg-background px-3" value={movementAction} onChange={(event) => { if (event.target.value === 'deposit' || event.target.value === 'waste') setMovementAction(event.target.value); }}><option value="deposit">إضافة رصيد</option><option value="waste">تسجيل هالك</option></select></div><LineEditor items={items} locations={locations} line={line} setLine={setLine} showCost={movementAction === 'deposit'} /><Button className="w-full" onClick={() => void postMovement()}>{movementAction === 'deposit' ? 'تأكيد الإيداع' : 'تأكيد الهالك'}</Button></div>}
-      {mode === 'count' && <div className="space-y-3"><LineEditor items={items} locations={locations} line={line} setLine={setLine} quantityLabel="الرصيد الفعلي بعد الجرد" /><Button className="w-full" onClick={() => void postCount()}><ClipboardCheck className="ml-2 h-4 w-4" />إرسال للمراجعة</Button></div>}
+      {(mode === 'item' || mode === 'editItem') && <ItemForm draft={itemDraft} setDraft={setItemDraft} categories={categories} locations={locations} allowOpeningStock={mode === 'item'} onSave={() => void runSubmit(mode === 'item' ? createItem : updateItem)} submitting={submitting} />}
+      {mode === 'category' && <div className="space-y-3"><Field label="اسم الفئة بالعربية" value={categoryDraft.nameAr} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameAr: value }))} /><Field label="الكود (إنجليزي بلا مسافات)" value={categoryDraft.code} onChange={(value) => setCategoryDraft((current) => ({ ...current, code: value }))} /><Field label="الاسم بالإنجليزية" value={categoryDraft.nameEn} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameEn: value }))} /><Button className="w-full" onClick={() => void runSubmit(createCategory)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الفئة</Button></div>}
+      {mode === 'movement' && <div className="space-y-3"><div className="space-y-1"><Label htmlFor="movement-action">نوع الحركة</Label><select id="movement-action" className="h-10 w-full rounded-md border bg-background px-3" value={movementAction} onChange={(event) => { if (event.target.value === 'deposit' || event.target.value === 'waste') setMovementAction(event.target.value); }}><option value="deposit">إضافة رصيد</option><option value="waste">تسجيل هالك</option></select></div><LineEditor items={items} locations={locations} line={line} setLine={setLine} showCost={movementAction === 'deposit'} /><Button className="w-full" onClick={() => void runSubmit(postMovement)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}{movementAction === 'deposit' ? 'تأكيد الإيداع' : 'تأكيد الهالك'}</Button></div>}
+      {mode === 'count' && <div className="space-y-3"><LineEditor items={items} locations={locations} line={line} setLine={setLine} quantityLabel="الرصيد الفعلي بعد الجرد" /><Button className="w-full" onClick={() => void runSubmit(postCount)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="ml-2 h-4 w-4" />}إرسال للمراجعة</Button></div>}
       {mode === 'withdrawal' && <div className="space-y-4">
         <MultiLineForm items={items} locations={locations} lines={lines} line={line} setLine={setLine} addLine={addLine} removeLine={(index) => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} showCost={false} />
       </div>}
-      {mode === 'purchase' && <PurchaseOrderBuilder items={items} categories={categories} locations={locations} initialItemId={purchaseItemId} onSubmit={submitConsolidatedPurchase} onCreateNewItem={createPurchaseItem} />}
-      {mode === 'withdrawal' && <div className="space-y-3"><Label>ملاحظات السحب</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="مثال: تجهيز وردية الغداء المشتركة" /><Button className="w-full" onClick={() => void postWithdrawal()}><WalletCards className="ml-2 h-4 w-4" />تأكيد السحب من المخزن</Button></div>}
+      {mode === 'purchase' && <PurchaseOrderBuilder items={items} categories={categories} locations={locations} initialItemId={purchaseItemId} onSubmit={(orderLines, orderSupplier, orderNotes) => runSubmit(() => submitConsolidatedPurchase(orderLines, orderSupplier, orderNotes))} onCreateNewItem={createPurchaseItem} />}
+      {mode === 'withdrawal' && <div className="space-y-3"><Label>ملاحظات السحب</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="مثال: تجهيز وردية الغداء المشتركة" /><Button className="w-full" onClick={() => void runSubmit(postWithdrawal)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <WalletCards className="ml-2 h-4 w-4" />}تأكيد السحب من المخزن</Button></div>}
     </DialogContent></Dialog>
   </div>;
 }
@@ -354,7 +419,7 @@ function LineEditor({ items, locations, line, setLine, showCost = false, quantit
   </div>;
 }
 function MultiLineForm({ items, locations, lines, line, setLine, addLine, removeLine, showCost }: { items: OperationalInventoryItem[]; locations: { code: string; name: string }[]; lines: DraftLine[]; line: DraftLine; setLine: React.Dispatch<React.SetStateAction<DraftLine>>; addLine: () => void; removeLine: (index: number) => void; showCost: boolean }) { return <div className="space-y-3"><LineEditor items={items} locations={locations} line={line} setLine={setLine} showCost={showCost} /><Button type="button" variant="outline" className="w-full" onClick={addLine}><Plus className="ml-2 h-4 w-4" />إضافة السطر</Button>{lines.length > 0 && <div className="space-y-2 rounded-xl border p-3">{lines.map((entry, index) => { const item = items.find((candidate) => candidate.id === entry.itemId); const cost = showCost ? number(entry.unitCost || '0') : item?.averageCost ?? 0; return <div className="flex items-center justify-between text-sm" key={`${entry.itemId}-${index}`}><span>{item?.name} — {entry.quantity} × {formatEGPCurrency(cost)} — {entry.locationName}</span><Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeLine(index)}>حذف</Button></div>; })}</div>}</div>; }
-function ItemForm({ draft, setDraft, categories, locations, allowOpeningStock, onSave }: { draft: ItemDraft; setDraft: React.Dispatch<React.SetStateAction<ItemDraft>>; categories: { code: string; name_ar: string }[]; locations: { code: string; name: string }[]; allowOpeningStock: boolean; onSave: () => void }) {
+function ItemForm({ draft, setDraft, categories, locations, allowOpeningStock, onSave, submitting = false }: { draft: ItemDraft; setDraft: React.Dispatch<React.SetStateAction<ItemDraft>>; categories: { code: string; name_ar: string }[]; locations: { code: string; name: string }[]; allowOpeningStock: boolean; onSave: () => void; submitting?: boolean }) {
   const update = (key: keyof ItemDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const updateUnit = (key: 'purchaseUnit' | 'usageUnit', value: string) => setDraft((current) => {
     const purchaseUnit = key === 'purchaseUnit' ? value : current.purchaseUnit;
@@ -378,7 +443,7 @@ function ItemForm({ draft, setDraft, categories, locations, allowOpeningStock, o
     {allowOpeningStock && <Field label={`الرصيد الافتتاحي بوحدة ${draft.usageUnit}`} value={draft.openingQuantity} onChange={(value) => update('openingQuantity', value)} />}
     {allowOpeningStock && <Field label="متوسط تكلفة وحدة الاستخدام" value={draft.openingCost} onChange={(value) => update('openingCost', value)} />}
     <div className="space-y-1 sm:col-span-2"><Label>ملاحظات</Label><Textarea value={draft.notes} onChange={(event) => update('notes', event.target.value)} /></div>
-    <Button className="sm:col-span-2" onClick={onSave}>حفظ الصنف</Button>
+    <Button className="sm:col-span-2" onClick={onSave} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الصنف</Button>
   </div>;
 }
 function LocationSelect({ locations, value, onChange }: { locations: { code: string; name: string }[]; value: string; onChange: (value: string) => void }) {

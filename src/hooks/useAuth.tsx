@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
 import type { Database } from '@/integrations/supabase/types';
@@ -155,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthMode('session');
   };
 
-  const fetchUserData = async (userId: string) => {
+  const fetchUserData = useCallback(async (userId: string) => {
     try {
       const [roleRes, profileRes, pagePermissionsRes] = await withTimeout(
         Promise.all([
@@ -201,9 +201,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       markSupabaseUnavailable();
       console.error('Failed to hydrate auth user data', error);
     }
-  };
+  }, []);
 
-  const hydrateSessionUser = async (session: Session) => {
+  const hydrateSessionUser = useCallback(async (session: Session) => {
     sessionStorage.removeItem(LOCAL_DEMO_AUTH_KEY);
     setAuthMode('session');
 
@@ -214,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     return fetchUserData(session.user.id);
-  };
+  }, [fetchUserData]);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -278,7 +278,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [hydrateSessionUser]);
 
   useSupabaseRealtimeRefresh({
     enabled: Boolean(user?.id && authMode === 'session'),

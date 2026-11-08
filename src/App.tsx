@@ -18,6 +18,8 @@ import PurchasesRoute from "./pages/PurchasesRoute";
 import HR from "./pages/HR";
 import UsersManagement from "./pages/UsersManagement";
 import Settings from "./pages/Settings";
+import DeliveryOrders from "./pages/DeliveryOrders";
+import CompaniesMenus from "./pages/CompaniesMenus";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 import type { AppPageId } from "@/lib/permissions";
@@ -32,6 +34,7 @@ const pageRoutes: Record<AppPageId, string> = {
   customers: '/customers',
   leaderboard: '/leaderboard',
   'menu-packages': '/menu-packages',
+  'companies-menus': '/companies-menus',
   inventory: '/inventory',
   purchases: '/purchases',
   hr: '/hr',
@@ -39,10 +42,11 @@ const pageRoutes: Record<AppPageId, string> = {
   settings: '/settings',
 };
 
-const pagePriority: AppPageId[] = ['dashboard', 'orders', 'kitchen', 'inventory', 'purchases', 'hr', 'customers', 'leaderboard', 'menu-packages', 'settings', 'users'];
+const pagePriority: AppPageId[] = ['dashboard', 'orders', 'kitchen', 'inventory', 'purchases', 'hr', 'customers', 'leaderboard', 'menu-packages', 'companies-menus', 'settings', 'users'];
 
 function permittedHome(role: string | null, pagePermissions: string[], isDemoMode: boolean) {
   if (isDemoMode || role === 'owner') return '/';
+  if (role === 'delivery') return '/my-orders';
   const permittedPage = pagePriority.find((page) => hasPageAccess(role, pagePermissions, page));
   return permittedPage ? pageRoutes[permittedPage] : '/login';
 }
@@ -75,6 +79,11 @@ function AppRoutes() {
           <AppLayout><OrdersRoute /></AppLayout>
         </ProtectedRoute>
       } />
+      <Route path="/my-orders" element={
+        <ProtectedRoute requiredPage="orders">
+          <AppLayout><DeliveryOrders /></AppLayout>
+        </ProtectedRoute>
+      } />
       <Route path="/kitchen" element={
         <ProtectedRoute allowDemo requiredPage="kitchen">
           <AppLayout><KitchenRoute /></AppLayout>
@@ -93,6 +102,11 @@ function AppRoutes() {
       <Route path="/menu-packages" element={
         <ProtectedRoute requiredPage="menu-packages">
           <AppLayout><MenuPackagesRoute /></AppLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/companies-menus" element={
+        <ProtectedRoute requiredPage="companies-menus">
+          <AppLayout><CompaniesMenus /></AppLayout>
         </ProtectedRoute>
       } />
       <Route path="/inventory" element={
