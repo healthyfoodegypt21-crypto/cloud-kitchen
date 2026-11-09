@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle2, ClipboardPaste, FileImage, FileSpreadsheet, Loader2, ScanLine, Upload } from 'lucide-react';
@@ -622,7 +623,7 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
           </div>
           {target === 'orders' && workbook && <div className="grid gap-2 sm:col-span-2">
             <Label htmlFor="import-execution-date">تاريخ تنفيذ كل الطلبات في الملف</Label>
-            <Input id="import-execution-date" type="date" value={executionDate} onChange={event => setExecutionDate(event.target.value)} />
+            <DatePicker id="import-execution-date" value={executionDate} onChange={setExecutionDate} placeholder="اختر تاريخ التنفيذ" />
             <p className="text-xs text-muted-foreground">سيُستخدم هذا التاريخ لكل الطلبات في جميع الشيتات، حتى لو كان الملف يحتوي على تواريخ أخرى.</p>
           </div>}
         </div>}

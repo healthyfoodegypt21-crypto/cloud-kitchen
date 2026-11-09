@@ -134,21 +134,24 @@ describe('OrderSheetImportDialog', () => {
     const brandSelect = await screen.findByLabelText('العلامة التجارية للملف بالكامل');
     fireEvent.click(brandSelect);
     fireEvent.click(await screen.findByRole('option', { name: 'Healthy Station' }));
-    fireEvent.change(screen.getByLabelText('تاريخ تنفيذ كل الطلبات في الملف'), { target: { value: '2026-11-09' } });
+    fireEvent.click(await screen.findByLabelText('تاريخ تنفيذ كل الطلبات في الملف'));
+    fireEvent.click(await screen.findByRole('button', { name: 'اليوم' }));
 
     expect(screen.queryByText('توزيع الشيتات على العلامات التجارية')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /استيراد الطلبات دفعة واحدة/i }));
 
     await waitFor(() => expect(saveImportedOrder).toHaveBeenCalledTimes(2));
+    const today = new Date();
+    const todayValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     expect(saveImportedOrder).toHaveBeenNthCalledWith(1, expect.objectContaining({
       customer_name: 'أحمد محمد',
       brand_id: 'brand-2',
-      execution_date: '2026-11-09',
+      execution_date: todayValue,
     }));
     expect(saveImportedOrder).toHaveBeenNthCalledWith(2, expect.objectContaining({
       customer_name: 'سارة محمد',
       brand_id: 'brand-2',
-      execution_date: '2026-11-09',
+      execution_date: todayValue,
     }));
   });
 
