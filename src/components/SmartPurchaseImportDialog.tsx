@@ -100,11 +100,8 @@ export default function SmartPurchaseImportDialog({
     if (paymentMethod !== 'credit' && dueDate) {
       return 'تاريخ الاستحقاق يُستخدم مع الشراء الآجل فقط.';
     }
-    if (paymentMethod === 'cash' && lines.length > 0 && paidAmount === 0) {
-      return 'الدفع نقدًا يتطلب إدخال المبلغ المدفوع كاملًا.';
-    }
     return '';
-  }, [paymentMethod, dueDate, paidAmount, lines.length]);
+  }, [paymentMethod, dueDate]);
   const canSubmit = lines.length > 0
     && Boolean(purchaserName.trim())
     && taxAmount >= 0
