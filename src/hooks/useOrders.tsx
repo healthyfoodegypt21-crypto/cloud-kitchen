@@ -51,6 +51,9 @@ function generateLocalOrderId() {
   return `local-order-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const asUuidOrNull = (value: string | null | undefined) => (value && UUID_PATTERN.test(value) ? value : null);
+
 function buildOrderPersistencePayload(order: Omit<Order, 'id' | 'created_at'>) {
   const address = hasDetailedAddressParts(order)
     ? formatDetailedAddress(order)
@@ -78,7 +81,7 @@ function buildOrderPersistencePayload(order: Omit<Order, 'id' | 'created_at'>) {
     address_floor: order.address_floor,
     address_apartment: order.address_apartment,
     package: order.package,
-    package_plan_id: order.package_plan_id,
+    package_plan_id: asUuidOrNull(order.package_plan_id),
     meal_type: order.meal_type,
     order_mode: order.order_mode,
     notes,
@@ -88,9 +91,9 @@ function buildOrderPersistencePayload(order: Omit<Order, 'id' | 'created_at'>) {
     phone_secondary: order.phone_secondary,
     selected_meal_ids: order.selected_meal_ids,
     source: order.source,
-    brand_id: order.brand_id,
-    created_by: order.created_by,
-    assigned_to: order.assigned_to,
+    brand_id: asUuidOrNull(order.brand_id),
+    created_by: asUuidOrNull(order.created_by),
+    assigned_to: asUuidOrNull(order.assigned_to),
   };
 }
 
