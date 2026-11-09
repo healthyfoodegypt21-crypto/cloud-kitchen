@@ -400,8 +400,13 @@ export default function SmartPurchaseImportDialog({
                 return (
                   <div key={line.id} className="grid gap-3 rounded-xl border p-3 md:grid-cols-[minmax(0,1.3fr),minmax(0,1.4fr),0.6fr,0.7fr,0.8fr,auto] md:items-end">
                     <div className="space-y-1">
-                      <Label>النص المستخرج</Label>
-                      <div className="truncate rounded-md bg-muted px-3 py-2 text-sm" dir="auto">{line.sourceName}</div>
+                      <Label htmlFor={`smart-name-${line.id}`}>النص المستخرج</Label>
+                      <Input
+                        id={`smart-name-${line.id}`}
+                        value={line.sourceName}
+                        onChange={(event) => updateLine(line.id, { sourceName: event.target.value })}
+                        dir="auto"
+                      />
                       {line.itemId && line.matchConfidence < 1 && (
                         <p className="text-xs font-medium text-amber-600">مطابقة تقريبية — راجع الصنف المختار قبل التسجيل</p>
                       )}
