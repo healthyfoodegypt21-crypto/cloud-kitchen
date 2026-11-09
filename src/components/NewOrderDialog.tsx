@@ -96,15 +96,19 @@ const steps: Array<{ id: WorkflowStep; label: string; hint: string }> = [
 interface Props {
   onCreated: () => void;
   addOrder: (order: Omit<Order, 'id' | 'created_at'>) => Promise<boolean>;
+  editOrder?: Order | null;
+  updateOrder?: (id: string, order: Omit<Order, 'id' | 'created_at'>) => Promise<boolean>;
+  onEditClose?: () => void;
 }
 
-export default function NewOrderDialog({ onCreated, addOrder }: Props) {
+export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateOrder, onEditClose }: Props) {
   const { user } = useAuth();
   const { brands } = useBrands();
   const { meals, packages } = useMenuCatalog();
   const { customers, loading: customersLoading, storageMode, upsertCustomer } = useCustomers();
   const singleAccessibleBrand = brands.length === 1 ? brands[0] : null;
   const defaultBrandId = singleAccessibleBrand?.id ?? '';
+  const isEditMode = Boolean(editOrder && updateOrder);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<WorkflowStep>('mode');
   const [customerMode, setCustomerMode] = useState<CustomerMode | null>(null);
@@ -118,6 +122,42 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
   const deferredCustomerSearch = useDeferredValue(customerSearch);
   const todayDate = getTodayDateValue();
   const isMobile = useIsMobile();
+
+  // Edit mode: preload the order and jump straight to the order step.
+  useEffect(() => {
+    if (!editOrder || !updateOrder) return;
+    setOpen(true);
+    setStep('order');
+    setCustomerMode('existing');
+    setSelectedCustomerId(null);
+    setAddressMode('new');
+    setForm({
+      customer_name: editOrder.customer_name,
+      phone: editOrder.phone,
+      phone_secondary: editOrder.phone_secondary,
+      location_link: editOrder.location_link ?? '',
+      address: editOrder.address,
+      address_house_number: editOrder.address_house_number,
+      address_street: editOrder.address_street,
+      address_area: editOrder.address_area,
+      address_floor: editOrder.address_floor,
+      address_apartment: editOrder.address_apartment,
+      execution_date: editOrder.execution_date,
+      execution_day: getArabicWeekday(editOrder.execution_date),
+      order_mode: editOrder.order_mode,
+      package: editOrder.package,
+      package_plan_id: editOrder.package_plan_id ?? '',
+      selected_meal_ids: editOrder.selected_meal_ids,
+      meal_type: editOrder.meal_type,
+      notes: editOrder.notes,
+      source: editOrder.source,
+      brand_id: editOrder.brand_id ?? defaultBrandId,
+      meal_customization_notes: Object.fromEntries(
+        (editOrder.meal_customizations ?? []).map((item) => [item.key, item.notes]),
+      ),
+    });
+    setErrors({});
+  }, [editOrder, updateOrder, defaultBrandId]);
 
   useEffect(() => {
     if (brands.length === 1 && !form.brand_id) {
@@ -621,8 +661,8 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
       }
     }
 
-    const success = await addOrder({
-      order_number: `ORD-${Date.now().toString(36).toUpperCase()}`,
+    const orderPayload = {
+      order_number: editOrder?.order_number ?? `ORD-${Date.now().toString(36).toUpperCase()}`,
       customer_name: compactWhitespace(form.customer_name),
       phone: normalizePhone(form.phone),
       phone_secondary: normalizePhone(form.phone_secondary),
@@ -650,20 +690,28 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
       meal_type: form.meal_type,
       notes: compactWhitespace(form.notes),
       meal_customizations: mealCustomizations,
-      status: 'new',
+      status: editOrder?.status ?? 'new',
       price: estimatedPrice,
       source: form.source,
       brand_id: form.brand_id,
-      created_by: user?.id ?? null,
-    });
+      created_by: editOrder?.created_by ?? user?.id ?? null,
+    };
+
+    const success = isEditMode && editOrder && updateOrder
+      ? await updateOrder(editOrder.id, orderPayload)
+      : await addOrder(orderPayload);
 
     setCreating(false);
 
     if (success) {
-      toast.success('تم إنشاء الطلب بنجاح');
+      toast.success(isEditMode ? 'تم تحديث الطلب بنجاح' : 'تم إنشاء الطلب بنجاح');
       resetWorkflow();
       setOpen(false);
-      onCreated();
+      if (isEditMode) {
+        onEditClose?.();
+      } else {
+        onCreated();
+      }
     }
   };
 
@@ -701,10 +749,13 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
     setOpen(nextOpen);
     if (!nextOpen) {
       resetWorkflow();
+      if (isEditMode) {
+        onEditClose?.();
+      }
     }
   };
 
-  const triggerButton = (
+  const triggerButton = isEditMode ? null : (
     <Button size="lg" className="gap-2 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
       <Plus className="h-5 w-5" /> إضافة أوردر جديد
     </Button>
@@ -726,9 +777,9 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
                     تسجيل سريع للكول سنتر
                   </Badge>
                 </div>
-                <h2 className="mt-3 text-2xl font-semibold leading-none tracking-tight">أوردر ذكي في أقل عدد خطوات</h2>
+                <h2 className="mt-3 text-2xl font-semibold leading-none tracking-tight">{isEditMode ? 'تعديل الطلب' : 'أوردر ذكي في أقل عدد خطوات'}</h2>
                 <p className="text-sm text-muted-foreground">
-                  اختر نوع العميل، حمّل بياناته فورًا، ثم أكمل الأوردر بدون تكرار أو كتابة مرهقة.
+                  {isEditMode ? 'عدّل بيانات الطلب ثم احفظ التغييرات.' : 'اختر نوع العميل، حمّل بياناته فورًا، ثم أكمل الأوردر بدون تكرار أو كتابة مرهقة.'}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm shadow-sm backdrop-blur">
@@ -1299,7 +1350,7 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
                 )}
                 {step === 'order' && (
                   <Button type="submit" disabled={creating} className="min-w-[180px]">
-                    {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'إنشاء الطلب الآن'}
+                    {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : (isEditMode ? 'حفظ التعديلات' : 'إنشاء الطلب الآن')}
                   </Button>
                 )}
               </div>
@@ -1311,12 +1362,12 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={handleOpenChange}>
-        <DrawerTrigger asChild>
+        {triggerButton && <DrawerTrigger asChild>
           {triggerButton}
-        </DrawerTrigger>
+        </DrawerTrigger>}
         <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-t-[28px] border-0 bg-transparent p-0 shadow-none">
           <DrawerHeader className="sr-only">
-            <DrawerTitle>إنشاء طلب جديد</DrawerTitle>
+            <DrawerTitle>{isEditMode ? 'تعديل الطلب' : 'إنشاء طلب جديد'}</DrawerTitle>
             <DrawerDescription>واجهة bottom sheet لتسجيل الطلبات من الموبايل.</DrawerDescription>
           </DrawerHeader>
           <div className="h-full overflow-hidden">
@@ -1329,12 +1380,12 @@ export default function NewOrderDialog({ onCreated, addOrder }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
+      {triggerButton && <DialogTrigger asChild>
         {triggerButton}
-      </DialogTrigger>
+      </DialogTrigger>}
       <DialogContent className="w-[calc(100vw-0.75rem)] max-w-[calc(100vw-0.75rem)] h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] overflow-hidden border-0 bg-transparent p-0 shadow-none sm:h-[min(88dvh,56rem)] sm:w-[min(92vw,64rem)] sm:max-w-[64rem] sm:max-h-[min(88dvh,56rem)]">
         <DialogHeader className="sr-only">
-          <DialogTitle>إنشاء طلب جديد</DialogTitle>
+          <DialogTitle>{isEditMode ? 'تعديل الطلب' : 'إنشاء طلب جديد'}</DialogTitle>
           <DialogDescription>نافذة تسجيل الأوردر واختيار العميل والبراند وتفاصيل التنفيذ.</DialogDescription>
         </DialogHeader>
         {surfaceContent}

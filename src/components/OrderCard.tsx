@@ -2,7 +2,7 @@ import { Order, NEXT_STATUS, ORDER_MODE_LABELS, STATUS_LABELS, SOURCE_LABELS, SO
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import OrderStatusBadge from './OrderStatusBadge';
-import { ArrowRight, CalendarDays, MapPin, Phone, X, LocateFixed } from 'lucide-react';
+import { ArrowRight, CalendarDays, MapPin, Pencil, Phone, X, LocateFixed } from 'lucide-react';
 import { Meal, PackagePlan } from '@/types/menu';
 import { getOrderMealCount, resolveOrderMeals } from '@/lib/orderMeals';
 import { toast } from 'sonner';
@@ -19,9 +19,10 @@ interface Props {
   deliveryUsers?: Array<{ id: string; display_name: string }>;
   onAssign?: (orderId: string, userId: string | null) => Promise<boolean>;
   onRecordLocation?: (orderId: string, locationLink: string) => Promise<boolean>;
+  onEdit?: (order: Order) => void;
 }
 
-export default function OrderCard({ order, onUpdate, updateStatus, brands, meals, packages, deliveryUsers = [], onAssign, onRecordLocation }: Props) {
+export default function OrderCard({ order, onUpdate, updateStatus, brands, meals, packages, deliveryUsers = [], onAssign, onRecordLocation, onEdit }: Props) {
   const nextStatus = NEXT_STATUS[order.status];
   const brand = brands.find(b => b.id === order.brand_id);
   const executionDay = getArabicWeekday(order.execution_date);
@@ -96,6 +97,7 @@ export default function OrderCard({ order, onUpdate, updateStatus, brands, meals
           )}
         </div>
         <div className="flex flex-col gap-1.5 shrink-0">
+          {onEdit && <Button size="sm" variant="outline" onClick={() => onEdit(order)} className="gap-1 text-xs"><Pencil className="h-3.5 w-3.5" />تعديل</Button>}
           {onAssign && <select className="h-8 rounded-md border bg-background px-2 text-xs" value={order.assigned_to ?? ''} onChange={event => void onAssign(order.id, event.target.value || null)}><option value="">بدون مندوب</option>{deliveryUsers.map(deliveryUser => <option key={deliveryUser.id} value={deliveryUser.id}>{deliveryUser.display_name}</option>)}</select>}
           {onRecordLocation && <Button size="sm" variant="outline" onClick={recordLocation} className="gap-1 text-xs"><LocateFixed className="h-3.5 w-3.5" />تسجيل الموقع</Button>}
           {nextStatus && (

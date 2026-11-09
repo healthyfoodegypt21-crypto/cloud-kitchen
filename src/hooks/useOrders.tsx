@@ -10,6 +10,7 @@ import { Order, OrderStatus, OrderSource, MealType, OrderMode } from '@/types/or
 import { toast } from 'sonner';
 import { buildOrderNotesWithMetadata, compactWhitespace, extractLegacyOrderMetadata, formatDetailedAddress, hasDetailedAddressParts, normalizePhone } from '@/lib/utils';
 import { getOrderImportFingerprint, hasDuplicateOrderImport, ImportedOrder } from '@/lib/orderImport';
+import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 
 type OrderRow = Database['public']['Tables']['orders']['Row'] & {
   phone_secondary: string;
@@ -48,6 +49,49 @@ function generateLocalOrderId() {
   }
 
   return `local-order-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildOrderPersistencePayload(order: Omit<Order, 'id' | 'created_at'>) {
+  const address = hasDetailedAddressParts(order)
+    ? formatDetailedAddress(order)
+    : compactWhitespace(order.address);
+  const notes = buildOrderNotesWithMetadata({
+    notes: order.notes,
+    phoneSecondary: order.phone_secondary,
+    executionDate: order.execution_date,
+    locationLink: order.location_link,
+    mealCustomizations: order.meal_customizations,
+    packageMealSnapshot: order.package_meal_snapshot,
+    customerAmount: order.customer_amount,
+    deliveryFee: order.delivery_fee,
+    importedMealDetails: order.imported_meal_details,
+  });
+
+  return {
+    order_number: order.order_number,
+    customer_name: order.customer_name,
+    phone: order.phone,
+    address,
+    address_house_number: order.address_house_number,
+    address_street: order.address_street,
+    address_area: order.address_area,
+    address_floor: order.address_floor,
+    address_apartment: order.address_apartment,
+    package: order.package,
+    package_plan_id: order.package_plan_id,
+    meal_type: order.meal_type,
+    order_mode: order.order_mode,
+    notes,
+    status: order.status,
+    price: order.price,
+    execution_date: order.execution_date,
+    phone_secondary: order.phone_secondary,
+    selected_meal_ids: order.selected_meal_ids,
+    source: order.source,
+    brand_id: order.brand_id,
+    created_by: order.created_by,
+    assigned_to: order.assigned_to,
+  };
 }
 
 export function useOrders() {
@@ -189,42 +233,9 @@ export function useOrders() {
   });
 
   const addOrder = async (order: Omit<Order, 'id' | 'created_at'>) => {
-    const address = hasDetailedAddressParts(order)
-      ? formatDetailedAddress(order)
-      : compactWhitespace(order.address);
-    const noteParts = buildOrderNotesWithMetadata({
-      notes: order.notes,
-      phoneSecondary: order.phone_secondary,
-      executionDate: order.execution_date,
-      locationLink: order.location_link,
-      mealCustomizations: order.meal_customizations,
-      packageMealSnapshot: order.package_meal_snapshot,
-    });
-
-    const legacyOrder = {
-      order_number: order.order_number,
-      customer_name: order.customer_name,
-      phone: order.phone,
-      address,
-      address_house_number: order.address_house_number,
-      address_street: order.address_street,
-      address_area: order.address_area,
-      address_floor: order.address_floor,
-      address_apartment: order.address_apartment,
-      package: order.package,
-      package_plan_id: order.package_plan_id,
-      meal_type: order.meal_type,
-      order_mode: order.order_mode,
-      notes: noteParts,
-      status: order.status,
-      price: order.price,
-      execution_date: order.execution_date,
-      phone_secondary: order.phone_secondary,
-      selected_meal_ids: order.selected_meal_ids,
-      source: order.source,
-      brand_id: order.brand_id,
-      created_by: order.created_by,
-    };
+    const legacyOrder = buildOrderPersistencePayload(order);
+    const address = legacyOrder.address;
+    const noteParts = legacyOrder.notes;
 
     if (isSupabaseUnavailable()) {
       const previousLocalOrders = getLocalDemoOrders();
@@ -244,7 +255,7 @@ export function useOrders() {
       return true;
     }
 
-    const { error } = await supabase.from('orders').insert(legacyOrder);
+    const { error } = await asSupabaseLooseClient(supabase).from('orders').insert(legacyOrder);
     if (error) {
       if (isSupabaseNetworkError(error)) {
         markSupabaseUnavailable();
@@ -308,48 +319,11 @@ export function useOrders() {
       return 'duplicate';
     }
 
-    const address = hasDetailedAddressParts(order)
-      ? formatDetailedAddress(order)
-      : compactWhitespace(order.address);
-    const notes = buildOrderNotesWithMetadata({
-      notes: order.notes,
-      phoneSecondary: order.phone_secondary,
-      executionDate: order.execution_date,
-      locationLink: order.location_link,
-      mealCustomizations: order.meal_customizations,
-      packageMealSnapshot: order.package_meal_snapshot,
-      customerAmount: order.customer_amount,
-      deliveryFee: order.delivery_fee,
-      importedMealDetails: order.imported_meal_details,
-    });
-    const payload = {
-      order_number: order.order_number,
-      customer_name: order.customer_name,
-      phone: order.phone,
-      address,
-      address_house_number: order.address_house_number,
-      address_street: order.address_street,
-      address_area: order.address_area,
-      address_floor: order.address_floor,
-      address_apartment: order.address_apartment,
-      package: order.package,
-      package_plan_id: order.package_plan_id,
-      meal_type: order.meal_type,
-      order_mode: order.order_mode,
-      notes,
-      status: order.status,
-      price: order.price,
-      execution_date: order.execution_date,
-      phone_secondary: order.phone_secondary,
-      selected_meal_ids: order.selected_meal_ids,
-      source: order.source,
-      brand_id: order.brand_id,
-      created_by: order.created_by,
-    };
+    const payload = buildOrderPersistencePayload(order);
 
     if (existingRows.length > 0 && typeof (existingRows[0] as { id?: string }).id === 'string') {
       const [primaryRow, ...duplicateRows] = existingRows as Array<{ id: string }>;
-      const { error: updateError } = await supabase.from('orders').update(payload).eq('id', primaryRow.id);
+      const { error: updateError } = await asSupabaseLooseClient(supabase).from('orders').update(payload).eq('id', primaryRow.id);
       if (updateError) {
         toast.error(updateError.message);
         return 'failed';
@@ -361,7 +335,7 @@ export function useOrders() {
       return 'imported';
     }
 
-    const { error } = await supabase.from('orders').insert(payload);
+    const { error } = await asSupabaseLooseClient(supabase).from('orders').insert(payload);
 
     if (error) {
       if (error.code === '23505') return 'duplicate';
@@ -393,7 +367,7 @@ export function useOrders() {
       return;
     }
 
-    const { error } = await supabase.from('orders').update({ status }).eq('id', id);
+    const { error } = await asSupabaseLooseClient(supabase).from('orders').update({ status }).eq('id', id);
     if (error) {
       if (isSupabaseNetworkError(error)) {
         markSupabaseUnavailable();
@@ -405,6 +379,42 @@ export function useOrders() {
     }
 
     markSupabaseAvailable();
+  };
+
+  const updateOrder = async (id: string, order: Omit<Order, 'id' | 'created_at'>) => {
+    const legacyOrder = buildOrderPersistencePayload(order);
+
+    const localDemoOrders = getLocalDemoOrders();
+    const localDemoOrderExists = localDemoOrders.some((existing) => existing.id === id);
+    if (localDemoOrderExists) {
+      const nextLocalOrders = localDemoOrders.map((existing) => existing.id === id
+        ? { ...order, id, created_at: existing.created_at, address: legacyOrder.address, notes: legacyOrder.notes }
+        : existing);
+      saveLocalDemoOrders(nextLocalOrders);
+      syncLocalOrders(localDemoOrders, nextLocalOrders);
+      toast.success('تم تحديث الطلب');
+      return true;
+    }
+
+    if (isSupabaseUnavailable()) {
+      toast.error('الاتصال بقاعدة البيانات غير متاح؛ لم يتم تحديث الطلب.');
+      return false;
+    }
+
+    const { error } = await asSupabaseLooseClient(supabase).from('orders').update(legacyOrder).eq('id', id);
+    if (error) {
+      if (isSupabaseNetworkError(error)) {
+        markSupabaseUnavailable();
+        toast.error('الاتصال بقاعدة البيانات غير متاح؛ لم يتم تحديث الطلب.');
+        return false;
+      }
+      toast.error(error.message);
+      return false;
+    }
+
+    markSupabaseAvailable();
+    toast.success('تم تحديث الطلب');
+    return true;
   };
 
   const updateOrdersStatus = async (ids: string[], status: OrderStatus) => {
@@ -423,7 +433,7 @@ export function useOrders() {
         return false;
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await asSupabaseLooseClient(supabase)
         .from('orders')
         .update({ status })
         .in('id', databaseIds)
@@ -436,7 +446,7 @@ export function useOrders() {
         return false;
       }
 
-      updatedDatabaseIds = (data ?? []).map(order => order.id);
+      updatedDatabaseIds = (Array.isArray(data) ? data : []).map((order) => String((order as { id?: unknown }).id ?? '')).filter(Boolean);
       markSupabaseAvailable();
     }
 
@@ -480,46 +490,9 @@ export function useOrders() {
 
     const deleteResponse = await supabase.from('orders').delete().like('order_number', `${DEMO_ORDER_NUMBER_PREFIX}%`);
     if (!deleteResponse.error) {
-      const insertPayload = demoOrders.map((order) => {
-        const address = hasDetailedAddressParts(order)
-          ? formatDetailedAddress(order)
-          : compactWhitespace(order.address);
-        const noteParts = buildOrderNotesWithMetadata({
-          notes: order.notes,
-          phoneSecondary: order.phone_secondary,
-          executionDate: order.execution_date,
-          locationLink: order.location_link,
-          mealCustomizations: order.meal_customizations,
-          packageMealSnapshot: order.package_meal_snapshot,
-        });
+      const insertPayload = demoOrders.map((order) => buildOrderPersistencePayload(order));
 
-        return {
-          order_number: order.order_number,
-          customer_name: order.customer_name,
-          phone: order.phone,
-          address,
-          address_house_number: order.address_house_number,
-          address_street: order.address_street,
-          address_area: order.address_area,
-          address_floor: order.address_floor,
-          address_apartment: order.address_apartment,
-          package: order.package,
-          package_plan_id: order.package_plan_id,
-          meal_type: order.meal_type,
-          order_mode: order.order_mode,
-          notes: noteParts,
-          status: order.status,
-          price: order.price,
-          execution_date: order.execution_date,
-          phone_secondary: order.phone_secondary,
-          selected_meal_ids: order.selected_meal_ids,
-          source: order.source,
-          brand_id: order.brand_id,
-          created_by: order.created_by,
-        };
-      });
-
-      const insertResponse = await supabase.from('orders').insert(insertPayload);
+      const insertResponse = await asSupabaseLooseClient(supabase).from('orders').insert(insertPayload);
       if (!insertResponse.error) {
         markSupabaseAvailable();
         clearLocalDemoOrders();
@@ -549,5 +522,5 @@ export function useOrders() {
     return true;
   };
 
-  return { orders, loading, addOrder, saveImportedOrder, updateStatus, updateOrdersStatus, refresh: fetchOrders, seedDemoOrders };
+  return { orders, loading, addOrder, saveImportedOrder, updateOrder, updateStatus, updateOrdersStatus, refresh: fetchOrders, seedDemoOrders };
 }

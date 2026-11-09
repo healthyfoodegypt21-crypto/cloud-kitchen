@@ -53,6 +53,7 @@ describe('Orders bulk confirmation', () => {
         onRefresh={vi.fn()}
         addOrder={vi.fn().mockResolvedValue(true)}
         saveImportedOrder={vi.fn().mockResolvedValue('imported')}
+        updateOrder={vi.fn().mockResolvedValue(true)}
         updateOrdersStatus={updateOrdersStatus}
         updateStatus={vi.fn().mockResolvedValue(undefined)}
         seedDemoOrders={vi.fn().mockResolvedValue(true)}

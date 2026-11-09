@@ -65,6 +65,7 @@ interface Props {
   onRefresh: () => void;
   addOrder: (order: Omit<Order, 'id' | 'created_at'>) => Promise<boolean>;
   saveImportedOrder: (order: Omit<Order, 'id' | 'created_at'>) => Promise<'imported' | 'duplicate' | 'failed'>;
+  updateOrder: (id: string, order: Omit<Order, 'id' | 'created_at'>) => Promise<boolean>;
   updateOrdersStatus: (ids: string[], status: OrderStatus) => Promise<boolean>;
   updateStatus: (id: string, status: OrderStatus) => Promise<void>;
   seedDemoOrders: (brands: Brand[]) => Promise<boolean>;
@@ -73,11 +74,12 @@ interface Props {
   packages: PackagePlan[];
 }
 
-export default function Orders({ orders, loading, onRefresh, addOrder, saveImportedOrder, updateOrdersStatus, updateStatus, seedDemoOrders, brands, meals, packages }: Props) {
+export default function Orders({ orders, loading, onRefresh, addOrder, saveImportedOrder, updateOrder, updateOrdersStatus, updateStatus, seedDemoOrders, brands, meals, packages }: Props) {
   const { role } = useAuth();
   const [draftFilters, setDraftFilters] = useState<FilterState>(() => createDefaultFilters());
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(() => createDefaultFilters());
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const hasAttemptedAutoSeedRef = useRef(false);
 
@@ -197,6 +199,15 @@ export default function Orders({ orders, loading, onRefresh, addOrder, saveImpor
         <div className="flex flex-wrap gap-2">
           <OrderSheetImportDialog saveImportedOrder={saveImportedOrder} onImported={onRefresh} brands={brands} meals={meals} packages={packages} />
           <NewOrderDialog onCreated={onRefresh} addOrder={addOrder} />
+          {editingOrder && (
+            <NewOrderDialog
+              onCreated={onRefresh}
+              addOrder={addOrder}
+              editOrder={editingOrder}
+              updateOrder={updateOrder}
+              onEditClose={() => setEditingOrder(null)}
+            />
+          )}
         </div>
       </div>
 
@@ -326,7 +337,7 @@ export default function Orders({ orders, loading, onRefresh, addOrder, saveImpor
             </div>
           ) : (
             filtered.map(order => (
-              <OrderCard key={order.id} order={order} onUpdate={onRefresh} updateStatus={updateStatus} brands={brands} meals={meals} packages={packages} />
+              <OrderCard key={order.id} order={order} onUpdate={onRefresh} updateStatus={updateStatus} brands={brands} meals={meals} packages={packages} onEdit={setEditingOrder} />
             ))
           )}
         </div>
