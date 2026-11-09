@@ -25,7 +25,7 @@ export type SmartPurchaseSubmission = {
   paidAmount: number;
   paymentMethod: 'cash' | 'bank_transfer' | 'credit';
   invoiceFile: File | null;
-  lines: Array<{ itemId: string; quantity: number; unitPrice: number }>;
+  lines: Array<{ itemId: string; itemName: string; quantity: number; unitPrice: number }>;
 };
 
 type Props = {
@@ -112,7 +112,13 @@ export default function SmartPurchaseImportDialog({
     && paidAmount >= 0
     && paidAmount <= invoiceTotal
     && !paymentConsistencyError
-    && lines.every((line) => Boolean(selectedItems.get(line.itemId)) && convertedLines.get(line.id) !== null);
+    && lines.every((line) => {
+      if (!selectedItems.get(line.itemId)) {
+        // Unlinked lines are recorded as new items under the extracted name.
+        return line.sourceName.trim().length > 0;
+      }
+      return convertedLines.get(line.id) !== null;
+    });
 
   useEffect(() => {
     if (!imageFile) {
@@ -232,10 +238,11 @@ export default function SmartPurchaseImportDialog({
         paidAmount,
         paymentMethod,
         invoiceFile,
-        lines: lines.map(({ id, itemId }) => ({
+        lines: lines.map(({ id, itemId, sourceName, quantity, unitPrice }) => ({
           itemId,
-          quantity: convertedLines.get(id)?.quantity ?? 0,
-          unitPrice: convertedLines.get(id)?.unitPrice ?? 0,
+          itemName: sourceName,
+          quantity: convertedLines.get(id)?.quantity ?? quantity,
+          unitPrice: convertedLines.get(id)?.unitPrice ?? unitPrice,
         })),
       });
       if (saved) {

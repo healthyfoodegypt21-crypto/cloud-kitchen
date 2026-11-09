@@ -115,6 +115,40 @@ export default function PurchasesRoute() {
       return false;
     }
 
+    // Lines not linked to a catalog item are created on the fly under the
+    // extracted name, so the purchase can be recorded without manual setup.
+    const resolvedLines: Array<{ itemId: string; quantity: number; unitPrice: number }> = [];
+    for (const line of submission.lines) {
+      if (line.itemId) {
+        resolvedLines.push({ itemId: line.itemId, quantity: line.quantity, unitPrice: line.unitPrice });
+        continue;
+      }
+      const itemName = line.itemName.trim();
+      if (!itemName) {
+        toast.error('اربط كل سطر بصنف أو تأكد من وجود اسم مستخرج');
+        return false;
+      }
+      const { data: newItemId, error: createError } = await asSupabaseLooseClient(supabase).rpc('inventory_create_item_v2', {
+        _brand_id: brandId,
+        _item_code: '',
+        _name: itemName,
+        _category: 'other',
+        _purchase_unit: 'piece',
+        _usage_unit: 'piece',
+        _conversion_factor: 1,
+        _min_stock: 0,
+        _location_name: 'main',
+        _opening_quantity: 0,
+        _opening_unit_cost: 0,
+        _notes: 'أُنشئ تلقائيًا من الإدخال السريع للمشتريات',
+      });
+      if (createError || !newItemId) {
+        toast.error(createError?.message || `تعذر إنشاء الصنف "${itemName}"`);
+        return false;
+      }
+      resolvedLines.push({ itemId: String(newItemId), quantity: line.quantity, unitPrice: line.unitPrice });
+    }
+
     let storagePath = '';
     try {
       const invoiceNumber = submission.invoiceNumber.trim();
@@ -153,7 +187,7 @@ export default function PurchasesRoute() {
         _supplier_id: submission.supplierId || null,
         _supplier_name: submission.supplierName,
         _purchaser_name: submission.purchaserName,
-        _lines: submission.lines.map((line) => ({
+        _lines: resolvedLines.map((line) => ({
           item_id: line.itemId,
           quantity: line.quantity,
           unit_cost: line.unitPrice,
