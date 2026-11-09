@@ -217,7 +217,7 @@ const unitPricePattern = new RegExp(
   'u',
 );
 const totalPricePattern = new RegExp(
-  `(?:تمن(?:ها|ه)?|ثمن(?:ها|ه)?|بسعر|سعرها|سعره|سعر)\\s*(?:ال)?\\s*(?:بيكون|كان|تكون|هو)?\\s*(${NUMBER_TOKEN})${CURRENCY_SUFFIX}${FRACTION_SUFFIX}`,
+  `(?:تمن(?:ها|ه|هم)?|ثمن(?:ها|ه|هم)?|بسعر|سعرها|سعره|سعر)\\s*(?:ال)?\\s*(?:بيكون|كان|تكون|هو)?\\s*(${NUMBER_TOKEN})${CURRENCY_SUFFIX}${FRACTION_SUFFIX}`,
   'u',
 );
 const standaloneTotalPattern = new RegExp(`(?:^|\\s)ب\\s*(${NUMBER_TOKEN})${CURRENCY_SUFFIX}${FRACTION_SUFFIX}`, 'u');
@@ -316,6 +316,8 @@ function parseFreeformPurchaseLine(line: string, index: number): { line: Omit<Sm
   );
 
   if (!name || name.length < 2) return null;
+  // The system computes the missing side: unit price from total ÷ quantity,
+  // or the total from quantity × unit price (kept implicit in the line).
   if (unitPrice === null && total !== null && quantity !== null && quantity > 0) {
     unitPrice = Math.round((total / quantity) * 100) / 100;
   }

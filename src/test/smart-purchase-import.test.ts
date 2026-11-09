@@ -118,4 +118,16 @@ describe('smart purchase message parsing', () => {
     expect(result.lines[0]).toMatchObject({ sourceName: 'طماطم', quantity: 2, unitPrice: 20, sourceUnit: 'kg' });
     expect(result.lines[0].itemId).toBe('tomato');
   });
+
+  it('computes the unit price from the total when the text only mentions the total', () => {
+    const result = parseSmartPurchaseMessage('اشتريت ٤ كيلو بصل تمنهم ١٠٠ جنيه', inventoryItems);
+
+    expect(result.lines[0]).toMatchObject({ sourceName: 'بصل', quantity: 4, unitPrice: 25, sourceUnit: 'kg' });
+  });
+
+  it('computes the unit price from a "ب" total with a fraction', () => {
+    const result = parseSmartPurchaseMessage('اشتريت ٢ كيلو طماطم ب ٥٠ جنيه و نص', inventoryItems);
+
+    expect(result.lines[0]).toMatchObject({ sourceName: 'طماطم', quantity: 2, unitPrice: 25.25 });
+  });
 });

@@ -410,7 +410,8 @@ export default function SmartPurchaseImportDialog({
                           {line.sourceUnit && line.sourceUnit !== item.purchaseUnit
                             ? ` (محوّلة تلقائيًا من ${line.sourceUnit} إلى وحدة الشراء بمعامل ${item.conversionFactor})`
                             : ' بوحدة الشراء'}
-                          {' '}بسعر {converted.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م للوحدة.
+                          {' '}بسعر {converted.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م للوحدة
+                          {' '}— إجمالي السطر {(converted.quantity * converted.unitPrice).toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م.
                         </p>
                         <ProcurementPriceAlert
                           itemName={item.name}
