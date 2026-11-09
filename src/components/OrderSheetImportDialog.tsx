@@ -16,7 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { hasPageAccess } from '@/lib/permissions';
 import { Meal, PackagePlan } from '@/types/menu';
 import { Order, OrderMode, OrderSource, OrderStatus } from '@/types/order';
-import { compactWhitespace, getTodayDateValue, normalizePhone } from '@/lib/utils';
+import { compactWhitespace, getTodayDateValue, isValidDateValue, normalizePhone } from '@/lib/utils';
 import { getImportedOrderNumber } from '@/lib/orderImport';
 import { parseWhatsAppOrder } from '@/lib/whatsappOrderImport';
 
@@ -682,7 +682,7 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
             <div className="grid gap-1"><Label htmlFor="extracted-region">المنطقة</Label><Input id="extracted-region" value={text(cell(rows[0], aliases.region))} onChange={event => updateExtractedField('المنطقة', event.target.value)} /></div>
             <div className="grid gap-1"><Label htmlFor="extracted-package">الباقة</Label><Input id="extracted-package" value={text(cell(rows[0], aliases.package))} onChange={event => updateExtractedField('الباقة', event.target.value)} /></div>
             <div className="grid gap-1"><Label htmlFor="extracted-meals">تفاصيل الطلب / الوجبات</Label><Input id="extracted-meals" value={text(cell(rows[0], aliases.meals))} onChange={event => updateExtractedField('التفاصيل', event.target.value)} /></div>
-            <div className="grid gap-1"><Label htmlFor="extracted-date">تاريخ التنفيذ</Label><Input id="extracted-date" placeholder="YYYY-MM-DD أو DD/MM/YYYY" value={text(cell(rows[0], aliases.date))} onChange={event => updateExtractedField('تاريخ التنفيذ', event.target.value)} /></div>
+            <div className="grid gap-1"><Label htmlFor="extracted-date">تاريخ التنفيذ</Label><DatePicker id="extracted-date" value={isValidDateValue(text(cell(rows[0], aliases.date))) ? text(cell(rows[0], aliases.date)) : ''} onChange={value => updateExtractedField('تاريخ التنفيذ', value)} placeholder="اختر تاريخ التنفيذ" /></div>
             <div className="grid gap-1"><Label htmlFor="extracted-price">السعر</Label><Input id="extracted-price" inputMode="decimal" value={text(cell(rows[0], aliases.customerAmount)) || text(cell(rows[0], aliases.price))} onChange={event => updateExtractedField('المبلغ', event.target.value)} /></div>
             <div className="grid gap-1"><Label htmlFor="extracted-delivery">رسوم التوصيل</Label><Input id="extracted-delivery" inputMode="decimal" value={text(cell(rows[0], aliases.deliveryFee))} onChange={event => updateExtractedField('التوصيل', event.target.value)} /></div>
             <div className="grid gap-1 sm:col-span-2"><Label htmlFor="extracted-location">رابط الموقع (اختياري)</Label><Input id="extracted-location" value={text(cell(rows[0], aliases.locationLink))} onChange={event => updateExtractedField('رابط الموقع', event.target.value)} /></div>
