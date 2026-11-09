@@ -142,7 +142,7 @@ export default function SmartPurchaseImportDialog({
       setSupplierName(result.supplierName);
     }
     if (result.lines.length === 0) {
-      toast.error('لم أتعرف على أصناف. استخدم الصيغة: اسم الصنف، الكمية، الوحدة، سعر الوحدة.');
+      toast.error('لم أتعرف على أصناف. اكتب كل صنف في سطر مستقل بأي صيغة، مثل: طماطم 5 كجم × 30 أو اشتريت 3 جرجير سعر الواحده 3.5 جنيه.');
     } else {
       toast.success(`تم استخراج ${result.lines.length} صنف؛ راجع البيانات قبل التسجيل.`);
     }
@@ -280,7 +280,7 @@ export default function SmartPurchaseImportDialog({
               rows={8}
               value={message}
               onChange={(event) => setMessage(event.target.value)}
-              placeholder={'مثال:\nالمورد: مورد الخضار\nطماطم 5 كجم × 30\nبصل 3 كجم × 25'}
+              placeholder={'اكتب بأي صيغة — مثال:\nالمورد: مورد الخضار\nطماطم 5 كجم × 30\nأو بشكل حر:\nاشتريت 3 جرجير سعر الواحده 3.5 جنيه و نص\nاشتريت كابوتشا 12 واحده سعر الواحده 9 جنيه'}
               dir="auto"
             />
             <Button type="button" variant="outline" className="gap-2" onClick={parseMessage}>

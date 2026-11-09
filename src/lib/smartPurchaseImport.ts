@@ -1,4 +1,5 @@
 import type { InventoryUnit } from '@/types/inventory';
+import { compactWhitespace } from '@/lib/utils';
 
 export type SmartPurchaseCatalogItem = {
   id: string;
@@ -185,6 +186,155 @@ export function matchCatalogItem(name: string, items: SmartPurchaseCatalogItem[]
 
 export const PURCHASE_UNIT_ALTERNATIVES = UNIT_ALTERNATIVES;
 
+// ---------------------------------------------------------------------------
+// Free-form purchase text ("اشتريت 3 جرجير سعر الواحده 3.5 جنيه و نص")
+// ---------------------------------------------------------------------------
+
+const PURCHASE_VERB_PATTERN = /^(?:اشتريت|اشترينا|اشتريتها|جبت|جبنا|اخدت|اخذت|واخد|دفعت|جيبت)\s*/u;
+
+const QUANTITY_WORD_TOKENS: Record<string, number> = {
+  'واحد': 1, 'واحده': 1, 'واحدة': 1,
+  'اتنين': 2, 'اثنين': 2,
+  'تلاتة': 3, 'تلاته': 3, 'ثلاثة': 3, 'ثلاثه': 3,
+  'اربعة': 4, 'اربعه': 4, 'أربعة': 4,
+  'خمسة': 5, 'خمسه': 5,
+  'ستة': 6, 'سته': 6,
+  'سبعة': 7, 'سبعه': 7,
+  'تمانية': 8, 'تمانيه': 8, 'ثمانية': 8,
+  'تسعة': 9, 'تسعه': 9,
+  'عشرة': 10, 'عشره': 10,
+};
+
+const NUMBER_TOKEN = '\\d+(?:[.,]\\d+)?|واحد|واحده|واحدة|اتنين|اثنين|تلاتة|تلاته|ثلاثة|ثلاثه|اربعة|اربعه|أربعة|خمسة|خمسه|ستة|سته|سبعة|سبعه|تمانية|تمانيه|ثمانية|تسعة|تسعه|عشرة|عشره';
+
+const FRACTION_TOKENS: Record<string, number> = { 'نص': 0.5, 'ربع': 0.25, 'تلت': 1 / 3, 'ثلث': 1 / 3 };
+
+const FRACTION_SUFFIX = '(?:\\s*و?\\s*(نص|ربع|تلت|ثلث))?';
+const CURRENCY_SUFFIX = '(?:\\s*(?:جنيه(?:ات)?|جنية|جنيهات|ج\\.م|egp|ج))?';
+
+const unitPricePattern = new RegExp(
+  `سعر\\s+(?:ال)?(?:واحده|واحد|واحدة|حبه|حبة|طبق|كيلو|كيلوجرام|كجم|جرام|جم|قطعة|قطعه|لتر|علبة|كيس|كرتونة|كرتون)\\s*(${NUMBER_TOKEN})${CURRENCY_SUFFIX}${FRACTION_SUFFIX}`,
+  'u',
+);
+const totalPricePattern = new RegExp(
+  `(?:تمن(?:ها|ه)?|ثمن(?:ها|ه)?|بسعر|سعرها|سعره|سعر)\\s*(?:ال)?\\s*(?:بيكون|كان|تكون|هو)?\\s*(${NUMBER_TOKEN})${CURRENCY_SUFFIX}${FRACTION_SUFFIX}`,
+  'u',
+);
+const standaloneTotalPattern = new RegExp(`(?:^|\\s)ب\\s*(${NUMBER_TOKEN})${CURRENCY_SUFFIX}${FRACTION_SUFFIX}`, 'u');
+const quantityWithUnitPattern = new RegExp(
+  `(${NUMBER_TOKEN})\\s*(واحده|واحد|واحدة|حبه|حبة|طبق|اطباق|أطباق|قطعة|قطعه|قطع|حبات|كيلو|كيلوجرام|كجم|جرام|جم|غرام|لتر|ليتر|علبة|كيس|كرتونة|كرتون|صندوق|بوكس|شوال|دستة|صينية|زجاجة|ازازة)`,
+  'u',
+);
+const containsCountPattern = new RegExp(`فيها\\s*(${NUMBER_TOKEN})\\s*(?:اطباق|أطباق|طبق|حبات|حبه|قطع|قطعة)?`, 'u');
+const leadingNumberPattern = new RegExp(`^\\s*(${NUMBER_TOKEN})\\s+`, 'u');
+const standaloneNumberPattern = new RegExp(`(${NUMBER_TOKEN})`, 'u');
+const supplierPattern = /(?:^|\s)(?:من|عند)\s+([^\d]+?)(?=\s+(?:بسعر|سعرها|سعره|سعر|تمن|ثمن|فيها|يعني|ب\s*\d)|\s*$)/u;
+
+const NAME_FILLER_TOKENS = new Set([
+  'يعني', 'تقريبا', 'تقريباً', 'ليهم', 'كلهم', 'النهارده', 'النهاردة', 'امبارح',
+  'جنيه', 'جنية', 'جنيهات', 'جم', 'ج', 'بس', 'كده', 'كدا', 'طبعا',
+  'سعر', 'بسعر', 'تمن', 'تمنها', 'تمنه', 'ثمن', 'ثمنها', 'ثمنه',
+  'فيها', 'بيكون', 'كان', 'تكون', 'هو', 'و', 'ونص', 'نص', 'ربع', 'من', 'عند',
+]);
+
+function parseQuantityToken(token: string) {
+  const numeric = parseLocalizedNumber(token);
+  if (numeric !== null) return numeric;
+  return QUANTITY_WORD_TOKENS[token] ?? null;
+}
+
+function unitFromToken(token: string): InventoryUnit | null {
+  if (/^(?:واحده|واحد|واحدة|حبه|حبة|طبق|اطباق|أطباق|قطعة|قطعه|قطع|حبات)$/u.test(token)) return 'piece';
+  return normalizePurchaseUnit(token);
+}
+
+function applyFraction(base: number, fractionToken: string | undefined) {
+  return base + (fractionToken ? FRACTION_TOKENS[fractionToken] ?? 0 : 0);
+}
+
+function parseFreeformPurchaseLine(line: string, index: number): { line: Omit<SmartPurchaseLine, 'itemId' | 'matchConfidence'>; supplierName: string } | null {
+  let rest = line.trim().replace(PURCHASE_VERB_PATTERN, '');
+
+  let supplierName = '';
+  const supplierMatch = rest.match(supplierPattern);
+  if (supplierMatch) {
+    supplierName = compactWhitespace(supplierMatch[1]);
+    rest = rest.replace(supplierMatch[0], ' ');
+  }
+
+  let unitPrice: number | null = null;
+  const unitPriceMatch = rest.match(unitPricePattern);
+  if (unitPriceMatch) {
+    const base = parseQuantityToken(unitPriceMatch[1]);
+    if (base !== null) unitPrice = applyFraction(base, unitPriceMatch[2]);
+    rest = rest.replace(unitPriceMatch[0], ' ');
+  }
+
+  let total: number | null = null;
+  const totalMatch = rest.match(totalPricePattern) ?? rest.match(standaloneTotalPattern);
+  if (totalMatch) {
+    const base = parseQuantityToken(totalMatch[1]);
+    if (base !== null) total = applyFraction(base, totalMatch[2]);
+    rest = rest.replace(totalMatch[0], ' ');
+  }
+
+  let quantity: number | null = null;
+  let sourceUnit: InventoryUnit | null = null;
+  const quantityMatch = rest.match(quantityWithUnitPattern);
+  if (quantityMatch) {
+    quantity = parseQuantityToken(quantityMatch[1]);
+    sourceUnit = unitFromToken(quantityMatch[2]);
+    rest = rest.replace(quantityMatch[0], ' ');
+  }
+  if (quantity === null) {
+    const containsMatch = rest.match(containsCountPattern);
+    if (containsMatch) {
+      quantity = parseQuantityToken(containsMatch[1]);
+      sourceUnit = 'piece';
+      rest = rest.replace(containsMatch[0], ' ');
+    }
+  }
+  if (quantity === null) {
+    const leadingMatch = rest.match(leadingNumberPattern);
+    if (leadingMatch) {
+      quantity = parseQuantityToken(leadingMatch[1]);
+      rest = rest.replace(leadingMatch[0], ' ');
+    }
+  }
+  if (quantity === null) {
+    const standaloneMatch = rest.match(standaloneNumberPattern);
+    if (standaloneMatch) {
+      quantity = parseQuantityToken(standaloneMatch[1]);
+      rest = rest.replace(standaloneMatch[0], ' ');
+    }
+  }
+
+  const name = compactWhitespace(
+    rest.split(/\s+/u)
+      .filter(token => token && !NAME_FILLER_TOKENS.has(token) && !/^\d/u.test(token))
+      .join(' '),
+  );
+
+  if (!name || name.length < 2) return null;
+  if (unitPrice === null && total !== null && quantity !== null && quantity > 0) {
+    unitPrice = Math.round((total / quantity) * 100) / 100;
+  }
+  if (unitPrice === null || unitPrice < 0) return null;
+  if (quantity === null || quantity <= 0) quantity = 1;
+
+  return {
+    supplierName,
+    line: {
+      id: `smart-purchase-${index}`,
+      sourceName: name,
+      quantity,
+      unitPrice,
+      sourceUnit,
+      confirmedUnit: true,
+    },
+  };
+}
+
 export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCatalogItem[]): SmartPurchaseParseResult {
   let supplierName = '';
   const lines: SmartPurchaseLine[] = [];
@@ -217,7 +367,21 @@ export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCata
     const sourceName = match?.[1]?.trim().replace(/[:：-]\s*$/, '') ?? '';
 
     if (!match || !sourceName || quantity === null || quantity <= 0 || unitPrice === null || unitPrice < 0) {
-      ignoredLines.push(line);
+      // Free-form fallback: "اشتريت 3 جرجير سعر الواحده 3.5 جنيه و نص"
+      const freeform = parseFreeformPurchaseLine(line, index);
+      if (!freeform) {
+        ignoredLines.push(line);
+        return;
+      }
+      if (!supplierName && freeform.supplierName) {
+        supplierName = freeform.supplierName;
+      }
+      const freeformMatched = matchCatalogItem(freeform.line.sourceName, items);
+      lines.push({
+        ...freeform.line,
+        itemId: freeformMatched.id,
+        matchConfidence: freeformMatched.confidence,
+      });
       return;
     }
 
