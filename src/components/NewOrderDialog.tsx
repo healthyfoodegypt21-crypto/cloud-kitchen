@@ -43,6 +43,8 @@ type NewOrderFormState = {
   source: OrderSource;
   brand_id: string;
   meal_customization_notes: Record<string, string>;
+  customer_amount: string;
+  delivery_fee: string;
 };
 
 type FormField = keyof NewOrderFormState;
@@ -76,6 +78,8 @@ function createInitialFormState(defaultBrandId = ''): NewOrderFormState {
     source: 'other',
     brand_id: defaultBrandId,
     meal_customization_notes: {},
+    customer_amount: '',
+    delivery_fee: '',
   };
 }
 
@@ -155,6 +159,8 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
       meal_customization_notes: Object.fromEntries(
         (editOrder.meal_customizations ?? []).map((item) => [item.key, item.notes]),
       ),
+      customer_amount: String(editOrder.customer_amount ?? editOrder.price ?? ''),
+      delivery_fee: String(editOrder.delivery_fee ?? ''),
     });
     setErrors({});
   }, [editOrder, updateOrder, defaultBrandId]);
@@ -248,6 +254,18 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
 
     return selectedMeals.reduce((sum, meal) => sum + (meal.price ?? 0), 0);
   }, [form.order_mode, selectedMeals, selectedPackagePlan]);
+
+  // The order price defaults to the catalog estimate but stays editable, and
+  // the delivery fee is added on top to form the final order price.
+  const customerAmountValue = useMemo(() => {
+    const parsed = Number(form.customer_amount);
+    return Number.isFinite(parsed) && form.customer_amount !== '' ? parsed : estimatedPrice;
+  }, [form.customer_amount, estimatedPrice]);
+  const deliveryFeeValue = useMemo(() => {
+    const parsed = Number(form.delivery_fee);
+    return Number.isFinite(parsed) && form.delivery_fee !== '' ? parsed : 0;
+  }, [form.delivery_fee]);
+  const finalPrice = customerAmountValue + deliveryFeeValue;
 
   const existingCustomerResults = useMemo(() => {
     if (!form.brand_id) {
@@ -691,7 +709,9 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
       notes: compactWhitespace(form.notes),
       meal_customizations: mealCustomizations,
       status: editOrder?.status ?? 'new',
-      price: estimatedPrice,
+      price: finalPrice,
+      customer_amount: customerAmountValue,
+      delivery_fee: deliveryFeeValue,
       source: form.source,
       brand_id: form.brand_id,
       created_by: editOrder?.created_by ?? user?.id ?? null,
@@ -1242,6 +1262,36 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
                             </SelectContent>
                           </Select>
                         </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="grid gap-1.5">
+                            <Label htmlFor="customer-amount">سعر الأوردر</Label>
+                            <Input
+                              id="customer-amount"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              inputMode="decimal"
+                              value={form.customer_amount}
+                              placeholder={estimatedPrice > 0 ? String(estimatedPrice) : '0'}
+                              onChange={e => setField('customer_amount', e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">اتركه فارغًا لاستخدام سعر الكتالوج ({estimatedPrice > 0 ? formatEGPCurrency(estimatedPrice) : 'غير محدد'}).</p>
+                          </div>
+                          <div className="grid gap-1.5">
+                            <Label htmlFor="delivery-fee">سعر التوصيل</Label>
+                            <Input
+                              id="delivery-fee"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              inputMode="decimal"
+                              value={form.delivery_fee}
+                              placeholder="0"
+                              onChange={e => setField('delivery_fee', e.target.value)}
+                            />
+                          </div>
+                        </div>
                       </div>
 
                       <div className="grid gap-1.5">
@@ -1285,9 +1335,21 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-3 border-b py-3">
-                          <span className="text-muted-foreground">التكلفة المتوقعة</span>
+                          <span className="text-muted-foreground">سعر الأوردر</span>
                           <span className="font-semibold text-foreground">
-                            {estimatedPrice > 0 ? formatEGPCurrency(estimatedPrice) : 'حدد الباقة أو الوجبات'}
+                            {formatEGPCurrency(customerAmountValue)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 border-b py-3">
+                          <span className="text-muted-foreground">سعر التوصيل</span>
+                          <span className="font-semibold text-foreground">
+                            {formatEGPCurrency(deliveryFeeValue)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 border-b py-3">
+                          <span className="text-muted-foreground">الإجمالي النهائي</span>
+                          <span className="font-bold text-primary">
+                            {formatEGPCurrency(finalPrice)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-3 pt-3">
