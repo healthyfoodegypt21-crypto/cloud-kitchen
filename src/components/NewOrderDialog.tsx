@@ -544,6 +544,19 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
       nextErrors.brand_id = brands.length === 0 ? 'لا توجد علامات متاحة لهذا المستخدم' : 'اختر العلامة التجارية أولًا';
     }
 
+    // Edit mode: the order already carries its customer data, so validate the
+    // loaded fields directly instead of requiring a catalog customer match.
+    if (isEditMode) {
+      if (!compactWhitespace(form.customer_name)) nextErrors.customer_name = 'اكتب اسم العميل';
+      const normalizedPrimaryPhone = normalizePhone(form.phone);
+      if (!normalizedPrimaryPhone) {
+        nextErrors.phone = 'اكتب رقم الهاتف الأساسي';
+      } else if (normalizedPrimaryPhone.length < 10) {
+        nextErrors.phone = 'رقم الهاتف غير مكتمل';
+      }
+      return nextErrors;
+    }
+
     if (customerMode === 'existing') {
       if (!selectedCustomer) {
         nextErrors.customer_name = 'اختر عميلًا موجودًا من نتائج البحث';
@@ -669,7 +682,8 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
 
     setCreating(true);
 
-    if (customerMode === 'new' || (customerMode === 'existing' && addressMode === 'new' && saveNewAddressAsDefault)) {
+    // Edit mode never re-creates the customer record; it only updates the order.
+    if (!isEditMode && (customerMode === 'new' || (customerMode === 'existing' && addressMode === 'new' && saveNewAddressAsDefault))) {
       const customer = await persistCustomer();
       if (customer) {
         setSelectedCustomerId(customer.id);
