@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { Brand } from '@/hooks/useBrands';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import { supabase } from '@/integrations/supabase/client';
 import { suggestPurchaseQuantity } from '@/lib/procurementUnits';
@@ -128,10 +127,9 @@ const emptyDirectDraft = (): DirectDraft => ({
   discountAmount: '0', paidAmount: '0', paymentMethod: 'cash', invoiceFile: null,
 });
 
-export default function ProcurementCenter({ brandId, brands, onBrandChange, purchaserName }: {
+export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
   brandId: string;
-  brands: Brand[];
-  onBrandChange: (brandId: string) => void;
+  hubName?: string;
   purchaserName: string;
 }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -737,13 +735,9 @@ export default function ProcurementCenter({ brandId, brands, onBrandChange, purc
         <div>
           <span className="text-xs font-bold tracking-wide text-emerald-700">إدارة المشتريات والموردين</span>
           <h1 className="mt-1 text-2xl font-extrabold tracking-tight sm:text-3xl">مركز المشتريات</h1>
-          <p className="mt-1 text-sm text-muted-foreground">طلبات موحدة، متابعة أسعار وفواتير الموردين، واستلام موثق للمخزون.</p>
+          <p className="mt-1 text-sm text-muted-foreground">طلبات موحدة للمخزن المركزي{hubName ? ` (${hubName})` : ''} الذي يخدم كل العلامات، متابعة أسعار وفواتير الموردين، واستلام موثق للمخزون.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <select aria-label="العلامة التجارية" className="h-10 min-w-48 rounded-md border bg-background px-3" value={brandId} onChange={(event) => onBrandChange(event.target.value)}>
-            <option value="">اختر العلامة التجارية</option>
-            {brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-          </select>
           <Button variant="outline" onClick={exportPage} disabled={!requests.length}><Download className="ml-2 h-4 w-4" />تصدير نتائج الصفحة</Button>
           <Button onClick={() => { setDirectDraft({ ...emptyDirectDraft(), purchaserName }); setDirectOpen(true); }} disabled={!brandId}><Plus className="ml-2 h-4 w-4" />شراء مباشر</Button>
         </div>

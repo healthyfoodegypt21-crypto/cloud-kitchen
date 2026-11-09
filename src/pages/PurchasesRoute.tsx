@@ -5,14 +5,16 @@ import PurchasesAssistant from '@/components/PurchasesAssistant';
 import SmartPurchaseImportDialog, { type SmartPurchaseSubmission } from '@/components/SmartPurchaseImportDialog';
 import ProcurementCenter from '@/pages/ProcurementCenter';
 import { useAuth } from '@/hooks/useAuth';
-import { useBrands } from '@/hooks/useBrands';
 import { supabase } from '@/integrations/supabase/client';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 
 export default function PurchasesRoute() {
-  const { brands } = useBrands();
   const { displayName } = useAuth();
+  // Procurement buys for the shared central store that serves every brand, so
+  // the page always works on the hub's stock brand — no brand picker.
   const [brandId, setBrandId] = useState('');
+  const [hubName, setHubName] = useState('');
+  const [hubError, setHubError] = useState('');
   const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; sku: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>>([]);
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -24,10 +26,25 @@ export default function PurchasesRoute() {
   };
 
   useEffect(() => {
-    if (!brandId && brands[0]) {
-      setBrandId(brands[0].id);
-    }
-  }, [brandId, brands]);
+    let active = true;
+    const loadHub = async () => {
+      const { data, error } = await asSupabaseLooseClient(supabase).rpc('inventory_get_shared_hub');
+      if (!active) return;
+      if (error) {
+        setHubError(error.message || 'تعذر تحميل إعداد المخزن المركزي.');
+        return;
+      }
+      const rows = Array.isArray(data) ? data.filter(isRecord) : [];
+      if (rows.length === 0) {
+        setHubError('لا يوجد مخزن مركزي مهيأ لهذا الحساب. يرجى مراجعة مدير النظام.');
+        return;
+      }
+      setBrandId(String(rows[0].stock_brand_id));
+      setHubName(String(rows[0].hub_name ?? ''));
+    };
+    void loadHub();
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!brandId) {
@@ -175,7 +192,14 @@ export default function PurchasesRoute() {
     <>
       <div className="purchases-modern space-y-5">
         <PurchasesAssistant displayName={displayName} onStartImport={startImport} />
-        <ProcurementCenter brandId={brandId} brands={brands} onBrandChange={setBrandId} purchaserName={displayName} />
+        {hubError ? (
+          <div className="rounded-2xl border bg-card p-6 text-center" role="alert">
+            <h1 className="text-xl font-semibold">تعذر فتح مركز المشتريات</h1>
+            <p className="mt-2 text-sm text-muted-foreground">{hubError}</p>
+          </div>
+        ) : (
+          <ProcurementCenter brandId={brandId} hubName={hubName} purchaserName={displayName} />
+        )}
       </div>
       <SmartPurchaseImportDialog
         open={importOpen}
