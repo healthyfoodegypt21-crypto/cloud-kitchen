@@ -18,6 +18,7 @@ import { Meal, PackagePlan } from '@/types/menu';
 import { Order, OrderMode, OrderSource, OrderStatus } from '@/types/order';
 import { compactWhitespace, getTodayDateValue, normalizePhone } from '@/lib/utils';
 import { getImportedOrderNumber } from '@/lib/orderImport';
+import { parseWhatsAppOrder } from '@/lib/whatsappOrderImport';
 
 type ImportTarget = 'orders' | 'customers';
 type ImportMethod = 'excel' | 'text' | 'image';
@@ -251,7 +252,25 @@ export function parsePastedOrder(value: string): ExcelRow | null {
     if (phoneMatch) parsed['الهاتف'] = phoneMatch[0];
   }
 
-  return Object.keys(parsed).length ? parsed : null;
+  // Well-formed labeled messages keep the existing behavior untouched.
+  const labeledFieldCount = Object.entries(parsed)
+    .filter(([key, fieldValue]) => key !== 'الهاتف' && text(fieldValue))
+    .length;
+  if (labeledFieldCount >= 2) {
+    return parsed;
+  }
+
+  // Free-form WhatsApp messages: run the smart parser and let any labeled
+  // values win over the guessed ones.
+  const smart = parseWhatsAppOrder(value);
+  if (!smart) {
+    return Object.keys(parsed).length ? parsed : null;
+  }
+  const merged: ExcelRow = { ...smart };
+  for (const [key, fieldValue] of Object.entries(parsed)) {
+    if (text(fieldValue)) merged[key] = fieldValue;
+  }
+  return merged;
 }
 
 export function parseImportedAmount(value: unknown) {
@@ -660,6 +679,7 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
             <div className="grid gap-1"><Label htmlFor="extracted-phone">رقم الهاتف</Label><Input id="extracted-phone" inputMode="tel" value={text(cell(rows[0], aliases.phone))} onChange={event => updateExtractedField('الهاتف', event.target.value)} /></div>
             <div className="grid gap-1"><Label htmlFor="extracted-phone-secondary">هاتف بديل</Label><Input id="extracted-phone-secondary" inputMode="tel" value={text(cell(rows[0], aliases.phoneSecondary))} onChange={event => updateExtractedField('هاتف بديل', event.target.value)} /></div>
             <div className="grid gap-1 sm:col-span-2"><Label htmlFor="extracted-address">العنوان</Label><Input id="extracted-address" value={text(cell(rows[0], aliases.address))} onChange={event => updateExtractedField('العنوان', event.target.value)} /></div>
+            <div className="grid gap-1"><Label htmlFor="extracted-region">المنطقة</Label><Input id="extracted-region" value={text(cell(rows[0], aliases.region))} onChange={event => updateExtractedField('المنطقة', event.target.value)} /></div>
             <div className="grid gap-1"><Label htmlFor="extracted-package">الباقة</Label><Input id="extracted-package" value={text(cell(rows[0], aliases.package))} onChange={event => updateExtractedField('الباقة', event.target.value)} /></div>
             <div className="grid gap-1"><Label htmlFor="extracted-meals">تفاصيل الطلب / الوجبات</Label><Input id="extracted-meals" value={text(cell(rows[0], aliases.meals))} onChange={event => updateExtractedField('التفاصيل', event.target.value)} /></div>
             <div className="grid gap-1"><Label htmlFor="extracted-date">تاريخ التنفيذ</Label><Input id="extracted-date" placeholder="YYYY-MM-DD أو DD/MM/YYYY" value={text(cell(rows[0], aliases.date))} onChange={event => updateExtractedField('تاريخ التنفيذ', event.target.value)} /></div>
