@@ -85,13 +85,10 @@ export default function SmartPurchaseImportDialog({
     })),
     [lines, selectedItems],
   );
-  // The invoice total must reflect what will actually be recorded: converted
-  // purchase-unit lines. Unmatched/unconvertible lines are excluded so the paid
-  // amount can never exceed the real recorded value.
-  const total = lines.reduce((sum, line) => {
-    const converted = convertedLines.get(line.id);
-    return sum + (converted ? converted.quantity * converted.unitPrice : 0);
-  }, 0);
+  // The invoice total is computed from every extracted line (quantity × unit
+  // price), even before the lines are linked to catalog items — the paid
+  // amount follows it automatically.
+  const total = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
   const invoiceTotal = Math.max(0, total + taxAmount - discountAmount);
   // The paid amount always follows the computed invoice total (lines after
   // unit conversion + tax − discount). Editing the field manually is not
@@ -370,7 +367,7 @@ export default function SmartPurchaseImportDialog({
                 const item = selectedItems.get(line.itemId);
                 const converted = convertedLines.get(line.id);
                 return (
-                  <div key={line.id} className="grid gap-3 rounded-xl border p-3 md:grid-cols-[minmax(0,1.4fr),minmax(0,1.5fr),0.7fr,0.8fr,auto] md:items-end">
+                  <div key={line.id} className="grid gap-3 rounded-xl border p-3 md:grid-cols-[minmax(0,1.3fr),minmax(0,1.4fr),0.6fr,0.7fr,0.8fr,auto] md:items-end">
                     <div className="space-y-1">
                       <Label>النص المستخرج</Label>
                       <div className="truncate rounded-md bg-muted px-3 py-2 text-sm" dir="auto">{line.sourceName}</div>
@@ -403,11 +400,17 @@ export default function SmartPurchaseImportDialog({
                       <Label htmlFor={`smart-price-${line.id}`}>سعر الوحدة</Label>
                       <Input id={`smart-price-${line.id}`} type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(line.id, { unitPrice: Number(event.target.value) })} />
                     </div>
+                    <div className="space-y-1">
+                      <Label>الإجمالي</Label>
+                      <div className="flex h-10 items-center justify-center rounded-md border bg-muted px-3 text-sm font-semibold tabular-nums">
+                        {(line.quantity * line.unitPrice).toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م
+                      </div>
+                    </div>
                     <Button type="button" variant="ghost" size="icon" aria-label={`حذف ${line.sourceName}`} onClick={() => setLines((current) => current.filter((entry) => entry.id !== line.id))}>
                       <X className="h-4 w-4" />
                     </Button>
                     {item && converted ? (
-                      <div className="space-y-2 md:col-span-5">
+                      <div className="space-y-2 md:col-span-6">
                         <p className="text-xs text-muted-foreground">
                           ستُسجل {converted.quantity.toLocaleString('ar-EG', { maximumFractionDigits: 3 })} {item.purchaseUnit}
                           {line.sourceUnit && line.sourceUnit !== item.purchaseUnit
@@ -424,7 +427,7 @@ export default function SmartPurchaseImportDialog({
                         />
                       </div>
                     ) : item ? (
-                      <p className="text-xs text-destructive md:col-span-5">
+                      <p className="text-xs text-destructive md:col-span-6">
                         وحدة الفاتورة غير متوافقة مع وحدات الصنف؛ راجع وحدة الصنف أو إعداد معامل التحويل قبل التسجيل.
                       </p>
                     ) : null}
