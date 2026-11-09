@@ -18,6 +18,7 @@ export type SmartPurchaseLine = {
   sourceUnit: InventoryUnit | null;
   confirmedUnit: boolean;
   matchConfidence: number;
+  category: string;
 };
 
 export type SmartPurchaseParseResult = {
@@ -333,6 +334,7 @@ function parseFreeformPurchaseLine(line: string, index: number): { line: Omit<Sm
       unitPrice,
       sourceUnit,
       confirmedUnit: true,
+      category: 'other',
     },
   };
 }
@@ -383,6 +385,7 @@ export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCata
         ...freeform.line,
         itemId: freeformMatched.id,
         matchConfidence: freeformMatched.confidence,
+        category: 'other',
       });
       return;
     }
@@ -397,6 +400,7 @@ export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCata
       sourceUnit: normalizePurchaseUnit(match[3]),
       confirmedUnit: true,
       matchConfidence: matched.confidence,
+      category: 'other',
     });
   });
 

@@ -15,7 +15,7 @@ export default function PurchasesRoute() {
   const [brandId, setBrandId] = useState('');
   const [hubName, setHubName] = useState('');
   const [hubError, setHubError] = useState('');
-  const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; sku: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>>([]);
+  const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; sku: string; category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>>([]);
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [importSource, setImportSource] = useState<'message' | 'image'>('message');
@@ -59,7 +59,7 @@ export default function PurchasesRoute() {
     const loadItems = async () => {
       const { data, error } = await asSupabaseLooseClient(supabase)
         .from('items_master')
-        .select('id,name,item_code,purchase_unit,usage_unit,conversion_factor,last_purchase_price')
+        .select('id,name,item_code,category,purchase_unit,usage_unit,conversion_factor,last_purchase_price')
         .eq('brand_id', brandId)
         .eq('status', 'active')
         .order('name');
@@ -77,6 +77,7 @@ export default function PurchasesRoute() {
             id: String(item.id),
             name: String(item.name ?? ''),
             sku: String(item.item_code ?? ''),
+            category: String(item.category ?? 'other'),
             purchaseUnit: String(item.purchase_unit ?? ''),
             usageUnit: String(item.usage_unit ?? item.purchase_unit ?? ''),
             conversionFactor: Number(item.conversion_factor ?? 1),
@@ -132,7 +133,7 @@ export default function PurchasesRoute() {
         _brand_id: brandId,
         _item_code: '',
         _name: itemName,
-        _category: 'other',
+        _category: line.category || 'other',
         _purchase_unit: 'piece',
         _usage_unit: 'piece',
         _conversion_factor: 1,

@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
+import type { InventoryCategory } from '@/types/inventory';
+import { INVENTORY_CATEGORY_LABELS } from '@/types/inventory';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { parseSmartPurchaseMessage, unitMatchesInventory, type SmartPurchaseCatalogItem, type SmartPurchaseLine } from '@/lib/smartPurchaseImport';
 import { convertInvoiceLineToPurchaseUnit } from '@/lib/procurementUnits';
 import { downscaleImage } from '@/lib/ocrImage';
@@ -25,12 +28,12 @@ export type SmartPurchaseSubmission = {
   paidAmount: number;
   paymentMethod: 'cash' | 'bank_transfer' | 'credit';
   invoiceFile: File | null;
-  lines: Array<{ itemId: string; itemName: string; quantity: number; unitPrice: number }>;
+  lines: Array<{ itemId: string; itemName: string; category: string; quantity: number; unitPrice: number }>;
 };
 
 type Props = {
   open: boolean;
-  inventoryItems: Array<SmartPurchaseCatalogItem & { purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>;
+  inventoryItems: Array<SmartPurchaseCatalogItem & { category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>;
   suppliers: Array<{ id: string; name: string }>;
   defaultPurchaserName: string;
   startWith: 'message' | 'image';
@@ -68,6 +71,8 @@ export default function SmartPurchaseImportDialog({
   const [isReadingImage, setIsReadingImage] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [categoryDialogLineId, setCategoryDialogLineId] = useState('');
+  const [categoryDraft, setCategoryDraft] = useState('other');
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const ocrAbortRef = useRef<AbortController | null>(null);
@@ -214,7 +219,24 @@ export default function SmartPurchaseImportDialog({
   };
 
   const updateLine = (id: string, update: Partial<ReviewLine>) => {
-    setLines((current) => current.map((line) => line.id === id ? { ...line, ...update } : line));
+    setLines((current) => current.map((line) => {
+      if (line.id !== id) return line;
+      const next = { ...line, ...update };
+      // Auto-fill the category from the linked catalog item.
+      if (update.itemId) {
+        const linked = selectedItems.get(update.itemId);
+        if (linked) next.category = linked.category;
+      }
+      return next;
+    }));
+  };
+
+  const categoryDialogLine = lines.find((line) => line.id === categoryDialogLineId) ?? null;
+
+  const confirmCategory = () => {
+    if (!categoryDialogLineId) return;
+    updateLine(categoryDialogLineId, { category: categoryDraft });
+    setCategoryDialogLineId('');
   };
 
   const submit = async () => {
@@ -238,9 +260,10 @@ export default function SmartPurchaseImportDialog({
         paidAmount,
         paymentMethod,
         invoiceFile,
-        lines: lines.map(({ id, itemId, sourceName, quantity, unitPrice }) => ({
+        lines: lines.map(({ id, itemId, sourceName, category, quantity, unitPrice }) => ({
           itemId,
           itemName: sourceName,
+          category,
           quantity: convertedLines.get(id)?.quantity ?? quantity,
           unitPrice: convertedLines.get(id)?.unitPrice ?? unitPrice,
         })),
@@ -269,7 +292,8 @@ export default function SmartPurchaseImportDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>الإدخال السريع الذكي للمشتريات</DialogTitle>
@@ -384,20 +408,26 @@ export default function SmartPurchaseImportDialog({
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor={`smart-item-${line.id}`}>صنف المخزون</Label>
-                      <select
+                      <ItemCombobox
                         id={`smart-item-${line.id}`}
-                        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                        items={inventoryItems}
                         value={line.itemId}
-                        onChange={(event) => {
-                          const nextItem = inventoryItems.find((candidate) => candidate.id === event.target.value);
-                          updateLine(line.id, { itemId: event.target.value, confirmedUnit: unitMatchesInventory(line.sourceUnit, nextItem ?? null) });
+                        onChange={(nextItemId) => {
+                          const nextItem = inventoryItems.find((candidate) => candidate.id === nextItemId);
+                          updateLine(line.id, { itemId: nextItemId, confirmedUnit: unitMatchesInventory(line.sourceUnit, nextItem ?? null) });
                         }}
-                      >
-                        <option value="">اختر الصنف المطابق</option>
-                        {inventoryItems.map((candidate) => (
-                          <option key={candidate.id} value={candidate.id}>{candidate.name}{candidate.sku ? ` (${candidate.sku})` : ''}</option>
-                        ))}
-                      </select>
+                      />
+                      {!line.itemId && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-1 h-8 text-xs"
+                          onClick={() => { setCategoryDialogLineId(line.id); setCategoryDraft(line.category || 'other'); }}
+                        >
+                          صنف جديد — حدد الفئة
+                        </Button>
+                      )}
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor={`smart-qty-${line.id}`}>الكمية {line.sourceUnit ? `(${INVENTORY_UNIT_LABELS[line.sourceUnit] ?? line.sourceUnit})` : '(وحدة الشراء)'}</Label>
@@ -466,6 +496,88 @@ export default function SmartPurchaseImportDialog({
           </Button>
         </div>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <Dialog open={Boolean(categoryDialogLineId)} onOpenChange={(nextOpen) => { if (!nextOpen) setCategoryDialogLineId(''); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>فئة الصنف الجديد</DialogTitle>
+          <DialogDescription>
+            {categoryDialogLine ? `سيُنشأ صنف "${categoryDialogLine.sourceName}" في المخزون — اختر فئته.` : 'اختر فئة الصنف الجديد.'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="new-item-category">الفئة</Label>
+          <select
+            id="new-item-category"
+            className="h-10 w-full rounded-md border bg-background px-3"
+            value={categoryDraft}
+            onChange={(event) => setCategoryDraft(event.target.value)}
+          >
+            {Object.entries(INVENTORY_CATEGORY_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setCategoryDialogLineId('')}>إلغاء</Button>
+          <Button type="button" onClick={confirmCategory}>تأكيد الفئة</Button>
+        </div>
+      </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function ItemCombobox({ id, items, value, onChange }: {
+  id: string;
+  items: Array<SmartPurchaseCatalogItem & { category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>;
+  value: string;
+  onChange: (itemId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selected = items.find((item) => item.id === value);
+
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return items;
+    return items.filter((item) =>
+      item.name.toLowerCase().includes(normalized) || (item.sku ?? '').toLowerCase().includes(normalized),
+    );
+  }, [items, query]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button id={id} type="button" variant="outline" className="h-10 w-full justify-start gap-2 rounded-md px-3 text-right font-normal">
+          <span className="truncate">{selected ? `${selected.name}${selected.sku ? ` (${selected.sku})` : ''}` : 'ابحث واختر الصنف'}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-2" align="start" dir="rtl">
+        <Input
+          autoFocus
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="اكتب للبحث بالاسم أو الكود..."
+          className="mb-2"
+        />
+        <div className="max-h-56 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <p className="p-3 text-center text-sm text-muted-foreground">لا توجد أصناف مطابقة</p>
+          ) : filtered.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="flex w-full items-center justify-between rounded-md px-3 py-2 text-right text-sm hover:bg-accent"
+              onClick={() => { onChange(item.id); setOpen(false); setQuery(''); }}
+            >
+              <span>{item.name}{item.sku ? ` (${item.sku})` : ''}</span>
+              <span className="text-xs text-muted-foreground">{INVENTORY_CATEGORY_LABELS[item.category as InventoryCategory] ?? item.category}</span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
