@@ -608,7 +608,11 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
     }
 
     if (form.order_mode === 'package' && !form.package_plan_id) {
-      nextErrors.package = 'اختر الباقة';
+      // Edit mode: imported orders may reference a package that is not in the
+      // catalog; keep the original package label instead of forcing a choice.
+      if (!(isEditMode && compactWhitespace(form.package))) {
+        nextErrors.package = 'اختر الباقة';
+      }
     }
 
     if (form.order_mode === 'meals' && form.selected_meal_ids.length === 0) {
@@ -672,7 +676,7 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
     }
 
     const packageLabel = form.order_mode === 'package'
-      ? selectedPackagePlan?.name ?? ''
+      ? (selectedPackagePlan?.name ?? (isEditMode ? compactWhitespace(form.package) : ''))
       : selectedMealNames.join(' + ');
 
     if (!packageLabel) {
@@ -1198,15 +1202,26 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
                         {form.order_mode === 'package' ? (
                           <div className="grid gap-1.5">
                             <Label>الباقة *</Label>
-                            <Select value={form.package_plan_id} onValueChange={handlePackagePlanChange}>
-                              <SelectTrigger className={fieldClassName('package')}><SelectValue placeholder="اختر باقة" /></SelectTrigger>
-                              <SelectContent>
-                                {brandPackages.map(pkg => (
-                                  <SelectItem key={pkg.id} value={pkg.id}>{pkg.name} - {pkg.days_count} يوم - {formatEGPCurrency(pkg.price)}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {renderFieldError('package')}
+                            {isEditMode && !form.package_plan_id && compactWhitespace(form.package) ? (
+                              <div className="grid gap-1.5">
+                                <div className="flex min-h-10 items-center rounded-md border bg-muted/40 px-3 text-sm font-medium text-foreground">
+                                  {form.package}
+                                </div>
+                                <p className="text-xs text-muted-foreground">هذه الباقة مستوردة من شيت وغير موجودة في الكتالوج — ستُحفظ كما هي.</p>
+                              </div>
+                            ) : (
+                              <>
+                                <Select value={form.package_plan_id} onValueChange={handlePackagePlanChange}>
+                                  <SelectTrigger className={fieldClassName('package')}><SelectValue placeholder="اختر باقة" /></SelectTrigger>
+                                  <SelectContent>
+                                    {brandPackages.map(pkg => (
+                                      <SelectItem key={pkg.id} value={pkg.id}>{pkg.name} - {pkg.days_count} يوم - {formatEGPCurrency(pkg.price)}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {renderFieldError('package')}
+                              </>
+                            )}
                             {selectedPackagePlan && (
                               <div className="flex flex-wrap gap-2 rounded-2xl border bg-background p-3 text-xs text-muted-foreground">
                                 {selectedPackagePlan.items.map(item => (
