@@ -316,18 +316,24 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
     if (isStale()) return;
     setTotalSpend(records(spendData).reduce((sum, row) => sum + number(row.total_amount), 0));
 
-    const { data: approvalData } = await client.from('inventory_purchase_approvals')
+    const { data: approvalData, error: approvalError } = await client.from('inventory_purchase_approvals')
       .select('id,purchase_request_id,total_amount,approval_limit,requested_by,notes,created_at')
       .eq('brand_id', brandId)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(50);
     if (isStale()) return;
-    setPendingApprovals(records(approvalData).map((row) => ({
-      id: String(row.id), requestId: String(row.purchase_request_id), totalAmount: number(row.total_amount),
-      approvalLimit: number(row.approval_limit), requestedBy: String(row.requested_by ?? ''),
-      notes: String(row.notes ?? ''), createdAt: String(row.created_at),
-    })));
+    // The approvals table ships with a later migration; until it is applied the
+    // section simply stays hidden instead of breaking the whole page.
+    if (approvalError) {
+      setPendingApprovals([]);
+    } else {
+      setPendingApprovals(records(approvalData).map((row) => ({
+        id: String(row.id), requestId: String(row.purchase_request_id), totalAmount: number(row.total_amount),
+        approvalLimit: number(row.approval_limit), requestedBy: String(row.requested_by ?? ''),
+        notes: String(row.notes ?? ''), createdAt: String(row.created_at),
+      })));
+    }
     setLoading(false);
   }, [brandId, fromDate, page, purchaserName, search, statusFilter, toDate]);
 

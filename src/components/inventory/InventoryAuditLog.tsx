@@ -75,7 +75,8 @@ export default function InventoryAuditLog({ brandId }: Props) {
       .range(offset, offset + PAGE_SIZE - 1);
 
     if (error) {
-      toast.error(error.message || 'تعذر تحميل سجل حركات المخزون');
+      // The audit log ships with a later migration; show an empty state instead
+      // of an error toast until it is applied.
       setLoading(false);
       setLoadingMore(false);
       return;

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, TrendingUp } from 'lucide-react';
-import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -60,7 +59,8 @@ export default function PriceHistoryPanel({ brandId, items }: {
         .limit(100);
       if (cancelled) return;
       if (error) {
-        toast.error(error.message || 'تعذر تحميل سجل الأسعار');
+        // The price-history table ships with a later migration; show an empty
+        // state instead of an error toast until it is applied.
         setEntries([]);
         setLoading(false);
         return;

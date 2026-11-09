@@ -54,7 +54,9 @@ export default function ProcurementKpis({ brandId }: { brandId: string }) {
           .limit(500),
       ]);
       if (cancelled) return;
-      const firstError = requestResult.error || invoiceResult.error || approvalResult.error;
+      // The approvals table ships with a later migration; treat its absence as
+      // "no pending approvals" instead of failing the whole KPI panel.
+      const firstError = requestResult.error || invoiceResult.error;
       if (firstError) {
         toast.error(firstError.message || 'تعذر تحميل مؤشرات المشتريات');
         setKpis(null);
@@ -64,7 +66,7 @@ export default function ProcurementKpis({ brandId }: { brandId: string }) {
 
       const requests = records(requestResult.data);
       const invoices = records(invoiceResult.data);
-      const approvals = records(approvalResult.data);
+      const approvals = approvalResult.error ? [] : records(approvalResult.data);
 
       const purchasedRequests = requests.filter((row) => String(row.purchased_at ?? ''));
       const totalSpend = purchasedRequests.reduce((sum, row) => sum + toNumber(row.total_amount), 0);
