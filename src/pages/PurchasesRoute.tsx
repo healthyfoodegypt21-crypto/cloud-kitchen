@@ -131,7 +131,7 @@ export default function PurchasesRoute() {
       }
       const { data: newItemId, error: createError } = await asSupabaseLooseClient(supabase).rpc('inventory_create_item_v2', {
         _brand_id: brandId,
-        _item_code: '',
+        _item_code: itemName.trim().replace(/\s+/g, '-').slice(0, 10).toUpperCase() + '-' + Date.now().toString().slice(-5),
         _name: itemName,
         _category: line.category || 'other',
         _purchase_unit: 'piece',
