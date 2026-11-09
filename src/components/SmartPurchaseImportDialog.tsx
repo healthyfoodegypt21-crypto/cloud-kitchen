@@ -93,6 +93,15 @@ export default function SmartPurchaseImportDialog({
     return sum + (converted ? converted.quantity * converted.unitPrice : 0);
   }, 0);
   const invoiceTotal = Math.max(0, total + taxAmount - discountAmount);
+  // Auto-fill the paid amount with the computed invoice total for cash and
+  // bank-transfer purchases; the user can still edit it, and credit keeps
+  // whatever partial amount was entered.
+  const paidTouchedRef = useRef(false);
+  useEffect(() => {
+    if (paymentMethod !== 'credit' && !paidTouchedRef.current) {
+      setPaidAmount(invoiceTotal);
+    }
+  }, [invoiceTotal, paymentMethod]);
   const paymentConsistencyError = useMemo(() => {
     if (paymentMethod === 'credit' && !dueDate) {
       return 'الشراء الآجل يتطلب تحديد تاريخ الاستحقاق.';
@@ -249,6 +258,7 @@ export default function SmartPurchaseImportDialog({
         setTaxAmount(0);
         setDiscountAmount(0);
         setPaidAmount(0);
+        paidTouchedRef.current = false;
         setPaymentMethod('cash');
         setInvoiceFile(null);
         setImageFile(null);
@@ -345,7 +355,7 @@ export default function SmartPurchaseImportDialog({
           <div className="space-y-2"><Label htmlFor="smart-invoice-date">تاريخ الفاتورة</Label><Input id="smart-invoice-date" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} /></div>
           <div className="space-y-2"><Label htmlFor="smart-invoice-tax">الضريبة</Label><Input id="smart-invoice-tax" type="number" min="0" step="0.01" value={taxAmount} onChange={(event) => setTaxAmount(Number(event.target.value))} /></div>
           <div className="space-y-2"><Label htmlFor="smart-invoice-discount">الخصم</Label><Input id="smart-invoice-discount" type="number" min="0" step="0.01" value={discountAmount} onChange={(event) => setDiscountAmount(Number(event.target.value))} /></div>
-          <div className="space-y-2"><Label htmlFor="smart-invoice-paid">المبلغ المدفوع</Label><Input id="smart-invoice-paid" type="number" min="0" step="0.01" value={paidAmount} onChange={(event) => setPaidAmount(Number(event.target.value))} /></div>
+          <div className="space-y-2"><Label htmlFor="smart-invoice-paid">المبلغ المدفوع</Label><Input id="smart-invoice-paid" type="number" min="0" step="0.01" value={paidAmount} onChange={(event) => { paidTouchedRef.current = true; setPaidAmount(Number(event.target.value)); }} /></div>
           <div className="space-y-2"><Label htmlFor="smart-payment-method">طريقة الدفع</Label><select id="smart-payment-method" className="h-10 w-full rounded-md border bg-background px-3" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as SmartPurchaseSubmission['paymentMethod'])}><option value="cash">نقدًا</option><option value="bank_transfer">تحويل بنكي</option><option value="credit">آجل</option></select></div>
           <div className="space-y-2"><Label htmlFor="smart-invoice-due">تاريخ الاستحقاق</Label><Input id="smart-invoice-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></div>
           <div className="space-y-2"><Label htmlFor="smart-invoice-file">الفاتورة (PDF أو صورة)</Label><Input id="smart-invoice-file" type="file" accept=".pdf,image/jpeg,image/png,image/webp" onChange={(event) => setInvoiceFile(event.target.files?.[0] ?? null)} /></div>
