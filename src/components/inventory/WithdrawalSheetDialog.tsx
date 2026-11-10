@@ -28,6 +28,7 @@ export default function WithdrawalSheetDialog({
   const [date, setDate] = useState(getTodayDateValue());
   const [shift, setShift] = useState('اليوم بالكامل');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sheetType, setSheetType] = useState<'filled' | 'blank'>('filled');
   const [blankRowsCount, setBlankRowsCount] = useState(6);
 
   const handlePrint = () => {
@@ -44,6 +45,7 @@ export default function WithdrawalSheetDialog({
         date={date}
         shift={shift}
         categoryFilter={categoryFilter}
+        sheetType={sheetType}
         blankRowsCount={blankRowsCount}
         isPreview={false}
       />
@@ -84,7 +86,19 @@ export default function WithdrawalSheetDialog({
             </div>
 
             {/* Customization Controls */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3 pt-2 text-xs bg-muted/40 p-2.5 rounded-lg border">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 mt-3 pt-2 text-xs bg-muted/40 p-2.5 rounded-lg border">
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">نوع الورقة</Label>
+                <select
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs font-semibold"
+                  value={sheetType}
+                  onChange={(e) => setSheetType(e.target.value as 'filled' | 'blank')}
+                >
+                  <option value="filled">أصناف المخزن المسجلة</option>
+                  <option value="blank">ورقة مسطرة فارغة بالكامل</option>
+                </select>
+              </div>
+
               <div className="space-y-1">
                 <Label className="text-[11px] text-muted-foreground">التاريخ</Label>
                 <Input
@@ -113,6 +127,7 @@ export default function WithdrawalSheetDialog({
                 <select
                   className="h-8 w-full rounded-md border bg-background px-2 text-xs"
                   value={categoryFilter}
+                  disabled={sheetType === 'blank'}
                   onChange={(e) => setCategoryFilter(e.target.value)}
                 >
                   <option value="all">كل الأقسام</option>
@@ -129,6 +144,7 @@ export default function WithdrawalSheetDialog({
                 <select
                   className="h-8 w-full rounded-md border bg-background px-2 text-xs"
                   value={blankRowsCount}
+                  disabled={sheetType === 'blank'}
                   onChange={(e) => setBlankRowsCount(Number(e.target.value))}
                 >
                   <option value={3}>3 أسطر</option>
@@ -149,6 +165,7 @@ export default function WithdrawalSheetDialog({
               date={date}
               shift={shift}
               categoryFilter={categoryFilter}
+              sheetType={sheetType}
               blankRowsCount={blankRowsCount}
               isPreview={true}
             />
