@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
-import type { InventoryCategory } from '@/types/inventory';
+import type { InventoryCategory, InventoryUnit } from '@/types/inventory';
 import { INVENTORY_CATEGORY_LABELS } from '@/types/inventory';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { parseSmartPurchaseMessage, unitMatchesInventory, type SmartPurchaseCatalogItem, type SmartPurchaseLine } from '@/lib/smartPurchaseImport';
@@ -28,7 +28,7 @@ export type SmartPurchaseSubmission = {
   paidAmount: number;
   paymentMethod: 'cash' | 'bank_transfer' | 'credit';
   invoiceFile: File | null;
-  lines: Array<{ itemId: string; itemName: string; category: string; quantity: number; unitPrice: number }>;
+  lines: Array<{ itemId: string; itemName: string; category: string; sourceUnit: InventoryUnit | null; quantity: number; unitPrice: number }>;
 };
 
 type Props = {
@@ -280,10 +280,11 @@ export default function SmartPurchaseImportDialog({
         paidAmount,
         paymentMethod,
         invoiceFile,
-        lines: lines.map(({ id, itemId, sourceName, category, quantity, unitPrice }) => ({
+        lines: lines.map(({ id, itemId, sourceName, category, sourceUnit, quantity, unitPrice }) => ({
           itemId,
           itemName: sourceName,
           category,
+          sourceUnit,
           quantity: convertedLines.get(id)?.quantity ?? quantity,
           unitPrice: convertedLines.get(id)?.unitPrice ?? unitPrice,
         })),

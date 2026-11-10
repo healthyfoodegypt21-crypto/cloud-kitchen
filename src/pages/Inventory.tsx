@@ -225,7 +225,9 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     const result = await invoke('inventory_create_item_v2', {
       _brand_id: brandId, _item_code: draft.code || itemCode(draft.name), _name: draft.name, _category: draft.category,
       _purchase_unit: draft.purchaseUnit, _usage_unit: draft.usageUnit, _conversion_factor: number(draft.conversionFactor),
-      _min_stock: number(draft.minStock), _location_name: 'main', _opening_quantity: 0, _opening_unit_cost: 0, _notes: 'أُضيف من أمر شراء مجمع',
+      _min_stock: number(draft.minStock), _location_name: 'main', _opening_quantity: 0,
+      _opening_unit_cost: number(draft.conversionFactor) > 0 ? Math.round((number(draft.unitCost) / number(draft.conversionFactor)) * 100) / 100 : 0,
+      _notes: 'أُضيف من أمر شراء مجمع',
     });
     return result ? { id: String(result), code: draft.code || itemCode(draft.name) } : null;
   };

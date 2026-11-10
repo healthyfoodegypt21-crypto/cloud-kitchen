@@ -142,18 +142,22 @@ export default function PurchasesRoute() {
         toast.error('اربط كل سطر بصنف أو تأكد من وجود اسم مستخرج');
         return false;
       }
+      // The new item inherits the invoice unit and price so it never shows a
+      // zero average cost, and gets a starting reorder level (20% of the first
+      // purchased quantity) that the store manager can adjust afterwards.
+      const unit = line.sourceUnit ?? 'piece';
       const { data: newItemId, error: createError } = await asSupabaseLooseClient(supabase).rpc('inventory_create_item_v2', {
         _brand_id: brandId,
         _item_code: itemName.trim().replace(/\s+/g, '-').slice(0, 10).toUpperCase() + '-' + Date.now().toString().slice(-5),
         _name: itemName,
         _category: line.category || 'other',
-        _purchase_unit: 'piece',
-        _usage_unit: 'piece',
+        _purchase_unit: unit,
+        _usage_unit: unit,
         _conversion_factor: 1,
-        _min_stock: 0,
+        _min_stock: Math.round(line.quantity * 0.2 * 1000) / 1000,
         _location_name: 'main',
         _opening_quantity: 0,
-        _opening_unit_cost: 0,
+        _opening_unit_cost: line.unitPrice,
         _notes: 'أُنشئ تلقائيًا من الإدخال السريع للمشتريات',
       });
       if (createError || !newItemId) {
