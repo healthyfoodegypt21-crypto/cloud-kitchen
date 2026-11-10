@@ -2,30 +2,25 @@ import { formatArabicDate, getArabicWeekday, getTodayDateValue } from '@/lib/uti
 import type { InventoryCategoryRecord, OperationalInventoryItem } from '@/types/operationalInventory';
 
 type Props = {
-  hubName: string;
-  items: OperationalInventoryItem[];
-  categories: InventoryCategoryRecord[];
+  hubName?: string;
+  items?: OperationalInventoryItem[];
+  categories?: InventoryCategoryRecord[];
   date?: string;
+  rowCount?: number;
   isPreview?: boolean;
 };
 
 export default function WithdrawalSheetPrintSheet({
   hubName,
-  items,
-  categories,
   date,
+  rowCount = 18,
   isPreview = false,
 }: Props) {
   const today = date ?? getTodayDateValue();
   const weekday = getArabicWeekday(today);
   const formattedDate = formatArabicDate(today);
-  const categoryNameByCode = new Map(categories.map((category) => [category.code, category.name_ar]));
 
-  const activeItems = items
-    .filter((item) => item.status === 'active')
-    .sort((left, right) => left.category.localeCompare(right.category) || left.name.localeCompare(right.name, 'ar'));
-
-  const blankRows = Array.from({ length: 8 });
+  const rows = Array.from({ length: rowCount });
 
   return (
     <div
@@ -68,7 +63,7 @@ export default function WithdrawalSheetPrintSheet({
           align-items: flex-end;
           border-bottom: 2px solid #111827;
           padding-bottom: 8px;
-          margin-bottom: 12px;
+          margin-bottom: 10px;
         }
         .withdrawal-sheet-title {
           font-size: 20px;
@@ -80,6 +75,17 @@ export default function WithdrawalSheetPrintSheet({
           font-size: 12px;
           color: #374151;
           margin-top: 4px;
+        }
+        .withdrawal-sheet-info-bar {
+          display: flex;
+          justify-content: space-between;
+          font-size: 11px;
+          color: #1f2937;
+          margin-bottom: 10px;
+          padding: 6px 10px;
+          background: #f9fafb;
+          border: 1px solid #e5e7eb;
+          border-radius: 4px;
         }
         .withdrawal-sheet-table {
           width: 100%;
@@ -98,54 +104,39 @@ export default function WithdrawalSheetPrintSheet({
           color: #111827;
           text-align: center;
         }
-        /* سطور مريحة للكتابة اليدوية */
+        /* سطور واضحة ومريحة للكتابة اليدوية */
         .withdrawal-sheet-table td {
-          height: 34px;
+          height: 33px;
         }
         .withdrawal-sheet-num {
           width: 6%;
           text-align: center;
         }
         .withdrawal-sheet-item {
-          width: 28%;
+          width: 34%;
           text-align: right;
-          font-weight: 600;
         }
         .withdrawal-sheet-unit {
-          width: 9%;
+          width: 10%;
           text-align: center;
-        }
-        .withdrawal-sheet-current {
-          width: 12%;
-          text-align: center;
-          font-family: monospace;
-          font-weight: 600;
         }
         .withdrawal-sheet-qty {
-          width: 15%;
+          width: 16%;
           text-align: center;
-          background: #ffffff;
         }
         .withdrawal-sheet-remaining {
-          width: 15%;
+          width: 18%;
           text-align: center;
-          background: #ffffff;
         }
         .withdrawal-sheet-notes {
-          width: 15%;
-          background: #ffffff;
-        }
-        .withdrawal-sheet-category td {
-          background: #f3f4f6;
-          font-weight: 700;
-          height: auto;
-          padding: 4px 8px;
+          width: 16%;
+          text-align: right;
         }
         .withdrawal-sheet-footer {
           display: flex;
           justify-content: space-between;
           gap: 16px;
-          margin-top: 24px;
+          margin-top: 20px;
           font-size: 11px;
         }
         .withdrawal-sheet-sign {
@@ -171,65 +162,39 @@ export default function WithdrawalSheetPrintSheet({
             {hubName || 'المخزن المركزي'} — {weekday} {formattedDate}
           </p>
         </div>
-        <div className="withdrawal-sheet-meta text-left">
-          <div>عدد الأصناف: {activeItems.length}</div>
-        </div>
       </div>
 
-      {/* Table with clear headers and lined rows for writing */}
+      {/* Handler Info Bar */}
+      <div className="withdrawal-sheet-info-bar">
+        <div><strong>أمين المخزن (المسلّم):</strong> ....................................</div>
+        <div><strong>شيف المطبخ (المستلم):</strong> ....................................</div>
+      </div>
+
+      {/* Table with columns to write under */}
       <table className="withdrawal-sheet-table">
         <thead>
           <tr>
             <th className="withdrawal-sheet-num">م</th>
             <th className="withdrawal-sheet-item">اسم الصنف</th>
             <th className="withdrawal-sheet-unit">الوحدة</th>
-            <th className="withdrawal-sheet-current">الرصيد الحالي</th>
             <th className="withdrawal-sheet-qty">الكمية المسحوبة</th>
             <th className="withdrawal-sheet-remaining">الرصيد الفعلي المتبقي</th>
             <th className="withdrawal-sheet-notes">ملاحظات</th>
           </tr>
         </thead>
         <tbody>
-          {activeItems.map((item, index) => {
-            const previous = activeItems[index - 1];
-            const showCategory = !previous || previous.category !== item.category;
-            return (
-              <>
-                {showCategory && (
-                  <tr key={`cat-${item.category}`} className="withdrawal-sheet-category">
-                    <td colSpan={7}>{categoryNameByCode.get(item.category) ?? item.category}</td>
-                  </tr>
-                )}
-                <tr key={item.id}>
-                  <td className="withdrawal-sheet-num">{index + 1}</td>
-                  <td className="withdrawal-sheet-item">
-                    {item.name}
-                    {item.code ? ` (${item.code})` : ''}
-                  </td>
-                  <td className="withdrawal-sheet-unit">{item.unit}</td>
-                  <td className="withdrawal-sheet-current">
-                    {item.availableQuantity.toLocaleString('ar-EG', { maximumFractionDigits: 3 })}
-                  </td>
-                  {/* سطر لكتابة الكمية المسحوبة */}
-                  <td className="withdrawal-sheet-qty"></td>
-                  {/* سطر لكتابة الرصيد الفعلي المتبقي */}
-                  <td className="withdrawal-sheet-remaining"></td>
-                  {/* سطر لكتابة الملاحظات */}
-                  <td className="withdrawal-sheet-notes"></td>
-                </tr>
-              </>
-            );
-          })}
-
-          {/* سطور فارغة للكتابة اليدوية لأي صنف إضافي */}
-          {blankRows.map((_, i) => (
-            <tr key={`blank-${i}`}>
-              <td className="withdrawal-sheet-num text-slate-400">{activeItems.length + i + 1}</td>
+          {rows.map((_, index) => (
+            <tr key={`row-${index}`}>
+              <td className="withdrawal-sheet-num text-slate-500 font-mono">{index + 1}</td>
+              {/* سطر لكتابة اسم الصنف */}
               <td className="withdrawal-sheet-item"></td>
+              {/* سطر لكتابة الوحدة */}
               <td className="withdrawal-sheet-unit"></td>
-              <td className="withdrawal-sheet-current"></td>
+              {/* سطر لكتابة الكمية المسحوبة */}
               <td className="withdrawal-sheet-qty"></td>
+              {/* سطر لكتابة الرصيد الفعلي المتبقي (اختياري) */}
               <td className="withdrawal-sheet-remaining"></td>
+              {/* سطر لكتابة الملاحظات */}
               <td className="withdrawal-sheet-notes"></td>
             </tr>
           ))}
@@ -237,7 +202,7 @@ export default function WithdrawalSheetPrintSheet({
       </table>
 
       <p className="withdrawal-sheet-hint">
-        * يتم تدوين «الكمية المسحوبة» فور خروجها من المخزن. خانة «الرصيد الفعلي المتبقي» اختيارية (إذا تُرِكت فارغة يحسبها النظام تلقائياً، وإذا كُتِبت يقارنها النظام بالرصيد لاكتشاف أي فرق أو هدر).
+        * يقوم الموظف بكتابة اسم الصنف والكمية المسحوبة فور خروجها من المخزن. خانة «الرصيد الفعلي المتبقي» اختيارية (لمطابقة الرصيد واكتشاف العجز/الهدر إن وُجد).
       </p>
 
       <div className="withdrawal-sheet-footer">
