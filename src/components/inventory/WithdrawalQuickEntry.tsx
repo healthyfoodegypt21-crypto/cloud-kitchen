@@ -243,10 +243,10 @@ export default function WithdrawalQuickEntry({
             variant="outline"
             size="sm"
             onClick={onOpenPrintSheet}
-            className="gap-1.5 shrink-0 bg-background hover:bg-muted text-xs border-dashed"
+            className="gap-1.5 shrink-0 bg-background hover:bg-muted text-xs"
           >
             <Printer className="h-3.5 w-3.5 text-slate-600" />
-            <span>طباعة ورقة المسحوبات الفارغة</span>
+            <span>طباعة ورقة مسحوبات</span>
           </Button>
         )}
       </div>

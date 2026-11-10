@@ -338,7 +338,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
         <p className="mt-1 text-sm text-muted-foreground">رصيد واحد مشترك للعلامات، مع تسجيل سحب الوجبات المشتركة من المخزن.</p>
       </div>
       {canManage && <div className="flex flex-wrap gap-2">
-        <Button variant="outline" className="border-emerald-300 bg-emerald-50/60 hover:bg-emerald-100 text-emerald-800 font-bold" onClick={() => setSheetDialogOpen(true)}><FileSpreadsheet className="ml-2 h-4 w-4 text-emerald-600" />ورقة مسحوبات المطبخ</Button>
+        <Button variant="outline" onClick={() => setSheetDialogOpen(true)}><Printer className="ml-2 h-4 w-4" />ورقة مسحوبات</Button>
         <Button variant="outline" onClick={() => void runSubmit(generateAlerts)} disabled={submitting}><AlertTriangle className="ml-2 h-4 w-4" />توليد التنبيهات</Button>
         <Button variant="outline" onClick={() => { setWithdrawalInitialMethod('manual'); setMode('withdrawal'); }}><ArrowUpFromLine className="ml-2 h-4 w-4" />سحب من المخزن</Button>
         <Button variant="outline" onClick={() => setMode('movement')}><Plus className="ml-2 h-4 w-4" />حركة مخزون</Button>
@@ -383,7 +383,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="relative w-full sm:max-w-sm"><Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pr-9" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث باسم الصنف أو الكود" aria-label="بحث الأصناف" /></div>
       <BarcodeInput onScan={(code) => setQuery(code)} placeholder="امسح الباركود لاختيار الصنف" />
-      <div className="flex flex-wrap gap-2"><select aria-label="تصفية حسب الفئة" className="h-10 rounded-md border bg-background px-3" value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">كل الفئات</option>{categories.map((entry) => <option key={entry.id} value={entry.code}>{entry.name_ar}</option>)}</select>{canManage && <><Button variant="outline" className="border-emerald-300 bg-emerald-50/50 hover:bg-emerald-100 text-emerald-800 font-semibold" onClick={() => setSheetDialogOpen(true)}><FileSpreadsheet className="ml-2 h-4 w-4 text-emerald-600" />ورقة المسحوبات (طباعة)</Button><Button variant="outline" onClick={() => setMode('category')}><Plus className="ml-2 h-4 w-4" />فئة جديدة</Button><Button onClick={() => setMode('item')}><PackagePlus className="ml-2 h-4 w-4" />إضافة صنف</Button></>}</div>
+      <div className="flex flex-wrap gap-2"><select aria-label="تصفية حسب الفئة" className="h-10 rounded-md border bg-background px-3" value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">كل الفئات</option>{categories.map((entry) => <option key={entry.id} value={entry.code}>{entry.name_ar}</option>)}</select>{canManage && <><Button variant="outline" onClick={() => setSheetDialogOpen(true)}><Printer className="ml-2 h-4 w-4" />ورقة مسحوبات</Button><Button variant="outline" onClick={() => setMode('category')}><Plus className="ml-2 h-4 w-4" />فئة جديدة</Button><Button onClick={() => setMode('item')}><PackagePlus className="ml-2 h-4 w-4" />إضافة صنف</Button></>}</div>
     </div>
     <Card className="overflow-hidden">
       <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-sm">
@@ -455,10 +455,6 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       hubName={hub.name}
       items={items}
       categories={categories}
-      onStartUpload={() => {
-        setWithdrawalInitialMethod('image');
-        setMode('withdrawal');
-      }}
     />
   </div>;
 }
