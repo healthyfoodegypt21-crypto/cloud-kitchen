@@ -35,6 +35,7 @@ type Props = {
   open: boolean;
   inventoryItems: Array<SmartPurchaseCatalogItem & { category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>;
   suppliers: Array<{ id: string; name: string }>;
+  categories: Array<{ code: string; name: string }>;
   defaultPurchaserName: string;
   startWith: 'message' | 'image';
   onOpenChange: (open: boolean) => void;
@@ -47,6 +48,7 @@ export default function SmartPurchaseImportDialog({
   open,
   inventoryItems,
   suppliers,
+  categories,
   defaultPurchaserName,
   startWith,
   onOpenChange,
@@ -233,6 +235,24 @@ export default function SmartPurchaseImportDialog({
 
   const categoryDialogLine = lines.find((line) => line.id === categoryDialogLineId) ?? null;
 
+  // Suggests the most likely category from the item name (Arabic + English keywords).
+  const suggestCategory = (name: string) => {
+    const normalized = name.toLowerCase();
+    if (/(مكسرات|كاجو|لوز|بندق|فستق|جوز|nuts?|almond|cashew|walnut|pistachio|peanut)/u.test(normalized)) return 'dry_goods';
+    if (/(فراخ|دجاج|تشيكن|chicken|شيش|طاووق|tawook)/u.test(normalized)) return 'protein';
+    if (/(لحم|بيف|ستيك|beef|steak|kofta|كفتة|كبدة)/u.test(normalized)) return 'protein';
+    if (/(سمك|سالمون|فيش|تونة|fish|salmon|tuna|جمبري|shrimp)/u.test(normalized)) return 'protein';
+    if (/(رز|أرز|ارز|مكرونة|باستا|نودلز|بطاطس|rice|pasta|noodle|potato|quinoa|كينوا)/u.test(normalized)) return 'carbohydrate';
+    if (/(طماطم|بصل|خضار|جرجير|خس|جزر|فلفل|كوسة|بروكلي|سبانخ|vegetable|tomato|onion|carrot|pepper|spinach|broccoli|lettuce)/u.test(normalized)) return 'vegetable';
+    if (/(لبن|جبن|زبادي|قشطة|milk|cheese|yogurt|cream|dairy)/u.test(normalized)) return 'dairy';
+    if (/(صوص|صلصة|مايونيز|كاتشب|sauce|mayo|ketchup|dressing)/u.test(normalized)) return 'sauce';
+    if (/(ملح|فلفل|بهار|توابل|كمون|كركم|spice|pepper|salt|cumin|turmeric|oregano)/u.test(normalized)) return 'spices';
+    if (/(زيت|زيتون|سمن|oil|olive|ghee|butter)/u.test(normalized)) return 'oils';
+    if (/(عصير|ماء|مياه|شاي|قهوة|juice|water|tea|coffee|soda)/u.test(normalized)) return 'beverage';
+    if (/(علبة|كيس|كرتون|تغليف|عبوة|packaging|box|bag|container|wrap)/u.test(normalized)) return 'packaging';
+    return 'other';
+  };
+
   const confirmCategory = () => {
     if (!categoryDialogLineId) return;
     updateLine(categoryDialogLineId, { category: categoryDraft });
@@ -416,6 +436,7 @@ export default function SmartPurchaseImportDialog({
                       <ItemCombobox
                         id={`smart-item-${line.id}`}
                         items={inventoryItems}
+                        categories={categories}
                         value={line.itemId}
                         onChange={(nextItemId) => {
                           const nextItem = inventoryItems.find((candidate) => candidate.id === nextItemId);
@@ -428,7 +449,7 @@ export default function SmartPurchaseImportDialog({
                           variant="outline"
                           size="sm"
                           className="mt-1 h-8 text-xs"
-                          onClick={() => { setCategoryDialogLineId(line.id); setCategoryDraft(line.category || 'other'); }}
+                          onClick={() => { setCategoryDialogLineId(line.id); setCategoryDraft(line.category !== 'other' ? line.category : suggestCategory(line.sourceName)); }}
                         >
                           صنف جديد — حدد الفئة
                         </Button>
@@ -519,10 +540,17 @@ export default function SmartPurchaseImportDialog({
             value={categoryDraft}
             onChange={(event) => setCategoryDraft(event.target.value)}
           >
-            {Object.entries(INVENTORY_CATEGORY_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
+            {categories.length > 0
+              ? categories.map((category) => (
+                  <option key={category.code} value={category.code}>{category.name}</option>
+                ))
+              : Object.entries(INVENTORY_CATEGORY_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
           </select>
+          {categoryDialogLine && categoryDraft === suggestCategory(categoryDialogLine.sourceName) && categoryDraft !== 'other' && (
+            <p className="text-xs text-muted-foreground">اقترح النظام هذه الفئة تلقائيًا من اسم الصنف.</p>
+          )}
         </div>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => setCategoryDialogLineId('')}>إلغاء</Button>
@@ -534,9 +562,10 @@ export default function SmartPurchaseImportDialog({
   );
 }
 
-function ItemCombobox({ id, items, value, onChange }: {
+function ItemCombobox({ id, items, categories, value, onChange }: {
   id: string;
   items: Array<SmartPurchaseCatalogItem & { category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>;
+  categories: Array<{ code: string; name: string }>;
   value: string;
   onChange: (itemId: string) => void;
 }) {
@@ -578,7 +607,7 @@ function ItemCombobox({ id, items, value, onChange }: {
               onClick={() => { onChange(item.id); setOpen(false); setQuery(''); }}
             >
               <span>{item.name}{item.sku ? ` (${item.sku})` : ''}</span>
-              <span className="text-xs text-muted-foreground">{INVENTORY_CATEGORY_LABELS[item.category as InventoryCategory] ?? item.category}</span>
+              <span className="text-xs text-muted-foreground">{categories.find((category) => category.code === item.category)?.name ?? INVENTORY_CATEGORY_LABELS[item.category as InventoryCategory] ?? item.category}</span>
             </button>
           ))}
         </div>

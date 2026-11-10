@@ -17,6 +17,7 @@ export default function PurchasesRoute() {
   const [hubError, setHubError] = useState('');
   const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; sku: string; category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>>([]);
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
+  const [categories, setCategories] = useState<Array<{ code: string; name: string }>>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [importSource, setImportSource] = useState<'message' | 'image'>('message');
 
@@ -100,6 +101,18 @@ export default function PurchasesRoute() {
         setSuppliers((Array.isArray(supplierResult.data) ? supplierResult.data.filter(isRecord) : []).map((supplier) => ({
           id: String(supplier.id),
           name: String(supplier.name ?? ''),
+        })));
+      }
+
+      const categoryResult = await asSupabaseLooseClient(supabase)
+        .from('inventory_categories')
+        .select('code,name_ar')
+        .eq('is_active', true)
+        .order('sort_order');
+      if (active && !categoryResult.error) {
+        setCategories((Array.isArray(categoryResult.data) ? categoryResult.data.filter(isRecord) : []).map((category) => ({
+          code: String(category.code ?? ''),
+          name: String(category.name_ar ?? category.code ?? ''),
         })));
       }
     };
@@ -240,6 +253,7 @@ export default function PurchasesRoute() {
         open={importOpen}
         inventoryItems={inventoryItems}
         suppliers={suppliers}
+        categories={categories}
         defaultPurchaserName={displayName}
         startWith={importSource}
         onOpenChange={setImportOpen}
