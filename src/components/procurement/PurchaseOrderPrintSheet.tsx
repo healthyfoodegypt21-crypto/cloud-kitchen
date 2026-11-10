@@ -16,7 +16,7 @@ type Props = {
   purchaserName?: string;
   shortages: PurchaseShortageItem[];
   date?: string;
-  blankRowsCount?: number;
+  targetTotalRows?: number;
   isPreview?: boolean;
 };
 
@@ -25,16 +25,16 @@ export default function PurchaseOrderPrintSheet({
   purchaserName,
   shortages,
   date,
-  blankRowsCount = 8,
+  targetTotalRows = 18,
   isPreview = false,
 }: Props) {
   const today = date ?? getTodayDateValue();
   const weekday = getArabicWeekday(today);
   const formattedDate = formatArabicDate(today);
 
-  // If there are no shortages, provide at least 15 blank rows for manual entry
-  const effectiveBlankCount = shortages.length === 0 ? Math.max(15, blankRowsCount) : blankRowsCount;
-  const blankRows = Array.from({ length: effectiveBlankCount });
+  // Guarantee at least targetTotalRows (default 18 rows) so the table fills the A4 sheet nicely
+  const blankRowsNeeded = Math.max(0, targetTotalRows - shortages.length);
+  const blankRows = Array.from({ length: blankRowsNeeded });
 
   return (
     <div
@@ -48,9 +48,13 @@ export default function PurchaseOrderPrintSheet({
       <style>{`
         @page {
           size: A4 portrait;
-          margin: 10mm;
+          margin: 8mm 10mm;
         }
         @media print {
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
           body * {
             visibility: hidden;
           }
@@ -69,6 +73,8 @@ export default function PurchaseOrderPrintSheet({
             font-family: Arial, sans-serif;
             font-size: 11px;
             display: block !important;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
         }
         .po-print-header {
@@ -76,8 +82,8 @@ export default function PurchaseOrderPrintSheet({
           justify-content: space-between;
           align-items: flex-end;
           border-bottom: 2px solid #111827;
-          padding-bottom: 8px;
-          margin-bottom: 10px;
+          padding-bottom: 6px;
+          margin-bottom: 8px;
         }
         .po-print-title {
           font-size: 20px;
@@ -95,8 +101,8 @@ export default function PurchaseOrderPrintSheet({
           justify-content: space-between;
           font-size: 11px;
           color: #1f2937;
-          margin-bottom: 10px;
-          padding: 6px 10px;
+          margin-bottom: 8px;
+          padding: 5px 10px;
           background: #f9fafb;
           border: 1px solid #e5e7eb;
           border-radius: 4px;
@@ -109,7 +115,7 @@ export default function PurchaseOrderPrintSheet({
         }
         .po-print-table th, .po-print-table td {
           border: 1px solid #4b5563;
-          padding: 6px 8px;
+          padding: 5px 8px;
           font-size: 11px;
         }
         .po-print-table th {
@@ -118,9 +124,9 @@ export default function PurchaseOrderPrintSheet({
           color: #111827;
           text-align: center;
         }
-        /* سطور واضحة ومريحة للكتابة اليدوية */
+        /* سطور واضحة ومريحة بارتفاع 18 خانة تملأ صفحة A4 بالكامل */
         .po-print-table td {
-          height: 33px;
+          height: 35px;
         }
         .po-col-num {
           width: 5%;
@@ -162,21 +168,21 @@ export default function PurchaseOrderPrintSheet({
           display: flex;
           justify-content: space-between;
           gap: 16px;
-          margin-top: 20px;
+          margin-top: 14px;
           font-size: 11px;
         }
         .po-print-sign {
           flex: 1;
           border-top: 1px solid #4b5563;
-          padding-top: 8px;
+          padding-top: 6px;
           text-align: center;
           font-weight: 600;
         }
         .po-print-hint {
-          margin-top: 10px;
-          font-size: 10px;
+          margin-top: 8px;
+          font-size: 9.5px;
           color: #4b5563;
-          line-height: 1.5;
+          line-height: 1.4;
         }
       `}</style>
 
