@@ -16,6 +16,7 @@ import AutoReorderDialog from '@/components/procurement/AutoReorderDialog';
 import PriceHistoryPanel from '@/components/procurement/PriceHistoryPanel';
 import ProcurementKpis from '@/components/procurement/ProcurementKpis';
 import SupplierDirectory from '@/components/procurement/SupplierDirectory';
+import PurchaseOrderPrintDialog from '@/components/procurement/PurchaseOrderPrintDialog';
 
 type Supplier = {
   id: string;
@@ -158,6 +159,7 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
   const [totalSpend, setTotalSpend] = useState(0);
   const [cleaningOrphans, setCleaningOrphans] = useState(false);
   const [autoReorderOpen, setAutoReorderOpen] = useState(false);
+  const [printOrderOpen, setPrintOrderOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<Array<{ id: string; requestId: string; totalAmount: number; approvalLimit: number; requestedBy: string; notes: string; createdAt: string }>>([]);
   const loadVersion = useRef(0);
 
@@ -744,6 +746,7 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
           <p className="mt-1 text-sm text-muted-foreground">طلبات موحدة للمخزن المركزي{hubName ? ` (${hubName})` : ''} الذي يخدم كل العلامات، متابعة أسعار وفواتير الموردين، واستلام موثق للمخزون.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setPrintOrderOpen(true)}><Printer className="ml-2 h-4 w-4" />طباعة طلب مشتريات</Button>
           <Button variant="outline" onClick={exportPage} disabled={!requests.length}><Download className="ml-2 h-4 w-4" />تصدير نتائج الصفحة</Button>
           <Button onClick={() => { setDirectDraft({ ...emptyDirectDraft(), purchaserName }); setDirectOpen(true); }} disabled={!brandId}><Plus className="ml-2 h-4 w-4" />شراء مباشر</Button>
         </div>
@@ -793,7 +796,10 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
         </TabsList>
 
         <TabsContent value="shortages" className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={() => setPrintOrderOpen(true)}>
+              <Printer className="ml-2 h-4 w-4" />طباعة طلب مشتريات
+            </Button>
             <Button variant="outline" onClick={() => setAutoReorderOpen(true)} disabled={!brandId}>
               <ShoppingBasket className="ml-2 h-4 w-4" />إنشاء أمر شراء تلقائي من النواقص
             </Button>
@@ -1000,6 +1006,14 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
           <Button disabled={supplierSaving} onClick={() => void saveSupplier()}>{supplierSaving ? 'جارٍ الحفظ...' : 'حفظ المورد'}</Button>
         </DialogContent>
       </Dialog>
+
+      <PurchaseOrderPrintDialog
+        open={printOrderOpen}
+        onOpenChange={setPrintOrderOpen}
+        hubName={hubName}
+        purchaserName={purchaserName}
+        shortages={shortages}
+      />
     </div>
   );
 }
