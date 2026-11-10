@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, Loader2, PackagePlus, Pencil, Plus, Printer, Search, ShoppingCart, Trash2, WalletCards, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, FileSpreadsheet, Loader2, PackagePlus, Pencil, Plus, Printer, Search, ShoppingCart, Trash2, WalletCards, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +25,7 @@ import InventoryReports from '@/components/inventory/InventoryReports';
 import BarcodeInput from '@/components/inventory/BarcodeInput';
 import WithdrawalQuickEntry, { type WithdrawalPlan } from '@/components/inventory/WithdrawalQuickEntry';
 import WithdrawalSheetPrintSheet from '@/components/inventory/WithdrawalSheetPrintSheet';
+import WithdrawalSheetDialog from '@/components/inventory/WithdrawalSheetDialog';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 import type { OperationalInventoryItem } from '@/types/operationalInventory';
 
@@ -63,6 +64,8 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [printSheet, setPrintSheet] = useState(false);
+  const [sheetDialogOpen, setSheetDialogOpen] = useState(false);
+  const [withdrawalInitialMethod, setWithdrawalInitialMethod] = useState<'manual' | 'text' | 'image'>('manual');
 
   useEffect(() => {
     if (!printSheet) return;
@@ -335,9 +338,9 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
         <p className="mt-1 text-sm text-muted-foreground">رصيد واحد مشترك للعلامات، مع تسجيل سحب الوجبات المشتركة من المخزن.</p>
       </div>
       {canManage && <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => setPrintSheet(true)}><Printer className="ml-2 h-4 w-4" />ورقة مسحوبات للطباعة</Button>
+        <Button variant="outline" className="border-emerald-300 bg-emerald-50/60 hover:bg-emerald-100 text-emerald-800 font-bold" onClick={() => setSheetDialogOpen(true)}><FileSpreadsheet className="ml-2 h-4 w-4 text-emerald-600" />ورقة مسحوبات المطبخ</Button>
         <Button variant="outline" onClick={() => void runSubmit(generateAlerts)} disabled={submitting}><AlertTriangle className="ml-2 h-4 w-4" />توليد التنبيهات</Button>
-        <Button variant="outline" onClick={() => setMode('withdrawal')}><ArrowUpFromLine className="ml-2 h-4 w-4" />سحب من المخزن</Button>
+        <Button variant="outline" onClick={() => { setWithdrawalInitialMethod('manual'); setMode('withdrawal'); }}><ArrowUpFromLine className="ml-2 h-4 w-4" />سحب من المخزن</Button>
         <Button variant="outline" onClick={() => setMode('movement')}><Plus className="ml-2 h-4 w-4" />حركة مخزون</Button>
         <Button variant="outline" onClick={() => setMode('directPurchase')}><WalletCards className="ml-2 h-4 w-4" />شراء مباشر</Button>
         <Button onClick={() => setMode('purchase')}><ShoppingCart className="ml-2 h-4 w-4" />طلب شراء</Button>
@@ -380,7 +383,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="relative w-full sm:max-w-sm"><Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pr-9" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث باسم الصنف أو الكود" aria-label="بحث الأصناف" /></div>
       <BarcodeInput onScan={(code) => setQuery(code)} placeholder="امسح الباركود لاختيار الصنف" />
-      <div className="flex flex-wrap gap-2"><select aria-label="تصفية حسب الفئة" className="h-10 rounded-md border bg-background px-3" value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">كل الفئات</option>{categories.map((entry) => <option key={entry.id} value={entry.code}>{entry.name_ar}</option>)}</select>{canManage && <><Button variant="outline" onClick={() => setMode('category')}><Plus className="ml-2 h-4 w-4" />فئة جديدة</Button><Button onClick={() => setMode('item')}><PackagePlus className="ml-2 h-4 w-4" />إضافة صنف</Button></>}</div>
+      <div className="flex flex-wrap gap-2"><select aria-label="تصفية حسب الفئة" className="h-10 rounded-md border bg-background px-3" value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">كل الفئات</option>{categories.map((entry) => <option key={entry.id} value={entry.code}>{entry.name_ar}</option>)}</select>{canManage && <><Button variant="outline" className="border-emerald-300 bg-emerald-50/50 hover:bg-emerald-100 text-emerald-800 font-semibold" onClick={() => setSheetDialogOpen(true)}><FileSpreadsheet className="ml-2 h-4 w-4 text-emerald-600" />ورقة المسحوبات (طباعة)</Button><Button variant="outline" onClick={() => setMode('category')}><Plus className="ml-2 h-4 w-4" />فئة جديدة</Button><Button onClick={() => setMode('item')}><PackagePlus className="ml-2 h-4 w-4" />إضافة صنف</Button></>}</div>
     </div>
     <Card className="overflow-hidden">
       <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-sm">
@@ -442,10 +445,21 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       {mode === 'category' && <div className="space-y-3"><Field label="اسم الفئة بالعربية" value={categoryDraft.nameAr} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameAr: value }))} /><Field label="الكود (إنجليزي بلا مسافات)" value={categoryDraft.code} onChange={(value) => setCategoryDraft((current) => ({ ...current, code: value }))} /><Field label="الاسم بالإنجليزية" value={categoryDraft.nameEn} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameEn: value }))} /><Button className="w-full" onClick={() => void runSubmit(createCategory)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الفئة</Button></div>}
       {mode === 'movement' && <div className="space-y-3"><div className="space-y-1"><Label htmlFor="movement-action">نوع الحركة</Label><select id="movement-action" className="h-10 w-full rounded-md border bg-background px-3" value={movementAction} onChange={(event) => { if (event.target.value === 'deposit' || event.target.value === 'waste') setMovementAction(event.target.value); }}><option value="deposit">إضافة رصيد</option><option value="waste">تسجيل هالك</option></select></div><LineEditor items={items} locations={locations} line={line} setLine={setLine} showCost={movementAction === 'deposit'} /><Button className="w-full" onClick={() => void runSubmit(postMovement)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}{movementAction === 'deposit' ? 'تأكيد الإيداع' : 'تأكيد الهالك'}</Button></div>}
       {mode === 'count' && <div className="space-y-3"><LineEditor items={items} locations={locations} line={line} setLine={setLine} quantityLabel="الرصيد الفعلي بعد الجرد" /><Button className="w-full" onClick={() => void runSubmit(postCount)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="ml-2 h-4 w-4" />}إرسال للمراجعة</Button></div>}
-      {mode === 'withdrawal' && <WithdrawalQuickEntry items={items} locations={locations} defaultLocation={locations[0]?.code ?? 'main'} submitting={submitting} onSubmit={submitQuickWithdrawal} onCancel={reset} />}
+      {mode === 'withdrawal' && <WithdrawalQuickEntry items={items} locations={locations} defaultLocation={locations[0]?.code ?? 'main'} submitting={submitting} initialMethod={withdrawalInitialMethod} onOpenPrintSheet={() => setSheetDialogOpen(true)} onSubmit={submitQuickWithdrawal} onCancel={reset} />}
       {mode === 'purchase' && <PurchaseOrderBuilder items={items} categories={categories} locations={locations} initialItemId={purchaseItemId} onSubmit={(orderLines, orderSupplier, orderNotes) => runSubmit(() => submitConsolidatedPurchase(orderLines, orderSupplier, orderNotes))} onCreateNewItem={createPurchaseItem} />}
     </DialogContent></Dialog>
     {printSheet && <WithdrawalSheetPrintSheet hubName={hub.name} items={items} categories={categories} />}
+    <WithdrawalSheetDialog
+      open={sheetDialogOpen}
+      onOpenChange={setSheetDialogOpen}
+      hubName={hub.name}
+      items={items}
+      categories={categories}
+      onStartUpload={() => {
+        setWithdrawalInitialMethod('image');
+        setMode('withdrawal');
+      }}
+    />
   </div>;
 }
 

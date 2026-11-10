@@ -6,97 +6,235 @@ type Props = {
   items: OperationalInventoryItem[];
   categories: InventoryCategoryRecord[];
   date?: string;
+  shift?: string;
+  categoryFilter?: string;
+  blankRowsCount?: number;
+  isPreview?: boolean;
 };
 
-export default function WithdrawalSheetPrintSheet({ hubName, items, categories, date }: Props) {
+export default function WithdrawalSheetPrintSheet({
+  hubName,
+  items,
+  categories,
+  date,
+  shift = 'اليوم بالكامل',
+  categoryFilter = 'all',
+  blankRowsCount = 6,
+  isPreview = false,
+}: Props) {
   const today = date ?? getTodayDateValue();
   const weekday = getArabicWeekday(today);
   const formattedDate = formatArabicDate(today);
   const categoryNameByCode = new Map(categories.map((category) => [category.code, category.name_ar]));
 
-  const activeItems = items
+  const filteredItems = items
     .filter((item) => item.status === 'active')
+    .filter((item) => categoryFilter === 'all' || item.category === categoryFilter)
     .sort((left, right) => left.category.localeCompare(right.category) || left.name.localeCompare(right.name, 'ar'));
 
+  const blankRows = Array.from({ length: Math.max(0, blankRowsCount) });
+
   return (
-    <div className="withdrawal-sheet-print hidden print:block" dir="rtl">
-      <style media="print">{`
-        @page { size: A4 portrait; margin: 10mm; }
-        .withdrawal-sheet-print { color: #111827; font-family: Arial, sans-serif; }
-        .withdrawal-sheet-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111827; padding-bottom: 8px; margin-bottom: 10px; }
-        .withdrawal-sheet-title { font-size: 18px; font-weight: 700; margin: 0; }
-        .withdrawal-sheet-meta { font-size: 11px; color: #4b5563; margin-top: 4px; }
-        .withdrawal-sheet-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .withdrawal-sheet-table th, .withdrawal-sheet-table td { border: 1px solid #9ca3af; padding: 4px 6px; font-size: 10.5px; }
-        .withdrawal-sheet-table th { background: #f3f4f6; font-weight: 700; }
-        .withdrawal-sheet-table td { height: 22px; }
-        .withdrawal-sheet-num { width: 6%; text-align: center; }
-        .withdrawal-sheet-item { width: 26%; }
-        .withdrawal-sheet-unit { width: 9%; text-align: center; }
-        .withdrawal-sheet-current { width: 12%; text-align: center; }
-        .withdrawal-sheet-qty { width: 13%; }
-        .withdrawal-sheet-remaining { width: 13%; }
-        .withdrawal-sheet-notes { width: 21%; }
-        .withdrawal-sheet-category td { background: #e5e7eb; font-weight: 700; height: auto; }
-        .withdrawal-sheet-footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; font-size: 11px; }
-        .withdrawal-sheet-sign { flex: 1; border-top: 1px solid #9ca3af; padding-top: 6px; text-align: center; }
-        .withdrawal-sheet-hint { margin-top: 8px; font-size: 9.5px; color: #6b7280; }
+    <div
+      className={
+        isPreview
+          ? 'withdrawal-sheet-view bg-white text-slate-900 p-6 md:p-8 rounded-xl border shadow-sm max-w-4xl mx-auto'
+          : 'withdrawal-sheet-print hidden print:block'
+      }
+      dir="rtl"
+    >
+      <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 8mm;
+        }
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .withdrawal-sheet-print, .withdrawal-sheet-print * {
+            visibility: visible;
+          }
+          .withdrawal-sheet-print {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            margin: 0;
+            padding: 4mm;
+            color: #0f172a !important;
+            background: #ffffff !important;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 11px;
+            display: block !important;
+          }
+          .withdrawal-sheet-card {
+            border: 1.5px solid #0f172a;
+          }
+        }
       `}</style>
 
-      <div className="withdrawal-sheet-header">
-        <div>
-          <h1 className="withdrawal-sheet-title">ورقة مسحوبات المخزن</h1>
-          <p className="withdrawal-sheet-meta">{hubName} — {weekday} {formattedDate}</p>
+      {/* Header */}
+      <div className="border-b-2 border-slate-900 pb-3 mb-3">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 rounded-full bg-emerald-600 print:border print:border-black" />
+              <h1 className="text-xl font-bold tracking-tight text-slate-900">
+                ورقة مسحوبات المخزن والمطبخ اليومية
+              </h1>
+            </div>
+            <p className="text-xs text-slate-600 mt-1 font-medium">
+              سجل استهلاك وتشغيل المطبخ — {hubName || 'المخزن المركزي'}
+            </p>
+          </div>
+          <div className="text-left font-mono text-xs text-slate-700 bg-slate-100 print:bg-transparent px-3 py-1.5 rounded-lg border border-slate-300">
+            <div><strong>التاريخ:</strong> {weekday} {formattedDate}</div>
+            <div><strong>الوردية:</strong> {shift}</div>
+          </div>
         </div>
-        <div className="withdrawal-sheet-meta">عدد الأصناف: {activeItems.length}</div>
+
+        {/* Info Grid */}
+        <div className="grid grid-cols-4 gap-2 mt-3 text-xs bg-slate-50 print:bg-slate-100 p-2 rounded-lg border border-slate-200">
+          <div>
+            <span className="text-slate-500 block text-[10px]">الموقع:</span>
+            <strong className="text-slate-800">المخزن الرئيسي</strong>
+          </div>
+          <div>
+            <span className="text-slate-500 block text-[10px]">عدد الأصناف:</span>
+            <strong className="text-slate-800">{filteredItems.length} صنف</strong>
+          </div>
+          <div>
+            <span className="text-slate-500 block text-[10px]">أمين المخزن:</span>
+            <span className="text-slate-400 block border-b border-dotted border-slate-400 w-24 h-4"></span>
+          </div>
+          <div>
+            <span className="text-slate-500 block text-[10px]">شيف الاستلام:</span>
+            <span className="text-slate-400 block border-b border-dotted border-slate-400 w-24 h-4"></span>
+          </div>
+        </div>
       </div>
 
-      <table className="withdrawal-sheet-table">
+      {/* Items Table */}
+      <table className="w-full border-collapse border border-slate-400 text-xs table-fixed mb-3">
         <thead>
-          <tr>
-            <th className="withdrawal-sheet-num">م</th>
-            <th className="withdrawal-sheet-item">الصنف</th>
-            <th className="withdrawal-sheet-unit">الوحدة</th>
-            <th className="withdrawal-sheet-current">الرصيد الحالي</th>
-            <th className="withdrawal-sheet-qty">الكمية المسحوبة</th>
-            <th className="withdrawal-sheet-remaining">الكمية المتبقية</th>
-            <th className="withdrawal-sheet-notes">ملاحظات</th>
+          <tr className="bg-slate-100 text-slate-900 border-b border-slate-400 font-bold">
+            <th className="border border-slate-400 p-1.5 w-[5%] text-center">م</th>
+            <th className="border border-slate-400 p-1.5 w-[14%] text-center">كود الصنف</th>
+            <th className="border border-slate-400 p-1.5 w-[26%] text-right">اسم الصنف</th>
+            <th className="border border-slate-400 p-1.5 w-[12%] text-center">القسم</th>
+            <th className="border border-slate-400 p-1.5 w-[8%] text-center">الوحدة</th>
+            <th className="border border-slate-400 p-1.5 w-[11%] text-center bg-slate-200/70">رصيد المخزن</th>
+            <th className="border-2 border-slate-900 p-1.5 w-[12%] text-center bg-emerald-50 print:bg-transparent font-bold">الكمية المسحوبة</th>
+            <th className="border border-slate-400 p-1.5 w-[12%] text-center">المتبقي الفعلي</th>
           </tr>
         </thead>
         <tbody>
-          {activeItems.map((item, index) => {
-            const previous = activeItems[index - 1];
+          {filteredItems.map((item, index) => {
+            const previous = filteredItems[index - 1];
             const showCategory = !previous || previous.category !== item.category;
+            const catName = categoryNameByCode.get(item.category) ?? item.category;
+
             return (
               <>
                 {showCategory && (
-                  <tr key={`cat-${item.category}`} className="withdrawal-sheet-category">
-                    <td colSpan={7}>{categoryNameByCode.get(item.category) ?? item.category}</td>
+                  <tr key={`cat-${item.category}`} className="bg-slate-200/80 font-bold text-slate-800">
+                    <td colSpan={8} className="border border-slate-400 px-2 py-1 text-xs">
+                      📂 {catName}
+                    </td>
                   </tr>
                 )}
-                <tr key={item.id}>
-                  <td className="withdrawal-sheet-num">{index + 1}</td>
-                  <td className="withdrawal-sheet-item">{item.name}{item.code ? ` (${item.code})` : ''}</td>
-                  <td className="withdrawal-sheet-unit">{item.unit}</td>
-                  <td className="withdrawal-sheet-current">{item.availableQuantity.toLocaleString('ar-EG', { maximumFractionDigits: 3 })}</td>
-                  <td className="withdrawal-sheet-qty" />
-                  <td className="withdrawal-sheet-remaining" />
-                  <td className="withdrawal-sheet-notes" />
+                <tr key={item.id} className="hover:bg-slate-50 border-b border-slate-300">
+                  <td className="border border-slate-300 p-1.5 text-center font-mono text-slate-600">
+                    {index + 1}
+                  </td>
+                  <td className="border border-slate-300 p-1.5 text-center font-mono text-slate-500 text-[11px] truncate">
+                    {item.code || '-'}
+                  </td>
+                  <td className="border border-slate-300 p-1.5 font-semibold text-slate-900">
+                    {item.name}
+                  </td>
+                  <td className="border border-slate-300 p-1.5 text-center text-slate-600 text-[11px]">
+                    {catName}
+                  </td>
+                  <td className="border border-slate-300 p-1.5 text-center font-medium text-slate-700">
+                    {item.unit}
+                  </td>
+                  <td className="border border-slate-300 p-1.5 text-center font-mono font-semibold bg-slate-50 print:bg-transparent text-slate-800">
+                    {item.availableQuantity.toLocaleString('ar-EG', { maximumFractionDigits: 3 })}
+                  </td>
+                  {/* Space to write withdrawn quantity */}
+                  <td className="border-2 border-slate-900 p-1.5 bg-white text-center font-mono font-bold text-base h-8">
+                    {/* Blank box for handwriting */}
+                  </td>
+                  {/* Space to write remaining quantity */}
+                  <td className="border border-slate-300 p-1.5 bg-white text-center font-mono h-8">
+                    {/* Blank box for handwriting */}
+                  </td>
                 </tr>
               </>
             );
           })}
+
+          {/* Blank extra rows for ad-hoc / unlisted kitchen withdrawals */}
+          {blankRows.length > 0 && (
+            <>
+              <tr className="bg-slate-100 font-bold text-slate-600">
+                <td colSpan={8} className="border border-slate-400 px-2 py-1 text-[11px] text-center">
+                  ✏️ أصناف إضافية مسحوبة (اكتب الصنف والكمية والوحدة بوضوح)
+                </td>
+              </tr>
+              {blankRows.map((_, i) => (
+                <tr key={`blank-${i}`} className="border-b border-slate-300">
+                  <td className="border border-slate-300 p-1.5 text-center text-slate-400 font-mono text-xs">
+                    {filteredItems.length + i + 1}
+                  </td>
+                  <td className="border border-slate-300 p-1.5 text-center text-slate-300">-</td>
+                  <td className="border border-slate-300 p-1.5 h-8"></td>
+                  <td className="border border-slate-300 p-1.5"></td>
+                  <td className="border border-slate-300 p-1.5"></td>
+                  <td className="border border-slate-300 p-1.5 bg-slate-50"></td>
+                  <td className="border-2 border-slate-900 p-1.5 h-8"></td>
+                  <td className="border border-slate-300 p-1.5 h-8"></td>
+                </tr>
+              ))}
+            </>
+          )}
         </tbody>
       </table>
 
-      <p className="withdrawal-sheet-hint">
-        إذا لم تُكتب «الكمية المتبقية» سيحسبها النظام تلقائيًا (الرصيد الحالي − المسحوب). عند أول تسجيل لصنف تُعتبر الكمية المتبقية المكتوبة رصيد أول المدة. وعند وجود فرق بين المتبقي المكتوب وحساب النظام يظهر تنبيه خطأ/هدر عند الإدخال.
-      </p>
+      {/* Smart OCR Instructions */}
+      <div className="bg-emerald-50 print:bg-slate-50 border border-emerald-300 print:border-slate-400 p-2.5 rounded-lg text-slate-800 text-[10.5px] leading-relaxed mb-4">
+        <div className="font-bold flex items-center gap-1.5 text-emerald-800 print:text-slate-900 mb-1">
+          <span>📸</span>
+          <span>طريقة تدوين ورفع الورقة لخصم المسحوبات آليًا:</span>
+        </div>
+        <ol className="list-decimal list-inside space-y-0.5 text-slate-700">
+          <li>دوّن الكميات المسحوبة بالأرقام بوضوح داخل خانة <strong>«الكمية المسحوبة»</strong> فور الصرف.</li>
+          <li>عند انتهاء اليوم أو الوردية، التقط صورة عمودية واضحة للورقة بإضاءة جيدة.</li>
+          <li>
+            افتح صفحة <strong>إدارة المخزون</strong> واضغط على زر <strong>«سحب من المخزن»</strong> ثم اختر تبويب <strong>«صورة»</strong> وارفع صورة هذه الورقة ليتم قراءتها وخصمها آليًا من أرصدة المخزن.
+          </li>
+        </ol>
+      </div>
 
-      <div className="withdrawal-sheet-footer">
-        <div className="withdrawal-sheet-sign">توقيع مسؤول المخزن</div>
-        <div className="withdrawal-sheet-sign">توقيع المستلم</div>
-        <div className="withdrawal-sheet-sign">المراجعة والاعتماد</div>
+      {/* Official Signatures */}
+      <div className="grid grid-cols-3 gap-4 border-t-2 border-slate-900 pt-3 text-xs text-slate-800">
+        <div className="text-center">
+          <p className="font-bold mb-6">مسؤول تسليم المخزن</p>
+          <div className="border-b border-slate-400 w-36 mx-auto mb-1"></div>
+          <p className="text-[10px] text-slate-500">الاسم والتوقيع</p>
+        </div>
+        <div className="text-center">
+          <p className="font-bold mb-6">شيف / مستلم المطبخ</p>
+          <div className="border-b border-slate-400 w-36 mx-auto mb-1"></div>
+          <p className="text-[10px] text-slate-500">الاسم والتوقيع</p>
+        </div>
+        <div className="text-center">
+          <p className="font-bold mb-6">اعتماد مدير التشغيل</p>
+          <div className="border-b border-slate-400 w-36 mx-auto mb-1"></div>
+          <p className="text-[10px] text-slate-500">الاعتماد والتاريخ</p>
+        </div>
       </div>
     </div>
   );

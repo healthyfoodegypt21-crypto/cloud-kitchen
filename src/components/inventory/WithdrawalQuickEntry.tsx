@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { ClipboardPaste, FileImage, Loader2, PenLine, Plus, Sparkles, Upload, X } from 'lucide-react';
+import { ClipboardPaste, FileImage, FileSpreadsheet, Loader2, PenLine, Plus, Printer, Sparkles, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,12 +48,23 @@ type Props = {
   locations: InventoryLocation[];
   defaultLocation: string;
   submitting: boolean;
+  initialMethod?: 'manual' | 'text' | 'image';
+  onOpenPrintSheet?: () => void;
   onSubmit: (plan: WithdrawalPlan) => Promise<boolean>;
   onCancel: () => void;
 };
 
-export default function WithdrawalQuickEntry({ items, locations, defaultLocation, submitting, onSubmit, onCancel }: Props) {
-  const [method, setMethod] = useState<'manual' | 'text' | 'image'>('manual');
+export default function WithdrawalQuickEntry({
+  items,
+  locations,
+  defaultLocation,
+  submitting,
+  initialMethod = 'manual',
+  onOpenPrintSheet,
+  onSubmit,
+  onCancel,
+}: Props) {
+  const [method, setMethod] = useState<'manual' | 'text' | 'image'>(initialMethod);
   const [text, setText] = useState('');
   const [lines, setLines] = useState<ReviewLine[]>([]);
   const [ignoredLines, setIgnoredLines] = useState<string[]>([]);
@@ -216,6 +227,30 @@ export default function WithdrawalQuickEntry({ items, locations, defaultLocation
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/30 p-3.5 rounded-xl border">
+        <div>
+          <h3 className="font-bold text-base flex items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            <span>تسجيل وتأكيد مسحوبات المطبخ</span>
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            سجل الكميات المسحوبة يدويًا، أو الصق نصًا، أو ارفع صورة ورقة المسحوبات الورقية الموقعة لخصمها آليًا.
+          </p>
+        </div>
+        {onOpenPrintSheet && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onOpenPrintSheet}
+            className="gap-1.5 shrink-0 bg-background hover:bg-muted text-xs border-dashed"
+          >
+            <Printer className="h-3.5 w-3.5 text-slate-600" />
+            <span>طباعة ورقة المسحوبات الفارغة</span>
+          </Button>
+        )}
+      </div>
+
       <Tabs value={method} onValueChange={(value) => setMethod(value as typeof method)}>
         <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl p-1">
           <TabsTrigger value="manual" className="gap-1.5 rounded-lg py-2"><PenLine className="h-4 w-4" />كتابة يدوية</TabsTrigger>
