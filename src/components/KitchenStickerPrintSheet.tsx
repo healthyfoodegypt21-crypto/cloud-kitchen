@@ -65,7 +65,13 @@ export default function KitchenStickerPrintSheet({ stickers }: Props) {
                 <p className="text-slate-500">Fat</p>
                 <p className="font-semibold">{formatMacro(sticker.fat)}</p>
               </div>
-            </div>
+                {sticker.fiber !== null && sticker.fiber !== undefined && (
+                  <div>
+                    <p className="text-slate-500">Fiber</p>
+                    <p className="font-semibold">{formatMacro(sticker.fiber)}</p>
+                  </div>
+                )}
+              </div>
           </div>
         </div>
       ))}

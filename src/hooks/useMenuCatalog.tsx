@@ -6,11 +6,19 @@ import { getSupabaseOfflineReason, isSupabaseNetworkError, isSupabaseUnavailable
 import { useSupabaseReconnect } from '@/hooks/useSupabaseReconnect';
 import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 import { compactWhitespace } from '@/lib/utils';
+import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import { buildDemoMealsForBrand, buildDemoPackagesForBrand, deleteLocalMeal, deleteLocalPackage, getLocalMenuCatalog, seedLocalDemoCatalog, upsertLocalMeal, upsertLocalPackage } from '@/store/menuCatalog';
-import { Meal, MealInput, PackagePlan, PackagePlanInput } from '@/types/menu';
+import { Meal, MealIngredientSnapshot, MealInput, PackagePlan, PackagePlanInput } from '@/types/menu';
 import { LOCAL_DEMO_BRANDS } from '@/hooks/useBrands';
 
-type MenuItemRow = Database['public']['Tables']['menu_items']['Row'];
+type MenuItemRow = Database['public']['Tables']['menu_items']['Row'] & {
+  description?: string | null;
+  fiber?: number | null;
+  custom_category?: string | null;
+  is_available?: boolean | null;
+  display_order?: number | null;
+  ingredients_snapshot?: unknown;
+};
 type MenuItemInsert = Database['public']['Tables']['menu_items']['Insert'];
 type PackagePlanRow = Database['public']['Tables']['package_plans']['Row'];
 type PackagePlanInsert = Database['public']['Tables']['package_plans']['Insert'];
@@ -110,17 +118,36 @@ function buildCatalogLoadError(results: CatalogQueryResult<unknown>[]): CatalogL
   };
 }
 
+function parseIngredientsSnapshot(raw: unknown): MealIngredientSnapshot[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map((item) => ({
+      ingredient_id: typeof item.ingredient_id === 'string' ? item.ingredient_id : undefined,
+      name: typeof item.name === 'string' ? item.name : '',
+      weight_before_grams: item.weight_before_grams === null || item.weight_before_grams === undefined ? null : Number(item.weight_before_grams),
+      weight_after_grams: item.weight_after_grams === null || item.weight_after_grams === undefined ? null : Number(item.weight_after_grams),
+    }))
+    .filter((item) => Boolean(item.name));
+}
+
 function mapMeal(row: MenuItemRow): Meal {
   return {
     id: row.id,
     brand_id: row.brand_id,
     name: row.name,
+    description: row.description ?? '',
     category: row.category as Meal['category'],
+    custom_category: row.custom_category ?? '',
     price: row.price === null ? null : Number(row.price),
     protein: row.protein,
     carbs: row.carbs,
     fat: row.fat,
+    fiber: row.fiber === null || row.fiber === undefined ? null : Number(row.fiber),
     calories: row.calories,
+    is_available: row.is_available ?? true,
+    display_order: row.display_order ?? 0,
+    ingredients: parseIngredientsSnapshot(row.ingredients_snapshot),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -265,7 +292,7 @@ export function useMenuCatalog() {
       return true;
     }
 
-    const payload: MenuItemInsert = {
+    const basePayload: MenuItemInsert = {
       id: input.id,
       brand_id: input.brand_id,
       name: compactWhitespace(input.name),
@@ -277,11 +304,28 @@ export function useMenuCatalog() {
       calories: input.calories,
     };
 
-    const query = input.id
-      ? supabase.from('menu_items').update(payload).eq('id', input.id)
-      : supabase.from('menu_items').insert(payload);
+    const extendedPayload: Record<string, unknown> = {
+      ...basePayload,
+      ...(input.description !== undefined ? { description: compactWhitespace(input.description) } : {}),
+      ...(input.custom_category !== undefined ? { custom_category: compactWhitespace(input.custom_category) } : {}),
+      ...(input.fiber !== undefined ? { fiber: input.fiber } : {}),
+      ...(input.is_available !== undefined ? { is_available: input.is_available } : {}),
+      ...(input.display_order !== undefined ? { display_order: input.display_order } : {}),
+      ...(input.ingredients !== undefined ? { ingredients_snapshot: input.ingredients } : {}),
+    };
 
-    const { error } = await query;
+    const looseClient = asSupabaseLooseClient(supabase);
+    let { error } = input.id
+      ? await looseClient.from('menu_items').update(extendedPayload).eq('id', input.id)
+      : await looseClient.from('menu_items').insert(extendedPayload);
+
+    // Graceful fallback if optional columns haven't been migrated yet on remote DB
+    if (error && /(column|schema cache)/i.test(error.message ?? '')) {
+      const retry = input.id
+        ? await supabase.from('menu_items').update(basePayload).eq('id', input.id)
+        : await supabase.from('menu_items').insert(basePayload);
+      error = retry.error;
+    }
     if (error) {
       if (isMissingTableError({ table: 'menu_items', data: null, error }) || isSupabaseNetworkError(error)) {
         if (isSupabaseNetworkError(error)) {

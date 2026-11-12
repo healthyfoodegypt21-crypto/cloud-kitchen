@@ -13,6 +13,57 @@ vi.mock('@/hooks/useMenuCatalog', () => ({
   useMenuCatalog: () => mockUseMenuCatalog(),
 }));
 
+vi.mock('@/hooks/useCompanyMenus', () => ({
+  useCompanyMenus: () => ({
+    companies: [
+      {
+        id: 'comp-1',
+        brand_id: 'brand-1',
+        name: 'Healthy Food',
+        phone: '01000000001',
+        phone_numbers: [],
+        contact_person: 'أحمد',
+        notes: '',
+        status: 'active' as const,
+        created_at: '2026-03-22T00:00:00.000Z',
+        updated_at: '2026-03-22T00:00:00.000Z',
+      },
+    ],
+    categories: [],
+    ingredients: [],
+    meals: [],
+    loading: false,
+    categoriesByCompany: new Map(),
+    mealsByCategory: new Map(),
+    ingredientsByCompany: new Map(),
+    refresh: vi.fn(),
+    saveCompany: vi.fn().mockResolvedValue(true),
+    deleteCompany: vi.fn().mockResolvedValue(true),
+    saveCategory: vi.fn().mockResolvedValue(true),
+    deleteCategory: vi.fn().mockResolvedValue(true),
+    reorderCategories: vi.fn().mockResolvedValue(true),
+    saveIngredient: vi.fn().mockResolvedValue(null),
+    deleteIngredient: vi.fn().mockResolvedValue(true),
+    saveMeal: vi.fn().mockResolvedValue(true),
+    deleteMeal: vi.fn().mockResolvedValue(true),
+    duplicateMeal: vi.fn().mockResolvedValue(true),
+    moveMeal: vi.fn().mockResolvedValue(true),
+    reorderMeals: vi.fn().mockResolvedValue(true),
+  }),
+}));
+
+vi.mock('@/integrations/supabase/client', () => ({
+  supabase: {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          limit: () => Promise.resolve({ data: [], error: null }),
+        }),
+      }),
+    }),
+  },
+}));
+
 const brands = [
   { id: 'brand-1', name: 'Healthy Food', color: '#22c55e' },
   { id: 'brand-2', name: 'Protein Box', color: '#f59e0b' },

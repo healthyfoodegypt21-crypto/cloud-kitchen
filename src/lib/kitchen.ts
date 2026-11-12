@@ -61,6 +61,7 @@ export interface KitchenSticker {
   protein: number | null;
   carbs: number | null;
   fat: number | null;
+  fiber?: number | null;
   date: string;
   brandName: string;
 }
@@ -153,6 +154,7 @@ function findMealNutrition(mealSummary: KitchenMealSummary, brandSummary: Kitche
     protein: matchedMeal?.protein ?? null,
     carbs: matchedMeal?.carbs ?? null,
     fat: matchedMeal?.fat ?? null,
+    ...(matchedMeal?.fiber !== undefined ? { fiber: matchedMeal.fiber } : {}),
   };
 }
 

@@ -14,7 +14,6 @@ import {
   ChefHat,
   Boxes,
   ShoppingCart,
-  Building2,
   UserCog,
   Shield,
 } from 'lucide-react';
@@ -59,8 +58,7 @@ const navGroups: NavGroup[] = [
   {
     category: 'المنيو والعملاء',
     items: [
-      { to: '/menu-packages', label: 'المنيو والباقات', icon: UtensilsCrossed, pageId: 'menu-packages' },
-      { to: '/companies-menus', label: 'الشركات والمنيو', icon: Building2, pageId: 'companies-menus' },
+      { to: '/menu-packages', label: 'الشركات والمنيو والباقات', icon: UtensilsCrossed, pageId: 'menu-packages' },
       { to: '/customers', label: 'العملاء', icon: Users, pageId: 'customers', allowInDemo: true },
     ],
   },
@@ -82,8 +80,8 @@ const ROUTE_TITLES: Record<string, string> = {
   '/kitchen': 'المطبخ',
   '/inventory': 'المخزون',
   '/purchases': 'المشتريات',
-  '/menu-packages': 'المنيو والباقات',
-  '/companies-menus': 'الشركات والمنيو',
+  '/menu-packages': 'الشركات والمنيو والباقات',
+  '/companies-menus': 'الشركات والمنيو والباقات',
   '/customers': 'العملاء',
   '/leaderboard': 'لوحة الصدارة',
   '/hr': 'الموارد البشرية',

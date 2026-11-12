@@ -6,6 +6,7 @@ import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseAvailable, m
 import { useSupabaseReconnect } from '@/hooks/useSupabaseReconnect';
 import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 import { compactWhitespace } from '@/lib/utils';
+import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import {
   MenuCompany,
   MenuCompanyCategory,
@@ -16,15 +17,25 @@ import {
   MenuMealIngredientLink,
 } from '@/types/companyMenu';
 
-type CompanyRow = Database['public']['Tables']['menu_companies']['Row'];
+type CompanyRow = Database['public']['Tables']['menu_companies']['Row'] & {
+  brand_id?: string | null;
+  color?: string | null;
+};
 type CategoryRow = Database['public']['Tables']['menu_company_categories']['Row'];
-type IngredientRow = Database['public']['Tables']['menu_ingredients']['Row'];
-type MealRow = Database['public']['Tables']['menu_company_meals']['Row'];
+type IngredientRow = Database['public']['Tables']['menu_ingredients']['Row'] & {
+  inventory_item_id?: string | null;
+  unit_cost_per_kg?: number | null;
+};
+type MealRow = Database['public']['Tables']['menu_company_meals']['Row'] & {
+  is_available?: boolean | null;
+};
 type MealIngredientRow = Database['public']['Tables']['menu_meal_ingredients']['Row'];
 
 function mapCompany(row: CompanyRow): MenuCompany {
   return {
     id: row.id,
+    brand_id: row.brand_id ?? null,
+    color: row.color ?? '#10b981',
     name: row.name,
     phone: row.phone,
     phone_numbers: row.phone_numbers ?? [],
@@ -52,6 +63,8 @@ function mapIngredient(row: IngredientRow): MenuIngredient {
     id: row.id,
     company_id: row.company_id,
     name: row.name,
+    inventory_item_id: row.inventory_item_id ?? null,
+    unit_cost_per_kg: row.unit_cost_per_kg === null || row.unit_cost_per_kg === undefined ? null : Number(row.unit_cost_per_kg),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -70,6 +83,7 @@ function mapMeal(row: MealRow, ingredients: MenuMealIngredientLink[]): MenuCompa
     fat: row.fat === null ? null : Number(row.fat),
     fiber: row.fiber === null ? null : Number(row.fiber),
     price: row.price === null ? null : Number(row.price),
+    is_available: row.is_available ?? true,
     display_order: row.display_order,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -109,7 +123,8 @@ export function useCompanyMenus() {
 
     const firstError = responses.find(response => response.error);
     if (firstError?.error) {
-      toast.error(firstError.error.message || 'تعذر تحميل بيانات الشركات والمنيو');
+      // Fail softly when RLS or optional tables aren't present yet so unified hub keeps working
+      console.warn('Company menus query notice:', firstError.error);
       setLoading(false);
       return;
     }
@@ -181,7 +196,7 @@ export function useCompanyMenus() {
   }, [ingredients]);
 
   const saveCompany = async (input: MenuCompanyInput) => {
-    const payload = {
+    const basePayload = {
       name: compactWhitespace(input.name),
       phone: compactWhitespace(input.phone),
       phone_numbers: input.phone_numbers.map(compactWhitespace).filter(Boolean),
@@ -190,9 +205,22 @@ export function useCompanyMenus() {
       status: input.status,
     };
 
-    const response = input.id
-      ? await supabase.from('menu_companies').update(payload).eq('id', input.id)
-      : await supabase.from('menu_companies').insert(payload);
+    const extendedPayload: Record<string, unknown> = {
+      ...basePayload,
+      ...(input.brand_id !== undefined ? { brand_id: input.brand_id } : {}),
+      ...(input.color !== undefined ? { color: input.color } : {}),
+    };
+
+    const loose = asSupabaseLooseClient(supabase);
+    let response = input.id
+      ? await loose.from('menu_companies').update(extendedPayload).eq('id', input.id)
+      : await loose.from('menu_companies').insert(extendedPayload);
+
+    if (response.error && /(column|schema cache)/i.test(response.error.message ?? '')) {
+      response = input.id
+        ? await supabase.from('menu_companies').update(basePayload).eq('id', input.id)
+        : await supabase.from('menu_companies').insert(basePayload);
+    }
 
     if (response.error) {
       toast.error(response.error.message || 'تعذر حفظ بيانات الشركة');
@@ -259,16 +287,36 @@ export function useCompanyMenus() {
     return true;
   };
 
-  const saveIngredient = async (input: { id?: string; company_id: string; name: string }) => {
+  const saveIngredient = async (input: {
+    id?: string;
+    company_id: string;
+    name: string;
+    inventory_item_id?: string | null;
+    unit_cost_per_kg?: number | null;
+  }) => {
     const name = compactWhitespace(input.name);
     if (!name) {
       toast.error('اسم المكوّن مطلوب');
       return null;
     }
 
-    const response = input.id
-      ? await supabase.from('menu_ingredients').update({ name }).eq('id', input.id).select('*').single()
-      : await supabase.from('menu_ingredients').insert({ company_id: input.company_id, name }).select('*').single();
+    const extendedPayload: Record<string, unknown> = {
+      name,
+      ...(input.id ? {} : { company_id: input.company_id }),
+      ...(input.inventory_item_id !== undefined ? { inventory_item_id: input.inventory_item_id } : {}),
+      ...(input.unit_cost_per_kg !== undefined ? { unit_cost_per_kg: input.unit_cost_per_kg } : {}),
+    };
+
+    const loose = asSupabaseLooseClient(supabase);
+    let response = input.id
+      ? await loose.from('menu_ingredients').update(extendedPayload).eq('id', input.id).select('*').single()
+      : await loose.from('menu_ingredients').insert(extendedPayload).select('*').single();
+
+    if (response.error && /(column|schema cache)/i.test(response.error.message ?? '')) {
+      response = input.id
+        ? await supabase.from('menu_ingredients').update({ name }).eq('id', input.id).select('*').single()
+        : await supabase.from('menu_ingredients').insert({ company_id: input.company_id, name }).select('*').single();
+    }
 
     if (response.error || !response.data) {
       toast.error(response.error?.message || 'تعذر حفظ المكوّن');
@@ -310,7 +358,7 @@ export function useCompanyMenus() {
       return false;
     }
 
-    const payload = {
+    const basePayload = {
       company_id: input.company_id,
       category_id: input.category_id,
       name,
@@ -323,16 +371,33 @@ export function useCompanyMenus() {
       price: input.price,
     };
 
+    const extendedPayload: Record<string, unknown> = {
+      ...basePayload,
+      ...(input.is_available !== undefined ? { is_available: input.is_available } : {}),
+    };
+
+    const loose = asSupabaseLooseClient(supabase);
+
     if (input.id) {
-      const { error } = await supabase.from('menu_company_meals').update(payload).eq('id', input.id);
+      let { error } = await loose.from('menu_company_meals').update(extendedPayload).eq('id', input.id);
+      if (error && /(column|schema cache)/i.test(error.message ?? '')) {
+        const retry = await supabase.from('menu_company_meals').update(basePayload).eq('id', input.id);
+        error = retry.error;
+      }
       if (error) { toast.error(error.message || 'تعذر تحديث الوجبة'); return false; }
       const synced = await syncMealIngredients(input.id, input.ingredients);
       if (!synced) return false;
     } else {
       const existingCount = meals.filter(meal => meal.category_id === input.category_id).length;
-      const { data, error } = await supabase.from('menu_company_meals').insert({ ...payload, display_order: existingCount }).select('id').single();
+      let { data, error } = await loose.from('menu_company_meals').insert({ ...extendedPayload, display_order: existingCount }).select('id').single();
+      if (error && /(column|schema cache)/i.test(error.message ?? '')) {
+        const retry = await supabase.from('menu_company_meals').insert({ ...basePayload, display_order: existingCount }).select('id').single();
+        data = retry.data;
+        error = retry.error;
+      }
       if (error || !data) { toast.error(error?.message || 'تعذر إضافة الوجبة'); return false; }
-      const synced = await syncMealIngredients(data.id, input.ingredients);
+      const insertedId = String((data as { id: string }).id);
+      const synced = await syncMealIngredients(insertedId, input.ingredients);
       if (!synced) return false;
     }
 

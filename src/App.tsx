@@ -26,7 +26,6 @@ const HR = lazy(() => import("./pages/HR"));
 const UsersManagement = lazy(() => import("./pages/UsersManagement"));
 const Settings = lazy(() => import("./pages/Settings"));
 const DeliveryOrders = lazy(() => import("./pages/DeliveryOrders"));
-const CompaniesMenus = lazy(() => import("./pages/CompaniesMenus"));
 
 function RouteFallback() {
   return (
@@ -50,7 +49,7 @@ const pageRoutes: Record<AppPageId, string> = {
   customers: '/customers',
   leaderboard: '/leaderboard',
   'menu-packages': '/menu-packages',
-  'companies-menus': '/companies-menus',
+  'companies-menus': '/menu-packages',
   inventory: '/inventory',
   purchases: '/purchases',
   hr: '/hr',
@@ -120,11 +119,7 @@ function AppRoutes() {
           <AppLayout><Suspense fallback={<RouteFallback />}><MenuPackagesRoute /></Suspense></AppLayout>
         </ProtectedRoute>
       } />
-      <Route path="/companies-menus" element={
-        <ProtectedRoute requiredPage="companies-menus">
-          <AppLayout><Suspense fallback={<RouteFallback />}><CompaniesMenus /></Suspense></AppLayout>
-        </ProtectedRoute>
-      } />
+      <Route path="/companies-menus" element={<Navigate to="/menu-packages" replace />} />
       <Route path="/inventory" element={
         <ProtectedRoute allowDemo requiredPage="inventory">
           <AppLayout><Suspense fallback={<RouteFallback />}><InventoryRoute /></Suspense></AppLayout>

@@ -22,8 +22,7 @@ export const ALL_PAGES: { id: AppPageId; label: string }[] = [
   { id: 'kitchen', label: 'المطبخ' },
   { id: 'customers', label: 'العملاء' },
   { id: 'leaderboard', label: 'لوحة الصدارة' },
-  { id: 'menu-packages', label: 'المنيو والباقات' },
-  { id: 'companies-menus', label: 'الشركات والمنيو' },
+  { id: 'menu-packages', label: 'الشركات والمنيو والباقات' },
   { id: 'inventory', label: 'المخزون' },
   { id: 'purchases', label: 'المشتريات' },
   { id: 'hr', label: 'الموارد البشرية' },
@@ -39,7 +38,11 @@ export const DEFAULT_PAGES: Record<KnownAppRole, AppPageId[]> = {
 };
 
 export function hasPageAccess(role: string | null, pagePermissions: string[], pageId: AppPageId) {
-  return role === 'owner' || pagePermissions.includes(pageId);
+  if (role === 'owner') return true;
+  if (pageId === 'menu-packages' || pageId === 'companies-menus') {
+    return pagePermissions.includes('menu-packages') || pagePermissions.includes('companies-menus');
+  }
+  return pagePermissions.includes(pageId);
 }
 
 // Granular Human Resources actions. Sensitive actions (delete, approvals and

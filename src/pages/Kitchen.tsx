@@ -299,12 +299,29 @@ export default function Kitchen({
                       <Badge variant="outline" className="text-[11px] tabular-nums">{section.items.length} صنف</Badge>
                     </div>
                     <div className="space-y-2.5">
-                      {section.items.map((item) => (
+                      {section.items.map((item) => {
+                        const matchedMeal = meals.find(
+                          (m) =>
+                            (!brandSummary.brandId || m.brand_id === brandSummary.brandId) &&
+                            m.name.trim().toLowerCase() === item.label.trim().toLowerCase(),
+                        );
+                        return (
                         <div key={item.key} className="rounded-lg border border-slate-200/70 bg-white p-3 print:shadow-none print:break-inside-avoid">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-semibold text-slate-900">{item.label}</p>
                             <span className="rounded-full bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 text-xs font-bold text-emerald-700 tabular-nums">{item.count.toLocaleString('en-US')}</span>
                           </div>
+                          {matchedMeal?.ingredients && matchedMeal.ingredients.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1 text-[11px] text-slate-500 tabular-nums">
+                              {matchedMeal.ingredients.map((ing, idx) => (
+                                <span key={`${ing.name}-${idx}`} className="rounded bg-slate-50 border border-slate-200/70 px-1.5 py-0.5">
+                                  {ing.name}
+                                  {(ing.weight_before_grams !== null || ing.weight_after_grams !== null) &&
+                                    ` (${ing.weight_before_grams ?? '—'}g→${ing.weight_after_grams ?? '—'}g)`}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           {item.modifications.length > 0 && (
                             <div className="mt-3 space-y-2 border-t pt-3">
                               {item.modifications.map((modification) => (
@@ -316,7 +333,8 @@ export default function Kitchen({
                             </div>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

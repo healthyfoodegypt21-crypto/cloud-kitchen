@@ -187,8 +187,13 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
   );
 
   const brandMeals = useMemo(
-    () => meals.filter(meal => meal.brand_id === form.brand_id),
-    [meals, form.brand_id],
+    () =>
+      meals.filter(
+        (meal) =>
+          meal.brand_id === form.brand_id &&
+          (meal.is_available !== false || form.selected_meal_ids.includes(meal.id)),
+      ),
+    [meals, form.brand_id, form.selected_meal_ids],
   );
 
   const selectedPackagePlan = useMemo(
