@@ -308,4 +308,35 @@ describe('MenuPackages', () => {
     expect(screen.queryByRole('button', { name: /إنشاء باقة/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /تحميل نموذج كامل/i })).not.toBeInTheDocument();
   });
+
+  it('opens confirmation dialog before deleting a meal and calls deleteMeal on confirm', async () => {
+    const deleteMeal = vi.fn().mockResolvedValue(true);
+
+    mockUseAuth.mockReturnValue({ role: 'owner' });
+    mockUseMenuCatalog.mockReturnValue({
+      meals,
+      packages,
+      loading: false,
+      storageMode: 'database',
+      fallbackReason: '',
+      loadError: null,
+      refresh: vi.fn(),
+      saveMeal: vi.fn(),
+      deleteMeal,
+      savePackage: vi.fn(),
+      deletePackage: vi.fn(),
+      loadDemoCatalog: vi.fn(),
+    });
+
+    render(<MenuPackages brands={brands} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'حذف Chicken Teriyaki' }));
+
+    expect(screen.getByText('حذف وجبة "Chicken Teriyaki"؟')).toBeInTheDocument();
+    expect(screen.getByText(/سيتم حذف هذه الوجبة نهائيًا وإزالتها من أي باقات مرتبطة بها/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد الحذف' }));
+
+    expect(deleteMeal).toHaveBeenCalledWith('meal-1');
+  });
 });

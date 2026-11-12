@@ -317,6 +317,22 @@ export function useMenuCatalog() {
       return true;
     }
 
+    // 1. Unlink meal from package plans first to avoid foreign key / check constraint violations
+    const unlinkResponse = await supabase.from('package_plan_items').delete().eq('menu_item_id', mealId);
+    if (unlinkResponse.error && !isMissingTableError({ table: 'package_plan_items', data: null, error: unlinkResponse.error })) {
+      if (isSupabaseNetworkError(unlinkResponse.error)) {
+        markSupabaseUnavailable();
+        activateLocalMode(getSupabaseOfflineReason('قسم المنيو والباقات'));
+        const nextState = deleteLocalMeal(mealId);
+        setMeals(nextState.meals);
+        setPackages(nextState.packages);
+        toast.success('تم حذف الوجبة محليًا');
+        return true;
+      }
+      console.warn('Could not unlink meal from package plans:', unlinkResponse.error);
+    }
+
+    // 2. Delete the meal from menu_items
     const { error } = await supabase.from('menu_items').delete().eq('id', mealId);
     if (error) {
       if (isMissingTableError({ table: 'menu_items', data: null, error }) || isSupabaseNetworkError(error)) {
@@ -334,7 +350,7 @@ export function useMenuCatalog() {
         return true;
       }
 
-      toast.error('تعذر حذف الوجبة');
+      toast.error(error.message || 'تعذر حذف الوجبة');
       console.error(error);
       return false;
     }
@@ -425,6 +441,22 @@ export function useMenuCatalog() {
       return true;
     }
 
+    // 1. Delete items belonging to this package plan first
+    const deleteItemsResponse = await supabase.from('package_plan_items').delete().eq('package_plan_id', packageId);
+    if (deleteItemsResponse.error && !isMissingTableError({ table: 'package_plan_items', data: null, error: deleteItemsResponse.error })) {
+      if (isSupabaseNetworkError(deleteItemsResponse.error)) {
+        markSupabaseUnavailable();
+        activateLocalMode(getSupabaseOfflineReason('قسم المنيو والباقات'));
+        const nextState = deleteLocalPackage(packageId);
+        setMeals(nextState.meals);
+        setPackages(nextState.packages);
+        toast.success('تم حذف الباقة محليًا');
+        return true;
+      }
+      console.warn('Could not clean up package_plan_items:', deleteItemsResponse.error);
+    }
+
+    // 2. Delete the package plan
     const { error } = await supabase.from('package_plans').delete().eq('id', packageId);
     if (error) {
       if (isMissingTableError({ table: 'package_plans', data: null, error }) || isSupabaseNetworkError(error)) {
@@ -442,7 +474,7 @@ export function useMenuCatalog() {
         return true;
       }
 
-      toast.error('تعذر حذف الباقة');
+      toast.error(error.message || 'تعذر حذف الباقة');
       console.error(error);
       return false;
     }

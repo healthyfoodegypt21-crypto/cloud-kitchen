@@ -16,7 +16,60 @@ import { Meal, MealInput, MenuCategory, MENU_CATEGORY_LABELS, MENU_CATEGORY_ORDE
 import { DEMO_EXPECTED_COUNTS, isBrandCatalogComplete } from '@/store/menuCatalog';
 import { AppLayoutHeaderPortal } from '@/components/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { AlertCircle, DatabaseZap, Flame, Pencil, Plus, RefreshCcw, Salad, Search, Sparkles, Trash2 } from 'lucide-react';
+
+function ConfirmDeleteButton({
+  title,
+  description,
+  onConfirm,
+  ariaLabel,
+}: {
+  title: string;
+  description: string;
+  onConfirm: () => void;
+  ariaLabel?: string;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          size="icon"
+          variant="outline"
+          aria-label={ariaLabel}
+          className="h-9 w-9 rounded-xl text-destructive hover:text-destructive hover:bg-rose-50"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>إلغاء</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={onConfirm}
+          >
+            تأكيد الحذف
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 type MealFormState = {
   id?: string;
@@ -543,9 +596,12 @@ export default function MenuPackages({ brands, brandsLoading = false }: Props) {
                               <Button size="icon" variant="outline" className="h-9 w-9 rounded-xl" onClick={() => openMealDialog(meal)}>
                                 <Pencil className="h-4 w-4" />
                               </Button>
-                              <Button size="icon" variant="outline" className="h-9 w-9 rounded-xl text-destructive hover:text-destructive" onClick={() => void deleteMeal(meal.id)}>
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              <ConfirmDeleteButton
+                                title={`حذف وجبة "${meal.name}"؟`}
+                                description="سيتم حذف هذه الوجبة نهائيًا وإزالتها من أي باقات مرتبطة بها."
+                                ariaLabel={`حذف ${meal.name}`}
+                                onConfirm={() => void deleteMeal(meal.id)}
+                              />
                             </div>
                           )}
                         </div>
@@ -595,9 +651,12 @@ export default function MenuPackages({ brands, brandsLoading = false }: Props) {
                         <Button size="icon" variant="outline" className="h-9 w-9 rounded-xl" onClick={() => openPackageDialog(pkg)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button size="icon" variant="outline" className="h-9 w-9 rounded-xl text-destructive hover:text-destructive" onClick={() => void deletePackage(pkg.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <ConfirmDeleteButton
+                          title={`حذف باقة "${pkg.name}"؟`}
+                          description="سيتم حذف هذه الباقة ولن تظهر في الخيارات الجديدة. الطلبات السابقة لن تتأثر."
+                          ariaLabel={`حذف ${pkg.name}`}
+                          onConfirm={() => void deletePackage(pkg.id)}
+                        />
                       </div>
                     )}
                   </div>
