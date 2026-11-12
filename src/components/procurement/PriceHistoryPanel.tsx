@@ -30,7 +30,7 @@ const toNumber = (value: unknown) => {
 
 const formatDate = (value: string) => {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ar-EG');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US');
 };
 
 export default function PriceHistoryPanel({ brandId, items }: {

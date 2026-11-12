@@ -14,7 +14,7 @@ type Props = {
 };
 
 const WEEKDAY_LABELS = ['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'];
-const MONTH_FORMATTER = new Intl.DateTimeFormat('ar-EG', { month: 'long', year: 'numeric' });
+const MONTH_FORMATTER = new Intl.DateTimeFormat('ar-EG-u-nu-latn', { month: 'long', year: 'numeric' });
 
 function toLocalDate(value: string) {
   const [year, month, day] = value.split('-').map(Number);

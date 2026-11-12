@@ -210,7 +210,7 @@ export default function SupplierDirectory({ brandId, suppliers, onRefresh }: {
                     <td className="p-2">{supplier.paymentTerms || '—'}</td>
                     <td className="p-2">{supplier.leadTimeDays} يوم</td>
                     <td className="p-2"><RatingStars value={ratings[supplier.id] ?? 0} disabled /></td>
-                    <td className="p-2">{supplier.lastPurchaseAt ? new Date(supplier.lastPurchaseAt).toLocaleDateString('ar-EG') : '—'}</td>
+                    <td className="p-2 tabular-nums">{supplier.lastPurchaseAt ? new Date(supplier.lastPurchaseAt).toLocaleDateString('en-US') : '—'}</td>
                     <td className="p-2">
                       <Badge variant={supplier.status === 'active' ? 'default' : 'secondary'}>
                         {supplier.status === 'active' ? 'نشط' : 'موقوف'}

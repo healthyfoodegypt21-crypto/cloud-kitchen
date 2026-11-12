@@ -1,10 +1,19 @@
 import { useMemo } from 'react';
-import { Card } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import { Order, STATUS_LABELS, OrderStatus, ACHIEVEMENT_TIERS, SOURCE_LABELS, OrderSource } from '@/types/order';
-import { ClipboardList, DollarSign, TrendingUp, Clock, Target, Award, Flame, Sparkles, AlertTriangle, Repeat, CircleDollarSign } from 'lucide-react';
+import {
+  ClipboardList,
+  DollarSign,
+  TrendingUp,
+  Clock,
+  Target,
+  Award,
+  Sparkles,
+  AlertTriangle,
+  Repeat,
+  CircleDollarSign,
+} from 'lucide-react';
 import { Brand } from '@/hooks/useBrands';
-import { formatEGPCurrency } from '@/lib/utils';
+import { cn, formatEGPCurrency } from '@/lib/utils';
 
 interface Props {
   orders: Order[];
@@ -12,30 +21,28 @@ interface Props {
   getTarget: (type: string) => number;
 }
 
+const CARD_BASE =
+  'h-full flex flex-col justify-between p-5 bg-white border border-slate-200/80 rounded-xl shadow-[0_1px_2px_rgba(15,23,42,0.03)] hover:border-slate-300 hover:shadow-xs transition-all duration-150';
+
 export default function Dashboard({ orders, brands, getTarget }: Props) {
   const today = new Date().toISOString().slice(0, 10);
   const month = new Date().toISOString().slice(0, 7);
   const now = Date.now();
-  const pct = (val: number, target: number) => target > 0 ? Math.min(100, (val / target) * 100) : 0;
+  const pct = (val: number, target: number) => (target > 0 ? Math.min(100, (val / target) * 100) : 0);
 
   const getDayKey = (value: string) => value.slice(0, 10);
 
   const getCustomerKey = (order: Order) => `${order.brand_id ?? 'no-brand'}:${order.phone}`;
 
   const stats = useMemo(() => {
-    const daysAgo = (days: number) => {
-      const date = new Date();
-      date.setDate(date.getDate() - days);
-      return date.getTime();
-    };
-    const todayOrders = orders.filter(o => o.created_at.slice(0, 10) === today);
-    const monthOrders = orders.filter(o => o.created_at.slice(0, 7) === month);
-    const activeOrders = orders.filter(o => !['delivered', 'cancelled'].includes(o.status));
-    const todaySales = todayOrders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + o.price, 0);
-    const monthSales = monthOrders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + o.price, 0);
-    const cancelledToday = todayOrders.filter(o => o.status === 'cancelled');
-    const deliveredToday = todayOrders.filter(o => o.status === 'delivered');
-    const averageOrderValue = todaySales / Math.max(1, todayOrders.filter(o => o.status !== 'cancelled').length);
+    const todayOrders = orders.filter((o) => o.created_at.slice(0, 10) === today);
+    const monthOrders = orders.filter((o) => o.created_at.slice(0, 7) === month);
+    const activeOrders = orders.filter((o) => !['delivered', 'cancelled'].includes(o.status));
+    const todaySales = todayOrders.filter((o) => o.status !== 'cancelled').reduce((s, o) => s + o.price, 0);
+    const monthSales = monthOrders.filter((o) => o.status !== 'cancelled').reduce((s, o) => s + o.price, 0);
+    const cancelledToday = todayOrders.filter((o) => o.status === 'cancelled');
+    const deliveredToday = todayOrders.filter((o) => o.status === 'delivered');
+    const averageOrderValue = todaySales / Math.max(1, todayOrders.filter((o) => o.status !== 'cancelled').length);
     const cancellationRate = todayOrders.length > 0 ? (cancelledToday.length / todayOrders.length) * 100 : 0;
     const onTrackRevenue = getTarget('daily_sales') > 0 ? todaySales >= getTarget('daily_sales') * 0.75 : false;
 
@@ -64,15 +71,19 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
 
   const statusBreakdown = useMemo(() => {
     const counts: Partial<Record<OrderStatus, number>> = {};
-    orders.forEach(o => { counts[o.status] = (counts[o.status] || 0) + 1; });
+    orders.forEach((o) => {
+      counts[o.status] = (counts[o.status] || 0) + 1;
+    });
     return counts;
   }, [orders]);
 
   const sourceBreakdown = useMemo(() => {
     const counts: Partial<Record<OrderSource, number>> = {};
-    orders.filter(o => o.created_at.slice(0, 7) === month).forEach(o => {
-      counts[o.source] = (counts[o.source] || 0) + 1;
-    });
+    orders
+      .filter((o) => o.created_at.slice(0, 7) === month)
+      .forEach((o) => {
+        counts[o.source] = (counts[o.source] || 0) + 1;
+      });
     return counts;
   }, [orders, month]);
 
@@ -148,269 +159,534 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
       customerLastSeen.set(key, Math.max(customerLastSeen.get(key) ?? 0, time));
     });
 
-    const atRiskCustomers = Array.from(customerLastSeen.values()).filter((lastSeen) => lastSeen < previous14DaysStart && lastSeen >= atRiskWindowStart).length;
-    const delayedOrders = orders.filter((order) => !['delivered', 'cancelled'].includes(order.status) && now - new Date(order.created_at).getTime() > 1000 * 60 * 60 * 6).length;
+    const atRiskCustomers = Array.from(customerLastSeen.values()).filter(
+      (lastSeen) => lastSeen < previous14DaysStart && lastSeen >= atRiskWindowStart,
+    ).length;
+    const delayedOrders = orders.filter(
+      (order) =>
+        !['delivered', 'cancelled'].includes(order.status) &&
+        now - new Date(order.created_at).getTime() > 1000 * 60 * 60 * 6,
+    ).length;
     const missedRevenue = stats.cancelledToday.reduce((sum, order) => sum + order.price, 0);
     const bestSourceEntry = Object.entries(sourceBreakdown).sort((a, b) => (b[1] || 0) - (a[1] || 0))[0];
 
     return [
       {
-        title: 'فرصة استرجاع عملاء',
-        value: `${atRiskCustomers} عميل`,
-        hint: atRiskCustomers > 0 ? 'ابعت عرض رجوع للعملاء غير النشطين منذ 14 إلى 30 يومًا.' : 'لا توجد قائمة استرجاع ساخنة الآن.',
-        icon: Repeat,
-        tone: 'text-info',
-      },
-      {
+        key: 'delayed',
         title: 'طلبات معرضة للتأخير',
-        value: `${delayedOrders} طلب`,
-        hint: delayedOrders > 0 ? 'راجع الطلبات المفتوحة الأقدم من 6 ساعات قبل أن تتحول إلى إلغاء.' : 'لا توجد طلبات متأخرة حرجة الآن.',
+        value: `${delayedOrders.toLocaleString('en-US')} طلب`,
+        hint:
+          delayedOrders > 0
+            ? 'راجع الطلبات المفتوحة الأقدم من 6 ساعات قبل أن تتحول إلى إلغاء.'
+            : 'لا توجد طلبات متأخرة حرجة الآن.',
         icon: AlertTriangle,
-        tone: 'text-warning',
+        urgent: delayedOrders > 0,
+        iconBadgeClass:
+          delayedOrders > 0
+            ? 'bg-amber-100/80 text-amber-700 border border-amber-200/80'
+            : 'bg-amber-50/70 text-amber-700 border border-amber-200',
       },
       {
+        key: 'missed-revenue',
         title: 'إيراد مهدور اليوم',
         value: formatEGPCurrency(missedRevenue),
-        hint: missedRevenue > 0 ? 'هذا هو أثر الطلبات الملغية اليوم مباشرة على الكاش.' : 'لم تخسر إيرادًا من الإلغاء اليوم.',
+        hint:
+          missedRevenue > 0
+            ? 'هذا هو أثر الطلبات الملغية اليوم مباشرة على الكاش.'
+            : 'لم تخسر إيراداً من الإلغاء اليوم.',
         icon: CircleDollarSign,
-        tone: 'text-destructive',
+        urgent: false,
+        iconBadgeClass: 'bg-rose-50 text-rose-600 border border-rose-200/60',
       },
       {
+        key: 'recovery',
+        title: 'فرصة استرجاع عملاء',
+        value: `${atRiskCustomers.toLocaleString('en-US')} عميل`,
+        hint:
+          atRiskCustomers > 0
+            ? 'ابعت عرض رجوع للعملاء غير النشطين منذ 14 إلى 30 يوماً.'
+            : 'لا توجد قائمة استرجاع ساخنة الآن.',
+        icon: Repeat,
+        urgent: false,
+        iconBadgeClass: 'bg-sky-50 text-sky-600 border border-sky-200/60',
+      },
+      {
+        key: 'best-source',
         title: 'أفضل مصدر بيع',
         value: bestSourceEntry ? SOURCE_LABELS[bestSourceEntry[0] as OrderSource] : 'لا يوجد',
-        hint: bestSourceEntry ? `المصدر الأقوى جلب ${bestSourceEntry[1]} طلب هذا الشهر. ركز عليه اليوم.` : 'ابدأ تتبع مصدر أول طلب فعلي.',
+        hint: bestSourceEntry
+          ? `المصدر الأقوى جلب ${(bestSourceEntry[1] || 0).toLocaleString('en-US')} طلب هذا الشهر. ركز عليه اليوم.`
+          : 'ابدأ تتبع مصدر أول طلب فعلي.',
         icon: Sparkles,
-        tone: 'text-success',
+        urgent: false,
+        iconBadgeClass: 'bg-emerald-50 text-emerald-600 border border-emerald-200/60',
       },
     ];
   }, [now, orders, sourceBreakdown, stats.cancelledToday]);
 
-  const missionLabel = stats.todaySales >= targets.dailySales && stats.todayOrderCount >= targets.dailyOrders
-    ? 'تم تحقيق مهمة اليوم كاملة.'
-    : stats.onTrackRevenue
-      ? 'أنت قريب من إغلاق اليوم على الهدف.'
-      : 'ركز على رفع الإيراد أولًا، لا عدد الطلبات فقط.';
+  const missionLabel =
+    stats.todaySales >= targets.dailySales && stats.todayOrderCount >= targets.dailyOrders
+      ? 'تم تحقيق مهمة اليوم كاملة.'
+      : stats.onTrackRevenue
+        ? 'أنت قريب من إغلاق اليوم على الهدف.'
+        : 'ركز على رفع الإيراد أولاً، لا عدد الطلبات فقط.';
 
-  const missionProgress = Math.min(100, ((pct(stats.todaySales, targets.dailySales) + pct(stats.todayOrderCount, targets.dailyOrders)) / 2));
+  const missionProgress = Math.min(
+    100,
+    (pct(stats.todaySales, targets.dailySales) + pct(stats.todayOrderCount, targets.dailyOrders)) / 2,
+  );
 
   const brandBreakdown = useMemo(() => {
-    return brands.map(b => {
-      const brandOrders = orders.filter(o => o.brand_id === b.id && o.created_at.slice(0, 7) === month);
-      const sales = brandOrders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + o.price, 0);
+    return brands.map((b) => {
+      const brandOrders = orders.filter((o) => o.brand_id === b.id && o.created_at.slice(0, 7) === month);
+      const sales = brandOrders.filter((o) => o.status !== 'cancelled').reduce((s, o) => s + o.price, 0);
       return { ...b, orders: brandOrders.length, sales };
     });
   }, [orders, brands, month]);
 
   const currentTier = useMemo(() => {
     const monthCount = stats.monthOrderCount;
-    return [...ACHIEVEMENT_TIERS].reverse().find(t => monthCount >= t.threshold);
+    return [...ACHIEVEMENT_TIERS].reverse().find((t) => monthCount >= t.threshold);
   }, [stats.monthOrderCount]);
 
   const nextTier = useMemo(() => {
     const monthCount = stats.monthOrderCount;
-    return ACHIEVEMENT_TIERS.find(t => monthCount < t.threshold);
+    return ACHIEVEMENT_TIERS.find((t) => monthCount < t.threshold);
   }, [stats.monthOrderCount]);
 
+  const dailyOrdersPct = pct(stats.todayOrderCount, targets.dailyOrders);
+  const dailySalesPct = pct(stats.todaySales, targets.dailySales);
+  const dailyOverallPct = Math.round((dailyOrdersPct + dailySalesPct) / 2);
+
+  const monthlyOrdersPct = pct(stats.monthOrderCount, targets.monthlyOrders);
+  const monthlySalesPct = pct(stats.monthSales, targets.monthlySales);
+  const monthlyOverallPct = Math.round((monthlyOrdersPct + monthlySalesPct) / 2);
+
+  const efficiencySnapshot = [
+    {
+      label: 'ستريك تحقيق الهدف',
+      value: streak.toLocaleString('en-US'),
+      caption: 'يوم متتالي فوق هدف الإيراد',
+    },
+    {
+      label: 'متوسط الطلب اليوم',
+      value: formatEGPCurrency(stats.averageOrderValue),
+      caption: 'كل رفع هنا يؤثر مباشرة على المكسب',
+    },
+    {
+      label: 'إلغاء اليوم',
+      value: `${stats.cancellationRate.toFixed(0)}%`,
+      caption: 'الهدف الصحي أقل من 5%',
+    },
+    {
+      label: 'العملاء العائدون',
+      value: `${repeatCustomerRate.toFixed(0)}%`,
+      caption: 'كل عميل عائد أرخص من اكتساب عميل جديد',
+    },
+  ];
+
+  const primaryVolumeCards = [
+    {
+      label: 'طلبات اليوم',
+      value: stats.todayOrderCount.toLocaleString('en-US'),
+      icon: ClipboardList,
+      highlighted: false,
+      footer: (
+        <span className="text-[11px] text-slate-500 tabular-nums tracking-tight">
+          تم تسليم {stats.deliveredToday.length.toLocaleString('en-US')} طلب اليوم
+        </span>
+      ),
+    },
+    {
+      label: 'الطلبات النشطة',
+      value: stats.activeOrders.toLocaleString('en-US'),
+      icon: Clock,
+      highlighted: false,
+      footer:
+        stats.activeOrders > 0 ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50/70 text-amber-700 border border-amber-200">
+            قيد التشغيل والمتابعة
+          </span>
+        ) : (
+          <span className="text-[11px] text-slate-500">لا توجد طلبات معلقة</span>
+        ),
+    },
+    {
+      label: 'مبيعات اليوم',
+      value: formatEGPCurrency(stats.todaySales),
+      icon: DollarSign,
+      highlighted: false,
+      footer: (
+        <span className="text-[11px] text-slate-500 tabular-nums tracking-tight">
+          {dailySalesPct.toFixed(0)}% من الهدف اليومي
+        </span>
+      ),
+    },
+    {
+      label: 'مبيعات الشهر',
+      value: formatEGPCurrency(stats.monthSales),
+      icon: TrendingUp,
+      highlighted: true,
+      footer: (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60 tabular-nums tracking-tight">
+          {stats.monthOrderCount.toLocaleString('en-US')} طلب هذا الشهر
+        </span>
+      ),
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">لوحة التحكم</h1>
-        {currentTier && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ backgroundColor: currentTier.color + '20', color: currentTier.color }}>
-            <Award className="h-4 w-4" />
-            <span className="text-sm font-bold">{currentTier.emoji} {currentTier.label}</span>
+    <div className="space-y-5" data-tier={currentTier?.badge ?? 'none'}>
+      {/* ROW 1: Executive Focus & Daily Momentum */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+        {/* 1. Daily Mission Card */}
+        <div className={cn(CARD_BASE, 'lg:col-span-7')}>
+          <div className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-1 bg-orange-50 text-orange-700 border border-orange-200/60 px-2.5 py-0.5 rounded-full text-xs font-semibold">
+              مهمة اليوم 🔥
+            </span>
+            <span className="text-sm font-bold text-slate-900 tabular-nums tracking-tight">
+              {missionProgress.toFixed(0)}%
+            </span>
           </div>
-        )}
+
+          <div>
+            <h2 className="text-base font-bold text-slate-900 mt-2">{missionLabel}</h2>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+              كل زيادة في متوسط الطلب وتقليل الإلغاء ترفع الربح أسرع من مجرد زيادة عدد الأوردرات.
+            </p>
+          </div>
+
+          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mt-4">
+            <div
+              className="bg-emerald-600 h-full rounded-full transition-all"
+              style={{ width: `${missionProgress}%` }}
+            />
+          </div>
+        </div>
+
+        {/* 2. Quick Efficiency Snapshot */}
+        <div className="lg:col-span-5 grid grid-cols-2 gap-3">
+          {efficiencySnapshot.map((item) => (
+            <div
+              key={item.label}
+              className="h-full bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] hover:border-slate-300 hover:shadow-xs transition-all duration-150 flex flex-col justify-between"
+            >
+              <div className="text-[11px] font-medium text-slate-500">{item.label}</div>
+              <div className="text-lg font-bold text-slate-900 tabular-nums tracking-tight mt-1">
+                {item.value}
+              </div>
+              <div className="text-[11px] text-slate-400 line-clamp-1 mt-1">{item.caption}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <Card className="overflow-hidden border-0 bg-gradient-to-br from-orange-50 via-amber-50 to-emerald-50 p-0 shadow-sm">
-        <div className="grid gap-4 p-5 lg:grid-cols-[1.5fr,1fr] lg:items-center">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-orange-600">
-              <Flame className="h-5 w-5" />
-              <span className="text-sm font-semibold">مهمة اليوم</span>
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-900">{missionLabel}</h2>
-              <p className="mt-1 text-sm text-slate-600">كل زيادة في متوسط الطلب وتقليل الإلغاء ترفع الربح أسرع من مجرد زيادة عدد الأوردرات.</p>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-slate-700">تقدم المهمة</span>
-                <span className="font-bold text-slate-900">{missionProgress.toFixed(0)}%</span>
+      {/* ROW 2: Primary Revenue & Order Volume */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
+        {primaryVolumeCards.map(({ label, value, icon: Icon, highlighted, footer }) => (
+          <div
+            key={label}
+            className={cn(CARD_BASE, highlighted && 'border-t-2 border-t-emerald-500')}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-slate-500">{label}</span>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-50 text-slate-600 border border-slate-200/60 shrink-0">
+                <Icon className="w-4 h-4" />
               </div>
-              <Progress value={missionProgress} className="h-3 bg-white/80" />
             </div>
+            <div className="text-2xl font-bold text-slate-900 tabular-nums tracking-tight my-2">
+              {value}
+            </div>
+            <div className="flex items-center justify-between">{footer}</div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-white/80 p-4">
-              <div className="text-xs text-slate-500">ستريك تحقيق الهدف</div>
-              <div className="mt-1 text-3xl font-black text-slate-900">{streak}</div>
-              <div className="text-xs text-slate-600">يوم متتالي فوق هدف الإيراد</div>
+        ))}
+      </div>
+
+      {/* ROW 3: Operational Risk & Growth Insights */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
+        {quickWins.map(({ key, title, value, hint, icon: Icon, urgent, iconBadgeClass }) => (
+          <div
+            key={key}
+            className={cn(
+              'h-full flex flex-col justify-between p-5 rounded-xl shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all duration-150',
+              urgent
+                ? 'bg-amber-50/40 border border-amber-200/90 border-r-4 border-r-amber-500 hover:shadow-xs'
+                : 'bg-white border border-slate-200/80 hover:border-slate-300 hover:shadow-xs',
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span
+                className={cn(
+                  'text-xs font-semibold',
+                  urgent ? 'text-amber-900' : 'text-slate-600',
+                )}
+              >
+                {title}
+              </span>
+              <div
+                className={cn(
+                  'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+                  iconBadgeClass,
+                )}
+              >
+                <Icon className="w-4 h-4" />
+              </div>
             </div>
-            <div className="rounded-2xl bg-white/80 p-4">
-              <div className="text-xs text-slate-500">متوسط الطلب اليوم</div>
-              <div className="mt-1 text-2xl font-black text-slate-900">{formatEGPCurrency(stats.averageOrderValue)}</div>
-              <div className="text-xs text-slate-600">كل رفع هنا يؤثر مباشرة على المكسب</div>
+
+            <div
+              className={cn(
+                'text-2xl font-bold tabular-nums tracking-tight my-2',
+                urgent ? 'text-amber-950' : 'text-slate-900',
+              )}
+            >
+              {value}
             </div>
-            <div className="rounded-2xl bg-white/80 p-4">
-              <div className="text-xs text-slate-500">إلغاء اليوم</div>
-              <div className="mt-1 text-2xl font-black text-slate-900">{stats.cancellationRate.toFixed(0)}%</div>
-              <div className="text-xs text-slate-600">الهدف الصحي أقل من 5%</div>
+
+            <p
+              className={cn(
+                'text-xs leading-relaxed',
+                urgent ? 'text-amber-800/90' : 'text-slate-500',
+              )}
+            >
+              {hint}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* ROW 4: Daily & Monthly Targets */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+        {/* Daily Targets */}
+        <div className={CARD_BASE}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-50 text-emerald-700 border border-emerald-200/60 shrink-0">
+                <Target className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-bold text-slate-900">الأهداف اليومية</h2>
             </div>
-            <div className="rounded-2xl bg-white/80 p-4">
-              <div className="text-xs text-slate-500">العملاء العائدون</div>
-              <div className="mt-1 text-2xl font-black text-slate-900">{repeatCustomerRate.toFixed(0)}%</div>
-              <div className="text-xs text-slate-600">كل عميل عائد أرخص من اكتساب عميل جديد</div>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 tabular-nums tracking-tight">
+              {dailyOverallPct}%
+            </span>
+          </div>
+
+          <div className="space-y-4 mt-4">
+            <div>
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-medium text-slate-500">
+                  الطلبات:{' '}
+                  <span className="font-semibold text-slate-800 tabular-nums tracking-tight">
+                    {stats.todayOrderCount.toLocaleString('en-US')} / {targets.dailyOrders.toLocaleString('en-US')}
+                  </span>
+                </span>
+                <span className="font-semibold text-slate-900 tabular-nums tracking-tight">
+                  {dailyOrdersPct.toFixed(0)}%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-600 h-full rounded-full transition-all"
+                  style={{ width: `${dailyOrdersPct}%` }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-medium text-slate-500">
+                  المبيعات:{' '}
+                  <span className="font-semibold text-slate-800 tabular-nums tracking-tight">
+                    {formatEGPCurrency(stats.todaySales)} / {formatEGPCurrency(targets.dailySales)}
+                  </span>
+                </span>
+                <span className="font-semibold text-slate-900 tabular-nums tracking-tight">
+                  {dailySalesPct.toFixed(0)}%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-600 h-full rounded-full transition-all"
+                  style={{ width: `${dailySalesPct}%` }}
+                />
+              </div>
             </div>
           </div>
         </div>
-      </Card>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'طلبات اليوم', value: stats.todayOrderCount, icon: ClipboardList, accent: 'text-primary' },
-          { label: 'الطلبات النشطة', value: stats.activeOrders, icon: Clock, accent: 'text-warning' },
-          { label: 'مبيعات اليوم', value: formatEGPCurrency(stats.todaySales), icon: DollarSign, accent: 'text-success' },
-          { label: 'مبيعات الشهر', value: formatEGPCurrency(stats.monthSales), icon: TrendingUp, accent: 'text-info' },
-        ].map(({ label, value, icon: Icon, accent }) => (
-          <Card key={label} className="p-4 flex flex-col gap-2 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground font-medium">{label}</span>
-              <Icon className={`h-5 w-5 ${accent}`} />
+        {/* Monthly Targets */}
+        <div className={CARD_BASE}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-50 text-slate-700 border border-slate-200/60 shrink-0">
+                <Target className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-bold text-slate-900">الأهداف الشهرية</h2>
             </div>
-            <span className="text-2xl font-bold text-foreground">{value}</span>
-          </Card>
-        ))}
-      </div>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 tabular-nums tracking-tight">
+              {monthlyOverallPct}%
+            </span>
+          </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {quickWins.map(({ title, value, hint, icon: Icon, tone }) => (
-          <Card key={title} className="p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-foreground">{title}</span>
-              <Icon className={`h-4 w-4 ${tone}`} />
+          <div className="space-y-4 mt-4">
+            <div>
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-medium text-slate-500">
+                  الطلبات:{' '}
+                  <span className="font-semibold text-slate-800 tabular-nums tracking-tight">
+                    {stats.monthOrderCount.toLocaleString('en-US')} / {targets.monthlyOrders.toLocaleString('en-US')}
+                  </span>
+                </span>
+                <span className="font-semibold text-slate-900 tabular-nums tracking-tight">
+                  {monthlyOrdersPct.toFixed(0)}%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-600 h-full rounded-full transition-all"
+                  style={{ width: `${monthlyOrdersPct}%` }}
+                />
+              </div>
             </div>
-            <div className="text-2xl font-black text-foreground">{value}</div>
-            <p className="text-xs leading-5 text-muted-foreground">{hint}</p>
-          </Card>
-        ))}
-      </div>
 
-      {/* Targets with progress bars */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Target className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">الأهداف اليومية</h2>
-          </div>
-          <div className="space-y-2">
             <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-muted-foreground">الطلبات: {stats.todayOrderCount}/{targets.dailyOrders}</span>
-                <span className="font-medium text-foreground">{pct(stats.todayOrderCount, targets.dailyOrders).toFixed(0)}%</span>
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="font-medium text-slate-500">
+                  المبيعات:{' '}
+                  <span className="font-semibold text-slate-800 tabular-nums tracking-tight">
+                    {formatEGPCurrency(stats.monthSales)} / {formatEGPCurrency(targets.monthlySales)}
+                  </span>
+                </span>
+                <span className="font-semibold text-slate-900 tabular-nums tracking-tight">
+                  {monthlySalesPct.toFixed(0)}%
+                </span>
               </div>
-              <Progress value={pct(stats.todayOrderCount, targets.dailyOrders)} className="h-3" />
-            </div>
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-muted-foreground">المبيعات: {formatEGPCurrency(stats.todaySales)} / {formatEGPCurrency(targets.dailySales)}</span>
-                <span className="font-medium text-foreground">{pct(stats.todaySales, targets.dailySales).toFixed(0)}%</span>
+              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-600 h-full rounded-full transition-all"
+                  style={{ width: `${monthlySalesPct}%` }}
+                />
               </div>
-              <Progress value={pct(stats.todaySales, targets.dailySales)} className="h-3" />
             </div>
           </div>
-        </Card>
-        <Card className="p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Target className="h-4 w-4 text-info" />
-            <h2 className="text-sm font-semibold text-foreground">الأهداف الشهرية</h2>
-          </div>
-          <div className="space-y-2">
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-muted-foreground">الطلبات: {stats.monthOrderCount}/{targets.monthlyOrders}</span>
-                <span className="font-medium text-foreground">{pct(stats.monthOrderCount, targets.monthlyOrders).toFixed(0)}%</span>
-              </div>
-              <Progress value={pct(stats.monthOrderCount, targets.monthlyOrders)} className="h-3" />
-            </div>
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-muted-foreground">المبيعات: {formatEGPCurrency(stats.monthSales)} / {formatEGPCurrency(targets.monthlySales)}</span>
-                <span className="font-medium text-foreground">{pct(stats.monthSales, targets.monthlySales).toFixed(0)}%</span>
-              </div>
-              <Progress value={pct(stats.monthSales, targets.monthlySales)} className="h-3" />
-            </div>
-          </div>
-        </Card>
+        </div>
       </div>
 
       {/* Achievement progress */}
       {nextTier && (
-        <Card className="p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Award className="h-4 w-4 text-warning" />
-            <h2 className="text-sm font-semibold text-foreground">الإنجاز التالي: {nextTier.emoji} {nextTier.label}</h2>
+        <div className={CARD_BASE}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-amber-50 text-amber-700 border border-amber-200/80 shrink-0">
+                <Award className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-bold text-slate-900">
+                الإنجاز التالي: {nextTier.emoji} {nextTier.label}
+              </h2>
+            </div>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 tabular-nums tracking-tight">
+              {pct(stats.monthOrderCount, nextTier.threshold).toFixed(0)}%
+            </span>
           </div>
-          <div className="flex justify-between text-xs mb-1">
-            <span className="text-muted-foreground">{stats.monthOrderCount} / {nextTier.threshold} طلب هذا الشهر</span>
-            <span className="font-medium">{pct(stats.monthOrderCount, nextTier.threshold).toFixed(0)}%</span>
+
+          <div className="mt-4">
+            <div className="flex justify-between text-xs mb-1.5">
+              <span className="text-slate-500 tabular-nums tracking-tight">
+                {stats.monthOrderCount.toLocaleString('en-US')} / {nextTier.threshold.toLocaleString('en-US')} طلب هذا الشهر
+              </span>
+              <span className="font-semibold text-slate-900 tabular-nums tracking-tight">
+                {pct(stats.monthOrderCount, nextTier.threshold).toFixed(0)}%
+              </span>
+            </div>
+            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="bg-emerald-600 h-full rounded-full transition-all"
+                style={{ width: `${pct(stats.monthOrderCount, nextTier.threshold)}%` }}
+              />
+            </div>
           </div>
-          <Progress value={pct(stats.monthOrderCount, nextTier.threshold)} className="h-4" />
-        </Card>
+        </div>
       )}
 
       {/* Brand performance */}
-      <Card className="p-4">
-        <h2 className="text-sm font-semibold text-foreground mb-3">أداء العلامات التجارية هذا الشهر</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {brandBreakdown.map(b => (
-            <div key={b.id} className="rounded-xl p-3 border" style={{ borderColor: b.color + '40' }}>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: b.color }} />
-                <span className="text-sm font-medium text-foreground">{b.name}</span>
+      {brandBreakdown.length > 0 && (
+        <div className={CARD_BASE}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold text-slate-900">أداء العلامات التجارية هذا الشهر</h2>
+            <span className="text-xs text-slate-400 tabular-nums tracking-tight">
+              {brandBreakdown.length.toLocaleString('en-US')} علامة
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {brandBreakdown.map((b) => (
+              <div
+                key={b.id}
+                className="h-full flex flex-col justify-between rounded-xl p-3.5 bg-slate-50/60 border border-slate-200/80 hover:border-slate-300 transition-colors"
+              >
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: b.color }} />
+                  <span className="text-xs font-semibold text-slate-800 truncate">{b.name}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500 tabular-nums tracking-tight">
+                    {b.orders.toLocaleString('en-US')} طلب
+                  </span>
+                  <span className="font-bold text-slate-900 tabular-nums tracking-tight">
+                    {formatEGPCurrency(b.sales)}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{b.orders} طلب</span>
-                <span className="font-bold text-foreground">{formatEGPCurrency(b.sales)}</span>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </Card>
+      )}
 
       {/* Source breakdown + Status breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-foreground mb-3">مصادر الطلبات هذا الشهر</h2>
-          <div className="space-y-2">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+        <div className={CARD_BASE}>
+          <h2 className="text-sm font-bold text-slate-900 mb-4">مصادر الطلبات هذا الشهر</h2>
+          <div className="space-y-2.5 flex-1 flex flex-col justify-between">
             {(Object.entries(SOURCE_LABELS) as [OrderSource, string][]).map(([key, label]) => {
               const count = sourceBreakdown[key] || 0;
               const total = Object.values(sourceBreakdown).reduce((s, v) => s + (v || 0), 0);
+              const share = total > 0 ? Math.round((count / total) * 100) : 0;
               return (
-                <div key={key} className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{label}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-foreground">{count}</span>
-                    <span className="text-xs text-muted-foreground">({total > 0 ? ((count / total) * 100).toFixed(0) : 0}%)</span>
+                <div key={key} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-600">{label}</span>
+                    <div className="flex items-center gap-2 tabular-nums tracking-tight">
+                      <span className="font-semibold text-slate-900">{count.toLocaleString('en-US')}</span>
+                      <span className="text-slate-400">({share}%)</span>
+                    </div>
+                  </div>
+                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="bg-emerald-600 h-full rounded-full transition-all"
+                      style={{ width: `${share}%` }}
+                    />
                   </div>
                 </div>
               );
             })}
           </div>
-        </Card>
-        <Card className="p-4">
-          <h2 className="text-sm font-semibold text-foreground mb-3">توزيع الحالات</h2>
-          <div className="grid grid-cols-2 gap-2">
+        </div>
+
+        <div className={CARD_BASE}>
+          <h2 className="text-sm font-bold text-slate-900 mb-4">توزيع الحالات</h2>
+          <div className="grid grid-cols-2 gap-2.5 flex-1">
             {(Object.entries(STATUS_LABELS) as [OrderStatus, string][]).map(([key, label]) => (
-              <div key={key} className="flex items-center justify-between rounded-lg bg-muted px-3 py-2">
-                <span className="text-xs text-muted-foreground">{label}</span>
-                <span className="font-bold text-foreground text-sm">{statusBreakdown[key] || 0}</span>
+              <div
+                key={key}
+                className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-200/60 px-3 py-2.5"
+              >
+                <span className="text-xs font-medium text-slate-600">{label}</span>
+                <span className="font-bold text-slate-900 text-sm tabular-nums tracking-tight">
+                  {(statusBreakdown[key] || 0).toLocaleString('en-US')}
+                </span>
               </div>
             ))}
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   );

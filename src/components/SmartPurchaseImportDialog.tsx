@@ -412,7 +412,7 @@ export default function SmartPurchaseImportDialog({
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-semibold">مراجعة الأصناف المستخرجة ({lines.length})</h3>
-              <span className="text-sm text-muted-foreground">الإجمالي التقديري: {total.toLocaleString('ar-EG')} ج.م</span>
+              <span className="text-sm text-muted-foreground tabular-nums tracking-tight">الإجمالي التقديري: {total.toLocaleString('en-US')} ج.م.</span>
             </div>
             <div className="space-y-3">
               {lines.map((line) => {
@@ -466,8 +466,8 @@ export default function SmartPurchaseImportDialog({
                     </div>
                     <div className="space-y-1">
                       <Label>الإجمالي</Label>
-                      <div className="flex h-10 items-center justify-center rounded-md border bg-muted px-3 text-sm font-semibold tabular-nums">
-                        {(line.quantity * line.unitPrice).toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م
+                      <div className="flex h-10 items-center justify-center rounded-md border bg-muted px-3 text-sm font-semibold tabular-nums tracking-tight">
+                        {(line.quantity * line.unitPrice).toLocaleString('en-US', { maximumFractionDigits: 2 })} ج.م.
                       </div>
                     </div>
                     <Button type="button" variant="ghost" size="icon" aria-label={`حذف ${line.sourceName}`} onClick={() => setLines((current) => current.filter((entry) => entry.id !== line.id))}>
@@ -475,13 +475,13 @@ export default function SmartPurchaseImportDialog({
                     </Button>
                     {item && converted ? (
                       <div className="space-y-2 md:col-span-6">
-                        <p className="text-xs text-muted-foreground">
-                          ستُسجل {converted.quantity.toLocaleString('ar-EG', { maximumFractionDigits: 3 })} {item.purchaseUnit}
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          ستُسجل {converted.quantity.toLocaleString('en-US', { maximumFractionDigits: 3 })} {item.purchaseUnit}
                           {line.sourceUnit && line.sourceUnit !== item.purchaseUnit
                             ? ` (محوّلة تلقائيًا من ${line.sourceUnit} إلى وحدة الشراء بمعامل ${item.conversionFactor})`
                             : ' بوحدة الشراء'}
-                          {' '}بسعر {converted.unitPrice.toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م للوحدة
-                          {' '}— إجمالي السطر {(converted.quantity * converted.unitPrice).toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م.
+                          {' '}بسعر {converted.unitPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })} ج.م. للوحدة
+                          {' '}— إجمالي السطر {(converted.quantity * converted.unitPrice).toLocaleString('en-US', { maximumFractionDigits: 2 })} ج.م.
                         </p>
                         <ProcurementPriceAlert
                           itemName={item.name}

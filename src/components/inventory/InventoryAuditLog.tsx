@@ -145,7 +145,7 @@ export default function InventoryAuditLog({ brandId }: Props) {
   const formatDateTime = (value: string) => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
+    return date.toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
   };
 
   return (

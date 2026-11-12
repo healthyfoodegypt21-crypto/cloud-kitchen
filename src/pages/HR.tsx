@@ -869,7 +869,7 @@ function ActivityTab({ audit }: { audit: HrAuditEntry[] }) {
               <TableRow key={entry.id}>
                 <TableCell>{entry.user}</TableCell><TableCell><Badge variant="outline">{entry.action}</Badge></TableCell>
                 <TableCell className="max-w-[280px] truncate">{entry.entity}</TableCell>
-                <TableCell className="text-muted-foreground">{new Date(entry.timestamp).toLocaleString('ar-EG')}</TableCell>
+                <TableCell className="text-muted-foreground tabular-nums">{new Date(entry.timestamp).toLocaleString('en-US')}</TableCell>
               </TableRow>
             ))}
             {audit.length === 0 ? <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">لا توجد عمليات مسجلة بعد.</TableCell></TableRow> : null}

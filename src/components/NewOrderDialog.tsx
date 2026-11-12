@@ -794,9 +794,13 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
   };
 
   const triggerButton = isEditMode ? null : (
-    <Button size="lg" className="gap-2 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
-      <Plus className="h-5 w-5" /> إضافة أوردر جديد
-    </Button>
+    <button
+      type="button"
+      className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-xs transition-all cursor-pointer"
+    >
+      <Plus className="w-4 h-4 shrink-0" />
+      <span>إضافة أوردر جديد</span>
+    </button>
   );
 
   const surfaceContent = (

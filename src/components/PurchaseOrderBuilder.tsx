@@ -119,7 +119,7 @@ export default function PurchaseOrderBuilder({ items, categories, locations, ini
       </div>
       <Button type="button" className="mt-3" variant="outline" disabled={creatingItem} onClick={() => void addNewItem()}><Plus className="ml-1 h-4 w-4" />{creatingItem ? 'جارٍ إضافة الصنف...' : 'إضافة الصنف الجديد للأمر'}</Button>
     </div>
-    <div className="grid gap-3 sm:grid-cols-2"><TextField label="المورد" value={supplierName} onChange={setSupplierName} /><div className="rounded-lg bg-muted p-3 text-sm"><p className="text-muted-foreground">إجمالي تقديري</p><strong>{total.toLocaleString('ar-EG')} ج.م</strong></div></div>
+    <div className="grid gap-3 sm:grid-cols-2"><TextField label="المورد" value={supplierName} onChange={setSupplierName} /><div className="rounded-lg bg-muted p-3 text-sm"><p className="text-muted-foreground">إجمالي تقديري</p><strong className="tabular-nums tracking-tight">{total.toLocaleString('en-US')} ج.م.</strong></div></div>
     <div className="space-y-1"><Label>ملاحظات أمر الشراء</Label><Textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="أي تعليمات للمورد أو للمخزن" /></div>
     <Button className="w-full" disabled={lines.length === 0} onClick={() => void submit()}><PackagePlus className="ml-2 h-4 w-4" />إرسال أمر شراء مجمع ({lines.length} أصناف)</Button>
   </div>;

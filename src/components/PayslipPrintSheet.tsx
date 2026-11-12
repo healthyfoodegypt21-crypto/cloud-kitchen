@@ -38,7 +38,7 @@ export default function PayslipPrintSheet({ payroll, employee }: Props) {
           </div>
           <div className="text-left text-sm">
             <p className="font-semibold">{MONTH_LABELS[payroll.month - 1]} {payroll.year}</p>
-            <p className="text-slate-500">تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</p>
+            <p className="text-slate-500 tabular-nums">تاريخ الطباعة: {new Date().toLocaleDateString('en-US')}</p>
           </div>
         </div>
 

@@ -3,6 +3,7 @@ import { useBrands } from '@/hooks/useBrands';
 import { useTargets } from '@/hooks/useTargets';
 import Dashboard from '@/pages/Dashboard';
 import NewOrderDialog from '@/components/NewOrderDialog';
+import { AppLayoutHeaderPortal } from '@/components/AppLayout';
 
 export default function Index() {
   const { orders, addOrder, refresh } = useOrders();
@@ -10,12 +11,11 @@ export default function Index() {
   const { getTarget } = useTargets();
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div />
+    <>
+      <AppLayoutHeaderPortal>
         <NewOrderDialog onCreated={refresh} addOrder={addOrder} />
-      </div>
+      </AppLayoutHeaderPortal>
       <Dashboard orders={orders} brands={brands} getTarget={getTarget} />
-    </div>
+    </>
   );
 }

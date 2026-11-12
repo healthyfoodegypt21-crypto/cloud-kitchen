@@ -120,7 +120,7 @@ const PAGE_SIZE = 20;
 const records = (value: unknown) => Array.isArray(value) ? value.filter(isRecord) : [];
 const number = (value: unknown) => Number(value ?? 0);
 const isFiniteValue = (value: unknown) => Number.isFinite(Number(value ?? NaN));
-const money = (value: number) => new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', maximumFractionDigits: 2 }).format(value);
+const money = (value: number) => `${(Number.isFinite(value) ? value : 0).toLocaleString('en-US', { maximumFractionDigits: 2 })} ج.م.`;
 const today = () => new Date().toISOString().slice(0, 10);
 const emptyDirectDraft = (): DirectDraft => ({
   itemId: '', quantity: '', unitCost: '', supplierId: '', purchaserName: '',
@@ -773,7 +773,7 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
                 <div>
                   <strong>{money(approval.totalAmount)}</strong>
                   <span className="mx-2 text-sm text-muted-foreground">حد الاعتماد {money(approval.approvalLimit)}</span>
-                  <p className="text-xs text-muted-foreground">{new Date(approval.createdAt).toLocaleString('ar-EG')}{approval.notes ? ` — ${approval.notes}` : ''}</p>
+                  <p className="text-xs text-muted-foreground tabular-nums">{new Date(approval.createdAt).toLocaleString('en-US')}{approval.notes ? ` — ${approval.notes}` : ''}</p>
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" disabled={savingId === approval.id} onClick={() => void reviewApproval(approval.id, true)}>اعتماد</Button>
@@ -851,7 +851,7 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
             if (!draft) return null;
             const subtotal = draft.lines.reduce((sum, line) => sum + number(line.quantity) * number(line.unitCost), 0);
             return <Card key={request.id}>
-              <CardHeader><CardTitle>{request.requestNo} · {request.supplierName || 'مورد غير محدد'}</CardTitle><CardDescription>{new Date(request.createdAt).toLocaleString('ar-EG')} · {request.notes || 'بدون ملاحظات'}</CardDescription></CardHeader>
+              <CardHeader><CardTitle>{request.requestNo} · {request.supplierName || 'مورد غير محدد'}</CardTitle><CardDescription className="tabular-nums">{new Date(request.createdAt).toLocaleString('en-US')} · {request.notes || 'بدون ملاحظات'}</CardDescription></CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-3 md:grid-cols-3">
                   <Field label="المورد" value={draft.supplierId} onChange={(value) => setDrafts((current) => ({ ...current, [request.id]: { ...draft, supplierId: value } }))} options={activeSuppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))} allowEmpty />
@@ -906,7 +906,7 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
                 <div className="overflow-x-auto"><table className="w-full text-right text-sm">
                   <thead><tr className="border-b text-muted-foreground">{['التاريخ', 'رقم الطلب', 'المورد', 'المشتري', 'البنود', 'الإجمالي', 'المدفوع', 'الحالة', 'الفاتورة'].map((head) => <th className="p-2" key={head}>{head}</th>)}</tr></thead>
                   <tbody>{requests.map((request) => <tr className="border-b" key={request.id}>
-                    <td className="p-2">{new Date(request.purchasedAt || request.createdAt).toLocaleDateString('ar-EG')}</td>
+                    <td className="p-2 tabular-nums">{new Date(request.purchasedAt || request.createdAt).toLocaleDateString('en-US')}</td>
                     <td className="p-2 font-semibold">{request.requestNo}</td>
                     <td className="p-2">{request.supplierName || '—'}</td>
                     <td className="p-2">{request.purchaserName || '—'}</td>
@@ -931,7 +931,7 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
         <TabsContent value="prices" className="space-y-4">
           <PriceHistoryPanel brandId={brandId} items={items.map((item) => ({ id: item.id, name: item.name, purchaseUnit: item.purchaseUnit }))} />
           <Card><CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />آخر سعر شراء ضمن النتائج المحملة</CardTitle><CardDescription>مرتبة حسب وقت التنفيذ الفعلي، وليس ترتيب إنشاء الطلب.</CardDescription></CardHeader>
-            <CardContent>{latestPrices.length ? <DataTable headers={['الصنف', 'آخر سعر للوحدة', 'المورد', 'التاريخ']} rows={latestPrices.map((entry) => [entry.itemName, money(entry.price), entry.supplierName || '—', new Date(entry.date).toLocaleDateString('ar-EG')])} /> : <Empty text="لا تتوفر بيانات أسعار للمشتريات المحملة." />}</CardContent>
+            <CardContent>{latestPrices.length ? <DataTable headers={['الصنف', 'آخر سعر للوحدة', 'المورد', 'التاريخ']} rows={latestPrices.map((entry) => [entry.itemName, money(entry.price), entry.supplierName || '—', new Date(entry.date).toLocaleDateString('en-US')])} /> : <Empty text="لا تتوفر بيانات أسعار للمشتريات المحملة." />}</CardContent>
           </Card>
         </TabsContent>
 

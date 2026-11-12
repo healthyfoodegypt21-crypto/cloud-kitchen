@@ -2,17 +2,15 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { OrderMealCustomization, OrderMealSnapshotItem } from '@/types/order';
 
-const egpCurrencyFormatter = new Intl.NumberFormat("ar-EG", {
-  style: "currency",
-  currency: "EGP",
+const egpCurrencyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-const arabicWeekdayFormatter = new Intl.DateTimeFormat("ar-EG", {
+const arabicWeekdayFormatter = new Intl.DateTimeFormat("ar-EG-u-nu-latn", {
   weekday: "long",
 });
 
-const arabicDateFormatter = new Intl.DateTimeFormat("ar-EG", {
+const arabicDateFormatter = new Intl.DateTimeFormat("ar-EG-u-nu-latn", {
   day: "numeric",
   month: "long",
   year: "numeric",
@@ -27,7 +25,9 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatEGPCurrency(value: number) {
-  return egpCurrencyFormatter.format(value);
+  const safeValue = Number.isFinite(value) ? Math.round(value) : 0;
+  const normalized = Object.is(safeValue, -0) ? 0 : safeValue;
+  return `${egpCurrencyFormatter.format(normalized)} ج.م.`;
 }
 
 export function getTodayDateValue() {

@@ -15,7 +15,10 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ["'IBM Plex Sans Arabic'", "'Cairo'", "sans-serif"],
+      },
+      boxShadow: {
+        xs: "0 1px 2px 0 rgba(15, 23, 42, 0.05)",
       },
       colors: {
         border: "hsl(var(--border))",

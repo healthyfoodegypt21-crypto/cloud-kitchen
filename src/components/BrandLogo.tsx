@@ -26,9 +26,9 @@ export default function BrandLogo({ compact = false, className, iconClassName, t
         />
       </svg>
       {!compact && (
-        <div className={cn('flex flex-col leading-[0.92]', textClassName)}>
+        <div className={cn('flex flex-col leading-[0.95]', textClassName)}>
           <span className="text-[1.05rem] font-black tracking-[0.08em] uppercase">Cloud</span>
-          <span className="text-[1.05rem] font-black tracking-[0.06em] uppercase">Kitchens<sup className="ml-0.5 text-[0.4rem] align-top">™</sup></span>
+          <span className="text-[1.05rem] font-black tracking-[0.06em] uppercase">Kitchens</span>
         </div>
       )}
     </div>

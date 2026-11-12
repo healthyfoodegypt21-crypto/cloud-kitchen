@@ -361,8 +361,8 @@ export default function WithdrawalQuickEntry({
                     <Badge variant="outline" className={STATUS_STYLES[status]}>{STATUS_LABELS[status]}</Badge>
                     {(status === 'shortage' || status === 'surplus') && systemRemaining !== null && line.remainingQuantity !== null && (
                       <>
-                        <span className="text-xs text-muted-foreground">
-                          النظام يحسب {systemRemaining.toLocaleString('ar-EG', { maximumFractionDigits: 3 })} {item?.unit} — الفرق {Math.abs(line.remainingQuantity - systemRemaining).toLocaleString('ar-EG', { maximumFractionDigits: 3 })}
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          النظام يحسب {systemRemaining.toLocaleString('en-US', { maximumFractionDigits: 3 })} {item?.unit} — الفرق {Math.abs(line.remainingQuantity - systemRemaining).toLocaleString('en-US', { maximumFractionDigits: 3 })}
                         </span>
                         <select
                           className="h-8 rounded-md border bg-background px-2 text-xs"
@@ -376,7 +376,7 @@ export default function WithdrawalQuickEntry({
                       </>
                     )}
                     {status === 'opening' && line.remainingQuantity !== null && (
-                      <span className="text-xs text-muted-foreground">سيُسجل رصيد أول المدة {(line.remainingQuantity + line.quantity).toLocaleString('ar-EG', { maximumFractionDigits: 3 })} {item?.unit} ثم يُخصم السحب</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">سيُسجل رصيد أول المدة {(line.remainingQuantity + line.quantity).toLocaleString('en-US', { maximumFractionDigits: 3 })} {item?.unit} ثم يُخصم السحب</span>
                     )}
                   </div>
                 </div>

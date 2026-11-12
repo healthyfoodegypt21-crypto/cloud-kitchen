@@ -18,7 +18,7 @@ function formatOrderDate(value: string | null) {
     return 'لا توجد طلبات بعد';
   }
 
-  return new Date(value).toLocaleDateString('ar-EG', {
+  return new Date(value).toLocaleDateString('ar-EG-u-nu-latn', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',

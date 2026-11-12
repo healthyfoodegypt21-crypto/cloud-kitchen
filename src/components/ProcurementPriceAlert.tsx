@@ -8,8 +8,8 @@ type Props = {
   unit: string;
 };
 
-const money = (value: number) => value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const percentage = (value: number) => value.toLocaleString('ar-EG', { maximumFractionDigits: 2 });
+const money = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const percentage = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 
 export default function ProcurementPriceAlert({ itemName, currentPrice, previousPrice, unit }: Props) {
   const change = getProcurementPriceChange(currentPrice, previousPrice);
