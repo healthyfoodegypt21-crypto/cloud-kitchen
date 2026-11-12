@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { buildOrderNotesWithMetadata, compactWhitespace, extractLegacyOrderMetadata, formatDetailedAddress, hasDetailedAddressParts, normalizePhone } from '@/lib/utils';
 import { getOrderImportFingerprint, hasDuplicateOrderImport, ImportedOrder } from '@/lib/orderImport';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
+import { getOrdersSummaryMetrics, publishOrdersSummaryMetrics } from '@/lib/ordersSummaryStore';
 
 type OrderRow = Database['public']['Tables']['orders']['Row'] & {
   phone_secondary: string;
@@ -97,116 +98,63 @@ function buildOrderPersistencePayload(order: Omit<Order, 'id' | 'created_at'>) {
   };
 }
 
-type OrdersSummaryMetrics = {
-  activeOrdersCount: number;
-  monthOrderCount: number;
-  hydrated: boolean;
-};
+export async function hydrateOrdersSummaryMetrics() {
+  if (getOrdersSummaryMetrics().hydrated) {
+    return;
+  }
 
-let sharedOrdersMetrics: OrdersSummaryMetrics = {
-  activeOrdersCount: 0,
-  monthOrderCount: 0,
-  hydrated: false,
-};
-const ordersMetricsListeners = new Set<() => void>();
+  if (isSupabaseUnavailable()) {
+    publishOrdersSummaryMetrics(getLocalDemoOrders());
+    return;
+  }
 
-function publishOrdersSummaryMetrics(list: Array<Pick<Order, 'status' | 'created_at'>>) {
-  const month = new Date().toISOString().slice(0, 7);
-  const activeOrdersCount = list.filter((order) => !['delivered', 'cancelled'].includes(order.status)).length;
-  const monthOrderCount = list.filter((order) => order.created_at.slice(0, 7) === month).length;
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id, order_number, customer_name, phone, status, created_at, execution_date, brand_id, notes')
+    .order('created_at', { ascending: false });
 
-  sharedOrdersMetrics = {
-    activeOrdersCount,
-    monthOrderCount,
-    hydrated: true,
-  };
-  ordersMetricsListeners.forEach((listener) => listener());
-}
+  if (getOrdersSummaryMetrics().hydrated) {
+    return;
+  }
 
-export function useOrdersSummaryMetrics(enabled = true) {
-  const [metrics, setMetrics] = useState<OrdersSummaryMetrics>(() => sharedOrdersMetrics);
-
-  useEffect(() => {
-    setMetrics(sharedOrdersMetrics);
-    const handleUpdate = () => setMetrics(sharedOrdersMetrics);
-    ordersMetricsListeners.add(handleUpdate);
-    return () => {
-      ordersMetricsListeners.delete(handleUpdate);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!enabled || sharedOrdersMetrics.hydrated) {
-      return;
+  if (error) {
+    if (isSupabaseNetworkError(error)) {
+      markSupabaseUnavailable();
     }
+    publishOrdersSummaryMetrics(getLocalDemoOrders());
+    return;
+  }
 
-    let cancelled = false;
-
-    const hydrateSummary = async () => {
-      if (isSupabaseUnavailable()) {
-        if (!cancelled && !sharedOrdersMetrics.hydrated) {
-          publishOrdersSummaryMetrics(getLocalDemoOrders());
+  markSupabaseAvailable();
+  const seenImportedOrderKeys = new Set<string>();
+  const filtered = ((data ?? []) as Array<Pick<OrderRow, 'id' | 'order_number' | 'customer_name' | 'phone' | 'status' | 'created_at' | 'execution_date' | 'brand_id' | 'notes'>>)
+    .filter((order) => {
+      if (/^(?:الاسم|اسم)\s*\d+$/u.test(order.customer_name.trim())) {
+        return false;
+      }
+      if (order.order_number.startsWith('IMP-')) {
+        const legacy = extractLegacyOrderMetadata(order.notes);
+        const execDate = order.execution_date ?? legacy.executionDate;
+        const dedupeKey = `${order.brand_id ?? ''}::${execDate}::${normalizePhone(order.phone)}`;
+        if (seenImportedOrderKeys.has(dedupeKey)) {
+          return false;
         }
-        return;
+        seenImportedOrderKeys.add(dedupeKey);
       }
+      return true;
+    })
+    .map((order) => ({
+      order_number: order.order_number,
+      status: order.status as OrderStatus,
+      created_at: order.created_at,
+    }));
 
-      const { data, error } = await supabase
-        .from('orders')
-        .select('id, order_number, customer_name, phone, status, created_at, execution_date, brand_id, notes')
-        .order('created_at', { ascending: false });
-
-      if (cancelled || sharedOrdersMetrics.hydrated) {
-        return;
-      }
-
-      if (error) {
-        if (isSupabaseNetworkError(error)) {
-          markSupabaseUnavailable();
-        }
-        publishOrdersSummaryMetrics(getLocalDemoOrders());
-        return;
-      }
-
-      markSupabaseAvailable();
-      const seenImportedOrderKeys = new Set<string>();
-      const filtered = ((data ?? []) as Array<Pick<OrderRow, 'id' | 'order_number' | 'customer_name' | 'phone' | 'status' | 'created_at' | 'execution_date' | 'brand_id' | 'notes'>>)
-        .filter((order) => {
-          if (/^(?:الاسم|اسم)\s*\d+$/u.test(order.customer_name.trim())) {
-            return false;
-          }
-          if (order.order_number.startsWith('IMP-')) {
-            const legacy = extractLegacyOrderMetadata(order.notes);
-            const execDate = order.execution_date ?? legacy.executionDate;
-            const dedupeKey = `${order.brand_id ?? ''}::${execDate}::${normalizePhone(order.phone)}`;
-            if (seenImportedOrderKeys.has(dedupeKey)) {
-              return false;
-            }
-            seenImportedOrderKeys.add(dedupeKey);
-          }
-          return true;
-        })
-        .map((order) => ({
-          order_number: order.order_number,
-          status: order.status as OrderStatus,
-          created_at: order.created_at,
-        }));
-
-      const dbOrderNumbers = new Set(filtered.map((o) => o.order_number));
-      const combined = [
-        ...filtered,
-        ...getLocalDemoOrders().filter((o) => !dbOrderNumbers.has(o.order_number)),
-      ];
-      publishOrdersSummaryMetrics(combined);
-    };
-
-    void hydrateSummary();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled]);
-
-  return metrics;
+  const dbOrderNumbers = new Set(filtered.map((o) => o.order_number));
+  const combined = [
+    ...filtered,
+    ...getLocalDemoOrders().filter((o) => !dbOrderNumbers.has(o.order_number)),
+  ];
+  publishOrdersSummaryMetrics(combined);
 }
 
 export function useOrders() {

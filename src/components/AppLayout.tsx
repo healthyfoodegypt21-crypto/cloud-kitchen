@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import {
@@ -19,8 +19,8 @@ import {
   Shield,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useOrdersSummaryMetrics } from '@/hooks/useOrders';
 import BrandLogo from '@/components/BrandLogo';
+import { useOrdersSummaryState } from '@/lib/ordersSummaryStore';
 import { hasPageAccess, type AppPageId } from '@/lib/permissions';
 import { ACHIEVEMENT_TIERS } from '@/types/order';
 import { cn } from '@/lib/utils';
@@ -106,7 +106,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [headerActionsSlot, setHeaderActionsSlot] = useState<HTMLDivElement | null>(null);
 
-  const { activeOrdersCount, monthOrderCount } = useOrdersSummaryMetrics(Boolean(user));
+  const { activeOrdersCount, monthOrderCount, hydrated } = useOrdersSummaryState();
+
+  useEffect(() => {
+    if (!user || hydrated) {
+      return;
+    }
+    void import('@/hooks/useOrders').then((mod) => mod.hydrateOrdersSummaryMetrics());
+  }, [user, hydrated]);
 
   const currentTier = useMemo(
     () => [...ACHIEVEMENT_TIERS].reverse().find((tier) => monthOrderCount >= tier.threshold),
