@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { useTargets } from '@/hooks/useTargets';
+import { AppLayoutHeaderPortal } from '@/components/AppLayout';
 import { Loader2, KeyRound, Target, TrendingUp, CircleDollarSign } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -113,66 +114,80 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-foreground">الإعدادات</h1>
-      <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
-        <Card className="p-6">
-          <div className="mb-4 flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <Target className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-semibold text-foreground">أهداف التشغيل والربح</h2>
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">غيّر الأهداف التي تتحرك عليها لوحة التحكم ولوحة الصدارة حتى يظل الفريق يلعب على أرقام حقيقية.</p>
-            </div>
-          </div>
+    <div className="space-y-5">
+      <AppLayoutHeaderPortal>
+        <span className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200/80 px-3 py-1 text-xs font-semibold text-slate-600">
+          الحساب: {displayName || 'مستخدم'}
+        </span>
+      </AppLayoutHeaderPortal>
 
-          <form onSubmit={handleSaveTargets} className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              {TARGET_FIELDS.map(({ key, label, hint, icon: Icon }) => (
-                <div key={key} className="rounded-2xl border bg-muted/30 p-4 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Icon className="h-4 w-4 text-primary" />
-                    <Label htmlFor={key}>{label}</Label>
+      <div className="grid gap-4 lg:grid-cols-12 items-stretch">
+        <Card className="lg:col-span-7 p-5 flex flex-col justify-between">
+          <div>
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-emerald-700">
+                    <Target className="h-4 w-4" />
                   </div>
-                  <Input
-                    id={key}
-                    inputMode="numeric"
-                    min="0"
-                    step="1"
-                    value={targetValues[key]}
-                    onChange={(e) => handleTargetValueChange(key, e.target.value)}
-                    placeholder="0"
-                  />
-                  <p className="text-xs leading-5 text-muted-foreground">{hint}</p>
+                  <h2 className="text-base font-bold text-slate-900">أهداف التشغيل والربح</h2>
                 </div>
-              ))}
+                <p className="mt-1.5 text-xs text-slate-500">غيّر الأهداف التي تتحرك عليها لوحة التحكم ولوحة الصدارة حتى يظل الفريق يلعب على أرقام حقيقية.</p>
+              </div>
             </div>
-            <Button type="submit" disabled={targetsLoading}>
-              {targetsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'حفظ أهداف التشغيل'}
-            </Button>
-          </form>
+
+            <form id="targets-form" onSubmit={handleSaveTargets} className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                {TARGET_FIELDS.map(({ key, label, hint, icon: Icon }) => (
+                  <div key={key} className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-4 w-4 text-emerald-600" />
+                      <Label htmlFor={key} className="text-xs font-semibold text-slate-800">{label}</Label>
+                    </div>
+                    <Input
+                      id={key}
+                      inputMode="numeric"
+                      min="0"
+                      step="1"
+                      className="bg-white tabular-nums tracking-tight font-semibold"
+                      value={targetValues[key]}
+                      onChange={(e) => handleTargetValueChange(key, e.target.value)}
+                      placeholder="0"
+                    />
+                    <p className="text-[11px] leading-relaxed text-slate-500">{hint}</p>
+                  </div>
+                ))}
+              </div>
+              <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold" disabled={targetsLoading}>
+                {targetsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'حفظ أهداف التشغيل'}
+              </Button>
+            </form>
+          </div>
         </Card>
 
-        <Card className="p-6 max-w-md">
-          <div className="flex items-center gap-2 mb-4">
-            <KeyRound className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold text-foreground">تغيير كلمة المرور</h2>
+        <Card className="lg:col-span-5 p-5 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200/60 flex items-center justify-center text-slate-600">
+                <KeyRound className="h-4 w-4" />
+              </div>
+              <h2 className="text-base font-bold text-slate-900">تغيير كلمة المرور</h2>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">مسجل الدخول باسم <strong className="text-slate-800">{displayName}</strong></p>
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">كلمة المرور الجديدة</Label>
+                <Input type="password" dir="ltr" className="text-left" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="6 أحرف على الأقل" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">تأكيد كلمة المرور</Label>
+                <Input type="password" dir="ltr" className="text-left" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="أعد كتابة كلمة المرور" />
+              </div>
+              <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold" disabled={passwordLoading}>
+                {passwordLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'تحديث كلمة المرور'}
+              </Button>
+            </form>
           </div>
-          <p className="text-sm text-muted-foreground mb-4">مسجل الدخول باسم <strong>{displayName}</strong></p>
-          <form onSubmit={handleChangePassword} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>كلمة المرور الجديدة</Label>
-              <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="6 أحرف على الأقل" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>تأكيد كلمة المرور</Label>
-              <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="أعد كتابة كلمة المرور" />
-            </div>
-            <Button type="submit" disabled={passwordLoading}>
-              {passwordLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'تحديث كلمة المرور'}
-            </Button>
-          </form>
         </Card>
       </div>
     </div>

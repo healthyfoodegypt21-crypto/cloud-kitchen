@@ -3,6 +3,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { hasPageAccess } from '@/lib/permissions';
 import { useCompanyMenus } from '@/hooks/useCompanyMenus';
 import CompanyMenuImportDialog from '@/components/CompanyMenuImportDialog';
+import { AppLayoutHeaderPortal } from '@/components/AppLayout';
+import { Skeleton } from '@/components/ui/skeleton';
 import { MenuCompany, MenuCompanyMeal, MenuCompanyMealInput, MenuMealIngredientLink } from '@/types/companyMenu';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -320,26 +322,44 @@ export default function CompaniesMenus() {
 
   const ingredientNameById = useMemo(() => new Map(companyIngredients.map(ingredient => [ingredient.id, ingredient.name])), [companyIngredients]);
 
-  if (loading) return <div className="grid min-h-[40vh] place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  if (loading) {
+    return (
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-40 w-full rounded-xl" />
+        ))}
+      </div>
+    );
+  }
 
   if (selectedCompany) {
     return (
       <div className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" className="gap-1" onClick={() => setSelectedCompanyId(null)}><ArrowRight className="h-4 w-4" />الشركات</Button>
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">{selectedCompany.name}</h1>
-              <p className="text-sm text-muted-foreground">{selectedCompany.phone}{selectedCompany.contact_person ? ` • ${selectedCompany.contact_person}` : ''}</p>
+        {canManage && (
+          <AppLayoutHeaderPortal>
+            <div className="flex flex-wrap gap-2">
+              <CompanyMenuImportDialog companyId={selectedCompany.id} categories={companyCategories} ingredients={companyIngredients} meals={companyMeals} onImported={refresh} />
+              <Button variant="outline" size="sm" className="h-9 text-xs font-semibold rounded-lg" onClick={() => setIngredientManagerOpen(true)}>إدارة المكونات</Button>
+              <Button variant="outline" size="sm" className="h-9 text-xs font-semibold rounded-lg" onClick={() => setCategoryManagerOpen(true)}>إدارة الفئات</Button>
             </div>
-            <Badge variant={selectedCompany.status === 'active' ? 'default' : 'secondary'}>{selectedCompany.status === 'active' ? 'مفعّلة' : 'معطّلة'}</Badge>
+          </AppLayoutHeaderPortal>
+        )}
+
+        <Card className="p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setSelectedCompanyId(null)}>
+              <ArrowRight className="h-3.5 w-3.5" />
+              <span>كل الشركات</span>
+            </Button>
+            <div>
+              <h2 className="text-base font-bold text-slate-900">{selectedCompany.name}</h2>
+              <p className="text-xs text-slate-500 tabular-nums">{selectedCompany.phone}{selectedCompany.contact_person ? ` · ${selectedCompany.contact_person}` : ''}</p>
+            </div>
+            <Badge variant={selectedCompany.status === 'active' ? 'default' : 'secondary'} className="text-[11px]">
+              {selectedCompany.status === 'active' ? 'مفعّلة' : 'معطّلة'}
+            </Badge>
           </div>
-          {canManage && <div className="flex flex-wrap gap-2">
-            <CompanyMenuImportDialog companyId={selectedCompany.id} categories={companyCategories} ingredients={companyIngredients} meals={companyMeals} onImported={refresh} />
-            <Button variant="outline" size="sm" onClick={() => setIngredientManagerOpen(true)}>إدارة المكونات</Button>
-            <Button variant="outline" size="sm" onClick={() => setCategoryManagerOpen(true)}>إدارة الفئات</Button>
-          </div>}
-        </div>
+        </Card>
 
         {companyCategories.length === 0 ? (
           <Card className="rounded-2xl border-dashed"><CardContent className="p-8 text-center text-muted-foreground">لا توجد فئات بعد لهذه الشركة. {canManage && <Button variant="link" onClick={() => setCategoryManagerOpen(true)}>أضف أول فئة</Button>}</CardContent></Card>
@@ -524,42 +544,49 @@ export default function CompaniesMenus() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-2xl font-bold text-foreground">الشركات والمنيو</h1><p className="text-sm text-muted-foreground">كل شركة لها منيو مستقل بالكامل: فئات، وجبات، وقيم غذائية ومكونات.</p></div>
-        {canManage && <Button className="gap-2" onClick={() => openCompanyDialog()}><Plus className="h-4 w-4" />شركة جديدة</Button>}
-      </div>
+    <div className="space-y-5">
+      {canManage && (
+        <AppLayoutHeaderPortal>
+          <Button size="sm" className="h-9 gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold" onClick={() => openCompanyDialog()}>
+            <Plus className="h-3.5 w-3.5" />
+            <span>شركة جديدة</span>
+          </Button>
+        </AppLayoutHeaderPortal>
+      )}
 
-      <div className="relative max-w-sm">
-        <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={companySearch} onChange={event => setCompanySearch(event.target.value)} placeholder="ابحث بالاسم أو رقم الهاتف" className="pr-9" />
-      </div>
+      <Card className="p-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-slate-600">كل شركة لها منيو مستقل بالكامل: فئات، وجبات، وقيم غذائية ومكونات.</p>
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input value={companySearch} onChange={event => setCompanySearch(event.target.value)} placeholder="ابحث بالاسم أو رقم الهاتف" className="pr-9 h-9 text-xs" />
+        </div>
+      </Card>
 
       {filteredCompanies.length === 0 ? (
-        <Card className="rounded-2xl border-dashed"><CardContent className="p-10 text-center text-muted-foreground">لا توجد شركات مطابقة بعد.</CardContent></Card>
+        <Card className="border-dashed"><CardContent className="p-10 text-center text-sm text-slate-500">لا توجد شركات مطابقة بعد.</CardContent></Card>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 items-stretch">
           {filteredCompanies.map(company => (
-            <Card key={company.id} className="rounded-2xl">
-              <CardContent className="space-y-2 p-4">
+            <Card key={company.id} className="p-5 flex flex-col justify-between hover:border-slate-300 hover:shadow-xs transition-all duration-150">
+              <div className="space-y-2">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2"><Building2 className="h-4 w-4 text-primary" /><h3 className="font-bold text-foreground">{company.name}</h3></div>
-                  <Badge variant={company.status === 'active' ? 'default' : 'secondary'}>{company.status === 'active' ? 'مفعّلة' : 'معطّلة'}</Badge>
+                  <div className="flex items-center gap-2"><Building2 className="h-4 w-4 text-emerald-600" /><h3 className="font-bold text-sm text-slate-900">{company.name}</h3></div>
+                  <Badge variant={company.status === 'active' ? 'default' : 'secondary'} className="text-[11px]">{company.status === 'active' ? 'مفعّلة' : 'معطّلة'}</Badge>
                 </div>
-                <p className="text-sm text-muted-foreground">{company.phone || 'بدون هاتف'}{company.contact_person ? ` • ${company.contact_person}` : ''}</p>
-                {company.phone_numbers.length > 0 && <p className="text-xs text-muted-foreground">أرقام إضافية: {company.phone_numbers.join('، ')}</p>}
-                {company.notes && <p className="text-xs text-muted-foreground italic">"{company.notes}"</p>}
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Button size="sm" onClick={() => openCompany(company)}>فتح المنيو</Button>
-                  {canManage && <>
-                    <Button size="sm" variant="outline" className="gap-1" onClick={() => openCompanyDialog(company)}><Pencil className="h-3.5 w-3.5" />تعديل</Button>
-                    <Button size="sm" variant="outline" onClick={() => void saveCompany({ id: company.id, name: company.name, phone: company.phone, phone_numbers: company.phone_numbers, contact_person: company.contact_person, notes: company.notes, status: company.status === 'active' ? 'inactive' : 'active' })}>
-                      {company.status === 'active' ? 'تعطيل' : 'تفعيل'}
-                    </Button>
-                    <ConfirmDeleteButton title={`حذف "${company.name}"؟`} description="سيتم حذف كل فئات ووجبات هذه الشركة نهائيًا." onConfirm={() => void deleteCompany(company.id)} />
-                  </>}
-                </div>
-              </CardContent>
+                <p className="text-xs text-slate-500 tabular-nums">{company.phone || 'بدون هاتف'}{company.contact_person ? ` · ${company.contact_person}` : ''}</p>
+                {company.phone_numbers.length > 0 && <p className="text-xs text-slate-500 tabular-nums">أرقام إضافية: {company.phone_numbers.join('، ')}</p>}
+                {company.notes && <p className="text-xs text-slate-500">"{company.notes}"</p>}
+              </div>
+              <div className="flex flex-wrap gap-2 pt-3 mt-3 border-t border-slate-100">
+                <Button size="sm" className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => openCompany(company)}>فتح المنيو</Button>
+                {canManage && <>
+                  <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={() => openCompanyDialog(company)}><Pencil className="h-3.5 w-3.5" />تعديل</Button>
+                  <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void saveCompany({ id: company.id, name: company.name, phone: company.phone, phone_numbers: company.phone_numbers, contact_person: company.contact_person, notes: company.notes, status: company.status === 'active' ? 'inactive' : 'active' })}>
+                    {company.status === 'active' ? 'تعطيل' : 'تفعيل'}
+                  </Button>
+                  <ConfirmDeleteButton title={`حذف "${company.name}"؟`} description="سيتم حذف كل فئات ووجبات هذه الشركة نهائيًا." onConfirm={() => void deleteCompany(company.id)} />
+                </>}
+              </div>
             </Card>
           ))}
         </div>

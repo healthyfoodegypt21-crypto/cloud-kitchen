@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import BrandLogo from '@/components/BrandLogo';
+import GlobalCommandPalette from '@/components/GlobalCommandPalette';
 import { useOrdersSummaryState } from '@/lib/ordersSummaryStore';
 import { hasPageAccess, type AppPageId } from '@/lib/permissions';
 import { ACHIEVEMENT_TIERS } from '@/types/order';
@@ -275,7 +276,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </span>
             </div>
 
-            <div ref={setHeaderActionsSlot} className="flex items-center gap-2.5 shrink-0" />
+            <div className="flex items-center gap-2.5 shrink-0">
+              <GlobalCommandPalette
+                sections={visibleGroups}
+                canAccessOrders={visibleGroups.some((g) => g.items.some((i) => i.to === '/orders'))}
+                canAccessCustomers={visibleGroups.some((g) => g.items.some((i) => i.to === '/customers'))}
+                canAccessKitchen={visibleGroups.some((g) => g.items.some((i) => i.to === '/kitchen'))}
+              />
+              <div ref={setHeaderActionsSlot} className="flex items-center gap-2.5 shrink-0" />
+            </div>
           </header>
 
           <main className="flex-1 w-full max-w-[1440px] mx-auto p-6">{children}</main>

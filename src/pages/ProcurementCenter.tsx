@@ -17,6 +17,7 @@ import PriceHistoryPanel from '@/components/procurement/PriceHistoryPanel';
 import ProcurementKpis from '@/components/procurement/ProcurementKpis';
 import SupplierDirectory from '@/components/procurement/SupplierDirectory';
 import PurchaseOrderPrintDialog from '@/components/procurement/PurchaseOrderPrintDialog';
+import { AppLayoutHeaderPortal } from '@/components/AppLayout';
 
 type Supplier = {
   id: string;
@@ -738,19 +739,37 @@ export default function ProcurementCenter({ brandId, hubName, purchaserName }: {
   const activeSuppliers = suppliers.filter((supplier) => supplier.status === 'active');
 
   return (
-    <div className="space-y-6" dir="rtl">
-      <header className="flex flex-col gap-3 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <span className="text-xs font-bold tracking-wide text-emerald-700">إدارة المشتريات والموردين</span>
-          <h1 className="mt-1 text-2xl font-extrabold tracking-tight sm:text-3xl">مركز المشتريات</h1>
-          <p className="mt-1 text-sm text-muted-foreground">طلبات موحدة للمخزن المركزي{hubName ? ` (${hubName})` : ''} الذي يخدم كل العلامات، متابعة أسعار وفواتير الموردين، واستلام موثق للمخزون.</p>
-        </div>
+    <div className="space-y-5" dir="rtl">
+      <AppLayoutHeaderPortal>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setPrintOrderOpen(true)}><Printer className="ml-2 h-4 w-4" />طباعة طلب مشتريات</Button>
-          <Button variant="outline" onClick={exportPage} disabled={!requests.length}><Download className="ml-2 h-4 w-4" />تصدير نتائج الصفحة</Button>
-          <Button onClick={() => { setDirectDraft({ ...emptyDirectDraft(), purchaserName }); setDirectOpen(true); }} disabled={!brandId}><Plus className="ml-2 h-4 w-4" />شراء مباشر</Button>
+          <Button size="sm" variant="outline" className="h-9 text-xs font-semibold gap-1.5 rounded-lg" onClick={() => setPrintOrderOpen(true)}>
+            <Printer className="h-3.5 w-3.5" />
+            <span>طباعة طلب مشتريات</span>
+          </Button>
+          <Button size="sm" variant="outline" className="h-9 text-xs font-semibold gap-1.5 rounded-lg" onClick={exportPage} disabled={!requests.length}>
+            <Download className="h-3.5 w-3.5" />
+            <span>تصدير نتائج الصفحة</span>
+          </Button>
+          <Button
+            size="sm"
+            className="h-9 text-xs font-semibold gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => { setDirectDraft({ ...emptyDirectDraft(), purchaserName }); setDirectOpen(true); }}
+            disabled={!brandId}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>شراء مباشر</span>
+          </Button>
         </div>
-      </header>
+      </AppLayoutHeaderPortal>
+
+      <div className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+        <span>
+          طلبات موحدة للمخزن المركزي{hubName ? ` (${hubName})` : ''} الذي يخدم كل العلامات، متابعة أسعار وفواتير الموردين، واستلام موثق للمخزون.
+        </span>
+        <span className="rounded-full bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+          إدارة المشتريات والموردين
+        </span>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric title="نواقص المخزن" value={String(shortages.length)} />

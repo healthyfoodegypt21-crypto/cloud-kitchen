@@ -36,25 +36,25 @@ export default function ResetPassword() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-muted/30 p-4" dir="rtl">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>{updated ? 'تم تغيير كلمة المرور' : 'إنشاء كلمة مرور جديدة'}</CardTitle>
+    <main className="min-h-screen flex items-center justify-center bg-slate-50/80 text-slate-900 antialiased p-4" dir="rtl">
+      <Card className="w-full max-w-sm border-slate-200/80 rounded-xl shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-bold text-slate-900">{updated ? 'تم تغيير كلمة المرور' : 'إنشاء كلمة مرور جديدة'}</CardTitle>
         </CardHeader>
         <CardContent>
           {updated ? (
-            <Button asChild className="w-full"><Link to="/login">العودة لتسجيل الدخول</Link></Button>
+            <Button asChild className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"><Link to="/login">العودة لتسجيل الدخول</Link></Button>
           ) : (
             <form onSubmit={updatePassword} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="new-password">كلمة المرور الجديدة</Label>
-                <Input id="new-password" type="password" autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} />
+              <div className="space-y-1.5">
+                <Label htmlFor="new-password" className="text-xs font-semibold text-slate-700">كلمة المرور الجديدة</Label>
+                <Input id="new-password" type="password" dir="ltr" className="text-left" autoComplete="new-password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirm-password">تأكيد كلمة المرور</Label>
-                <Input id="confirm-password" type="password" autoComplete="new-password" minLength={8} required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm-password" className="text-xs font-semibold text-slate-700">تأكيد كلمة المرور</Label>
+                <Input id="confirm-password" type="password" dir="ltr" className="text-left" autoComplete="new-password" minLength={8} required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
               </div>
-              <Button type="submit" className="w-full" disabled={saving}>{saving ? 'جارٍ التحديث...' : 'حفظ كلمة المرور'}</Button>
+              <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white" disabled={saving}>{saving ? 'جارٍ التحديث...' : 'حفظ كلمة المرور'}</Button>
             </form>
           )}
         </CardContent>

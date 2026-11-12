@@ -805,33 +805,33 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
 
   const surfaceContent = (
     <div className={cn(
-      'flex h-full min-h-0 flex-col overflow-hidden bg-background',
+      'flex h-full min-h-0 flex-col overflow-hidden bg-slate-50/90 text-slate-900',
       isMobile
-        ? 'rounded-t-[28px]'
-        : 'rounded-[24px] border border-white/60 shadow-2xl sm:rounded-[28px]',
+        ? 'rounded-t-2xl'
+        : 'rounded-2xl border border-slate-200/90 shadow-2xl',
     )}>
-          <div className="relative shrink-0 border-b bg-[radial-gradient(circle_at_top_right,rgba(34,197,94,0.18),transparent_38%),radial-gradient(circle_at_top_left,rgba(251,191,36,0.18),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.96),rgba(244,247,245,0.92))] px-4 py-4 sm:px-8 sm:py-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex flex-col space-y-1.5 text-right">
-                <div className="flex items-center justify-end gap-2">
-                  <Badge className="gap-1 rounded-full bg-white/90 px-3 py-1 text-primary shadow-sm">
-                    <Sparkles className="h-3.5 w-3.5" />
+          <div className="relative shrink-0 border-b border-slate-200/80 bg-white px-4 py-4 sm:px-6 sm:py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3 pl-8">
+              <div className="flex flex-col space-y-1 text-right">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                    <Sparkles className="h-3 w-3" />
                     تسجيل سريع للكول سنتر
-                  </Badge>
+                  </span>
                 </div>
-                <h2 className="mt-3 text-2xl font-semibold leading-none tracking-tight">{isEditMode ? 'تعديل الطلب' : 'أوردر ذكي في أقل عدد خطوات'}</h2>
-                <p className="text-sm text-muted-foreground">
-                  {isEditMode ? 'عدّل بيانات الطلب ثم احفظ التغييرات.' : 'اختر نوع العميل، حمّل بياناته فورًا، ثم أكمل الأوردر بدون تكرار أو كتابة مرهقة.'}
+                <h2 className="text-lg font-bold text-slate-900">{isEditMode ? 'تعديل الطلب' : 'أوردر ذكي في أقل عدد خطوات'}</h2>
+                <p className="text-xs text-slate-500">
+                  {isEditMode ? 'عدّل بيانات الطلب ثم احفظ التغييرات.' : 'ابحث بالهاتف للقفز مباشرة لتفاصيل الطلب، أو اختر نوع العميل.'}
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-sm shadow-sm backdrop-blur">
-                <p className="font-semibold text-foreground">وضع البيانات الحالي</p>
-                <p className="mt-1 text-muted-foreground">
-                  {storageMode === 'customers' ? 'يتم الحفظ في قسم العملاء مباشرة.' : 'يتم تكوين العملاء تلقائيًا من الطلبات الحالية لحين تفعيل الجدول.'}
+              <div className="hidden sm:block rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2 text-xs">
+                <p className="font-semibold text-slate-800">وضع البيانات الحالي</p>
+                <p className="mt-0.5 text-slate-500">
+                  {storageMode === 'customers' ? 'يتم الحفظ في قسم العملاء مباشرة.' : 'يتم تكوين العملاء تلقائيًا من الطلبات الحالية.'}
                 </p>
               </div>
             </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
               {steps.map((item, index) => {
                 const isActive = index === currentStepIndex;
                 const isCompleted = index < currentStepIndex;
@@ -840,24 +840,24 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
                   <div
                     key={item.id}
                     className={cn(
-                      'rounded-2xl border px-4 py-3 transition-all',
-                      isActive && 'border-primary bg-primary/10 shadow-sm',
-                      isCompleted && 'border-emerald-200 bg-emerald-50',
-                      !isActive && !isCompleted && 'border-border bg-white/70',
+                      'rounded-xl border px-3.5 py-2.5 transition-all',
+                      isActive && 'border-emerald-500 bg-emerald-50/70',
+                      isCompleted && 'border-emerald-200 bg-emerald-50/40',
+                      !isActive && !isCompleted && 'border-slate-200/80 bg-slate-50/50',
                     )}
                   >
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-sm font-semibold text-foreground">{item.label}</p>
-                        <p className="text-xs text-muted-foreground">{item.hint}</p>
+                        <p className="text-xs font-bold text-slate-900">{item.label}</p>
+                        <p className="text-[11px] text-slate-500">{item.hint}</p>
                       </div>
                       <div className={cn(
-                        'flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold',
-                        isCompleted && 'bg-emerald-500 text-white',
-                        isActive && 'bg-primary text-white',
-                        !isActive && !isCompleted && 'bg-muted text-muted-foreground',
+                        'flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold tabular-nums',
+                        isCompleted && 'bg-emerald-600 text-white',
+                        isActive && 'bg-emerald-600 text-white',
+                        !isActive && !isCompleted && 'bg-slate-200 text-slate-600',
                       )}>
-                        {isCompleted ? <Check className="h-4 w-4" /> : index + 1}
+                        {isCompleted ? <Check className="h-3.5 w-3.5" /> : index + 1}
                       </div>
                     </div>
                   </div>
@@ -866,24 +866,95 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-5">
+          <form
+            onSubmit={handleSubmit}
+            onKeyDown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && step === 'order' && !creating) {
+                e.currentTarget.requestSubmit();
+              }
+            }}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
               {step === 'mode' && (
                 <div className="grid gap-4">
-                  <Card className="border-dashed bg-muted/20">
-                    <CardContent className="grid gap-3 p-4">
+                  <Card className="p-4">
+                    <div className="grid gap-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-sm font-semibold text-foreground">{singleAccessibleBrand ? 'البراند المرتبط بحسابك' : 'اختر البراند أولًا'}</p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-sm font-bold text-slate-900">{singleAccessibleBrand ? 'البراند المرتبط بحسابك' : 'اختر البراند أولًا'}</p>
+                          <p className="text-xs text-slate-500">
                             {singleAccessibleBrand ? 'تم ربط الأوردر تلقائيًا ببراندك المتاح.' : 'العملاء مسجلون بشكل منفصل لكل علامة تجارية.'}
                           </p>
                         </div>
-                        <Badge variant="outline">{brands.length} براند</Badge>
+                        <Badge variant="outline" className="tabular-nums">{brands.length} براند</Badge>
                       </div>
                       {renderBrandField()}
-                    </CardContent>
+                    </div>
                   </Card>
+
+                  {/* 1-Click Smart Phone / Name Quick Lookup */}
+                  {form.brand_id && (
+                    <Card className="p-4 space-y-3 border-emerald-200/80">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-slate-900">بحث فوري برقم الهاتف أو الاسم (اختصار للكول سنتر)</span>
+                        <span className="text-[11px] text-emerald-700 font-medium">يفتح تفاصيل الطلب بضغطة واحدة</span>
+                      </div>
+                      <div className="relative">
+                        <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <Input
+                          value={customerSearch}
+                          onChange={(e) => setCustomerSearch(e.target.value)}
+                          placeholder="اكتب رقم هاتف المتصل أو اسمه للقفز مباشرة للأوردر..."
+                          className="pr-9 h-10 text-xs"
+                        />
+                      </div>
+                      {customerSearch.trim().length > 0 && (
+                        <div className="max-h-48 overflow-y-auto space-y-2">
+                          {existingCustomerResults.slice(0, 4).map((customer) => (
+                            <button
+                              key={customer.id}
+                              type="button"
+                              onClick={() => {
+                                setCustomerFromRecord(customer);
+                                setCustomerMode('existing');
+                                setStep(customer.address ? 'order' : 'customer');
+                              }}
+                              className="w-full rounded-xl border border-slate-200/80 bg-slate-50/70 hover:bg-emerald-50/60 hover:border-emerald-300 px-3.5 py-2.5 text-right transition-colors flex items-center justify-between gap-3 cursor-pointer"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-slate-900 truncate">{customer.name}</p>
+                                <p className="text-[11px] text-slate-500 tabular-nums truncate">
+                                  {customer.phone} · {customer.address || 'بدون عنوان محفوظ'}
+                                </p>
+                              </div>
+                              <span className="shrink-0 rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white">
+                                تحميل وتخطي ←
+                              </span>
+                            </button>
+                          ))}
+                          {existingCustomerResults.length === 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const digits = normalizePhone(customerSearch);
+                                if (digits.length >= 6) {
+                                  setField('phone', digits);
+                                } else {
+                                  setField('customer_name', customerSearch.trim());
+                                }
+                                setCustomerMode('new');
+                                setStep('customer');
+                              }}
+                              className="w-full rounded-xl border border-dashed border-emerald-300 bg-emerald-50/40 px-3.5 py-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 transition-colors cursor-pointer text-center"
+                            >
+                              لا يوجد عميل مسجل بهذا البحث — اضغط لبدء تسجيل عميل جديد بـ "{customerSearch.trim()}"
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </Card>
+                  )}
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <button
@@ -897,14 +968,14 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
                         setCustomerMode('existing');
                         setStep('customer');
                       }}
-                      className="group rounded-[24px] border border-border bg-[linear-gradient(135deg,rgba(255,255,255,1),rgba(239,246,255,0.92))] p-5 text-right shadow-sm transition hover:-translate-y-0.5 hover:border-primary hover:shadow-lg"
+                      className="group rounded-xl border border-slate-200/80 bg-white p-5 text-right shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all hover:border-emerald-500 hover:shadow-xs cursor-pointer"
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <div className="rounded-2xl bg-info/10 p-3 text-info"><History className="h-6 w-6" /></div>
-                        <Badge className="bg-info/10 text-info hover:bg-info/10">أسرع اختيار</Badge>
+                        <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200/60 flex items-center justify-center text-sky-600"><History className="h-5 w-5" /></div>
+                        <span className="rounded-full bg-sky-50 border border-sky-200/60 px-2.5 py-0.5 text-[11px] font-semibold text-sky-700">أسرع اختيار</span>
                       </div>
-                      <h3 className="mt-5 text-xl font-bold text-foreground">عميل قديم</h3>
-                      <p className="mt-2 text-sm text-muted-foreground">ابحث بالاسم أو الهاتف، حمّل البيانات فورًا، وكمّل الأوردر في ثوانٍ.</p>
+                      <h3 className="mt-4 text-base font-bold text-slate-900">عميل قديم</h3>
+                      <p className="mt-1 text-xs text-slate-500">ابحث بالاسم أو الهاتف، حمّل البيانات فورًا، وكمّل الأوردر في ثوانٍ.</p>
                     </button>
 
                     <button
@@ -918,14 +989,14 @@ export default function NewOrderDialog({ onCreated, addOrder, editOrder, updateO
                         setCustomerMode('new');
                         setStep('customer');
                       }}
-                      className="group rounded-[24px] border border-border bg-[linear-gradient(135deg,rgba(255,255,255,1),rgba(240,253,244,0.94))] p-5 text-right shadow-sm transition hover:-translate-y-0.5 hover:border-primary hover:shadow-lg"
+                      className="group rounded-xl border border-slate-200/80 bg-white p-5 text-right shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all hover:border-emerald-500 hover:shadow-xs cursor-pointer"
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <div className="rounded-2xl bg-primary/10 p-3 text-primary"><UserPlus className="h-6 w-6" /></div>
-                        <Badge className="bg-primary/10 text-primary hover:bg-primary/10">إدخال ذكي</Badge>
+                        <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-emerald-700"><UserPlus className="h-5 w-5" /></div>
+                        <span className="rounded-full bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">إدخال ذكي</span>
                       </div>
-                      <h3 className="mt-5 text-xl font-bold text-foreground">عميل جديد</h3>
-                      <p className="mt-2 text-sm text-muted-foreground">سجّل بياناته بسرعة، واكتشف التكرار أثناء الكتابة قبل إنشاء الأوردر.</p>
+                      <h3 className="mt-4 text-base font-bold text-slate-900">عميل جديد</h3>
+                      <p className="mt-1 text-xs text-slate-500">سجّل بياناته بسرعة، واكتشف التكرار أثناء الكتابة قبل إنشاء الأوردر.</p>
                     </button>
                   </div>
                 </div>

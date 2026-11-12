@@ -3,7 +3,8 @@ import { Card } from '@/components/ui/card';
 import { Order, ACHIEVEMENT_TIERS } from '@/types/order';
 import { Trophy, Medal, Award, TrendingUp, Flame, ShieldCheck, CircleDollarSign } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { formatEGPCurrency } from '@/lib/utils';
+import { AppLayoutHeaderPortal } from '@/components/AppLayout';
+import { cn, formatEGPCurrency } from '@/lib/utils';
 
 interface UserProfile {
   id: string;
@@ -56,63 +57,87 @@ export default function Leaderboard({ orders, profiles }: Props) {
   }, [orders, profiles, month]);
 
   const podiumIcons = [Trophy, Medal, Award];
-  const podiumColors = ['text-yellow-500', 'text-gray-400', 'text-amber-600'];
+  const podiumBadges = [
+    'bg-amber-50 text-amber-700 border border-amber-200/80',
+    'bg-slate-100 text-slate-700 border border-slate-200/80',
+    'bg-orange-50 text-orange-700 border border-orange-200/80',
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Trophy className="h-6 w-6 text-warning" />
-        <h1 className="text-2xl font-bold text-foreground">لوحة الصدارة</h1>
-        <span className="text-sm text-muted-foreground">هذا الشهر</span>
-      </div>
+    <div className="space-y-5">
+      <AppLayoutHeaderPortal>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200/80 px-3 py-1 text-xs font-semibold text-amber-700 tabular-nums">
+          <Trophy className="h-3.5 w-3.5" />
+          <span>ترتيب الشهر الحالي ({leaderboard.length.toLocaleString('en-US')})</span>
+        </span>
+      </AppLayoutHeaderPortal>
 
       {leaderboard.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">لا يوجد نشاط هذا الشهر حتى الآن. ابدأ بإنشاء طلبات جديدة.</div>
+        <Card className="border-dashed p-12 text-center text-sm text-slate-500">
+          لا يوجد نشاط هذا الشهر حتى الآن. ابدأ بإنشاء طلبات جديدة.
+        </Card>
       ) : (
         <div className="space-y-3">
           {leaderboard.map((agent, idx) => {
             const PodiumIcon = idx < 3 ? podiumIcons[idx] : TrendingUp;
-            const podiumColor = idx < 3 ? podiumColors[idx] : 'text-muted-foreground';
+            const iconBoxClass =
+              idx < 3
+                ? podiumBadges[idx]
+                : 'bg-slate-50 text-slate-500 border border-slate-200/60';
+
             return (
-              <Card key={agent.userId} className={`p-4 transition-all duration-200 hover:shadow-lg ${idx === 0 ? 'border-yellow-400/50 bg-yellow-50/30 dark:bg-yellow-900/10' : ''}`}>
+              <Card
+                key={agent.userId}
+                className={cn(
+                  'p-5 hover:border-slate-300 hover:shadow-xs transition-all duration-150',
+                  idx === 0 && 'border-r-4 border-r-amber-500 bg-amber-50/20',
+                )}
+              >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
-                    <PodiumIcon className={`h-5 w-5 ${podiumColor}`} />
+                  <div className={cn('flex items-center justify-center w-10 h-10 rounded-xl shrink-0', iconBoxClass)}>
+                    <PodiumIcon className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-foreground text-lg">#{idx + 1}</span>
-                      <span className="font-medium text-foreground">{agent.name}</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-slate-900 text-sm tabular-nums">#{idx + 1}</span>
+                      <span className="font-bold text-sm text-slate-900">{agent.name}</span>
                       {agent.tier && (
-                        <span className="text-sm px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: agent.tier.color + '20', color: agent.tier.color }}>
+                        <span
+                          className={cn(
+                            'text-[11px] px-2 py-0.5 rounded-full font-semibold border',
+                            agent.tier.badge === 'gold' && 'bg-amber-50 text-amber-700 border-amber-200/80',
+                            agent.tier.badge === 'silver' && 'bg-slate-100 text-slate-700 border-slate-200/80',
+                            agent.tier.badge === 'bronze' && 'bg-orange-50 text-orange-700 border-orange-200/80',
+                          )}
+                        >
                           {agent.tier.emoji} {agent.tier.label}
                         </span>
                       )}
                     </div>
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <div className="mt-3 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs text-slate-500">
                         <span>تقدم النقاط</span>
-                        <span className="font-semibold text-foreground">{agent.score} نقطة</span>
+                        <span className="font-semibold text-slate-900 tabular-nums tracking-tight">{agent.score.toLocaleString('en-US')} نقطة</span>
                       </div>
-                      <Progress value={Math.min(100, (agent.score / topScoreTarget) * 100)} className="h-2" />
+                      <Progress value={Math.min(100, (agent.score / topScoreTarget) * 100)} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm lg:grid-cols-4">
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 font-bold text-foreground text-lg"><Flame className="h-4 w-4 text-orange-500" />{agent.score}</div>
-                      <div className="text-xs text-muted-foreground">النقاط</div>
+                  <div className="grid grid-cols-2 gap-3 text-sm lg:grid-cols-4 shrink-0">
+                    <div className="rounded-lg bg-slate-50 border border-slate-200/60 px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1 font-bold text-slate-900 text-sm tabular-nums tracking-tight"><Flame className="h-3.5 w-3.5 text-orange-500" />{agent.score.toLocaleString('en-US')}</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">النقاط</div>
                     </div>
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 font-bold text-foreground text-lg"><CircleDollarSign className="h-4 w-4 text-emerald-500" />{formatEGPCurrency(agent.sales)}</div>
-                      <div className="text-xs text-muted-foreground">المبيعات</div>
+                    <div className="rounded-lg bg-slate-50 border border-slate-200/60 px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1 font-bold text-slate-900 text-sm tabular-nums tracking-tight"><CircleDollarSign className="h-3.5 w-3.5 text-emerald-600" />{formatEGPCurrency(agent.sales)}</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">المبيعات</div>
                     </div>
-                    <div className="text-center">
-                      <div className="font-bold text-foreground text-lg">{agent.conversionRate.toFixed(0)}%</div>
-                      <div className="text-xs text-muted-foreground">تسليم من الطلبات</div>
+                    <div className="rounded-lg bg-slate-50 border border-slate-200/60 px-3 py-2 text-center">
+                      <div className="font-bold text-slate-900 text-sm tabular-nums tracking-tight">{agent.conversionRate.toFixed(0)}%</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">تسليم من الطلبات</div>
                     </div>
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 font-bold text-foreground text-lg"><ShieldCheck className="h-4 w-4 text-sky-500" />{agent.reliabilityRate.toFixed(0)}%</div>
-                      <div className="text-xs text-muted-foreground">اعتمادية</div>
+                    <div className="rounded-lg bg-slate-50 border border-slate-200/60 px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1 font-bold text-slate-900 text-sm tabular-nums tracking-tight"><ShieldCheck className="h-3.5 w-3.5 text-sky-600" />{agent.reliabilityRate.toFixed(0)}%</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">اعتمادية</div>
                     </div>
                   </div>
                 </div>

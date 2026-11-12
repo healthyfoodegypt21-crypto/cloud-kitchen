@@ -6,6 +6,8 @@ import {
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useBrands } from '@/hooks/useBrands';
+import { AppLayoutHeaderPortal } from '@/components/AppLayout';
+import { Skeleton } from '@/components/ui/skeleton';
 import { hasHrAction } from '@/lib/permissions';
 import {
   createAdvance,
@@ -126,26 +128,41 @@ export default function HR() {
   const employeeName = useCallback((id: string) => employees.find((item) => item.id === id)?.full_name ?? 'موظف محذوف', [employees]);
   const activeEmployees = useMemo(() => employees.filter((item) => item.status === 'working'), [employees]);
 
-  if (loading || brandsLoading) return <div className="grid min-h-[40vh] place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  if (loading || brandsLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-28 w-full rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold">الموارد البشرية</h1>
-        <p className="text-muted-foreground">إدارة الموظفين، الحضور، السلف، الخصومات، المكافآت، واحتساب المرتبات تلقائياً.</p>
-      </header>
+    <div className="space-y-5">
+      <AppLayoutHeaderPortal>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200/60 px-3 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+          <UsersRound className="h-3.5 w-3.5" />
+          <span>{activeEmployees.length.toLocaleString('en-US')} موظف نشط</span>
+        </span>
+      </AppLayoutHeaderPortal>
 
-      <Tabs defaultValue="dashboard" className="w-full">
-        <TabsList className="flex h-auto flex-wrap justify-start gap-1">
-          <TabsTrigger value="dashboard"><TrendingUp className="ml-1 h-4 w-4" />المؤشرات</TabsTrigger>
-          <TabsTrigger value="directory"><UsersRound className="ml-1 h-4 w-4" />الموظفون</TabsTrigger>
-          <TabsTrigger value="attendance"><CalendarClock className="ml-1 h-4 w-4" />الحضور</TabsTrigger>
-          <TabsTrigger value="advances"><WalletCards className="ml-1 h-4 w-4" />السلف</TabsTrigger>
-          <TabsTrigger value="deductions"><Scissors className="ml-1 h-4 w-4" />الخصومات</TabsTrigger>
-          <TabsTrigger value="bonuses"><Gift className="ml-1 h-4 w-4" />المكافآت</TabsTrigger>
-          <TabsTrigger value="payroll"><Wallet className="ml-1 h-4 w-4" />المرتبات</TabsTrigger>
-          <TabsTrigger value="activity"><Activity className="ml-1 h-4 w-4" />سجل العمليات</TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="dashboard" dir="rtl" className="w-full space-y-4">
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="inline-flex h-auto min-w-full sm:min-w-0 justify-start gap-1 rounded-xl border border-slate-200/80 bg-white p-1">
+            <TabsTrigger value="dashboard" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700"><TrendingUp className="ml-1.5 h-3.5 w-3.5" />المؤشرات</TabsTrigger>
+            <TabsTrigger value="directory" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700"><UsersRound className="ml-1.5 h-3.5 w-3.5" />الموظفون</TabsTrigger>
+            <TabsTrigger value="attendance" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700"><CalendarClock className="ml-1.5 h-3.5 w-3.5" />الحضور</TabsTrigger>
+            <TabsTrigger value="advances" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700"><WalletCards className="ml-1.5 h-3.5 w-3.5" />السلف</TabsTrigger>
+            <TabsTrigger value="deductions" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700"><Scissors className="ml-1.5 h-3.5 w-3.5" />الخصومات</TabsTrigger>
+            <TabsTrigger value="bonuses" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700"><Gift className="ml-1.5 h-3.5 w-3.5" />المكافآت</TabsTrigger>
+            <TabsTrigger value="payroll" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700"><Wallet className="ml-1.5 h-3.5 w-3.5" />المرتبات</TabsTrigger>
+            <TabsTrigger value="activity" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700"><Activity className="ml-1.5 h-3.5 w-3.5" />سجل العمليات</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="dashboard" className="mt-4">
           <DashboardTab employees={employees} attendance={attendance} deductions={deductions} bonuses={bonuses} advances={advances} />
@@ -181,9 +198,15 @@ type LogFn = (action: string, entity: string, oldData?: unknown, newData?: unkno
 
 function Metric({ icon: Icon, title, value, hint, danger = false }: { icon: React.ElementType; title: string; value: string; hint?: string; danger?: boolean }) {
   return (
-    <Card className={danger ? 'border-destructive/40' : ''}>
-      <CardHeader className="pb-2"><CardDescription><Icon className="ml-1 inline h-4 w-4" />{title}</CardDescription><CardTitle className={danger ? 'text-destructive' : ''}>{value}</CardTitle></CardHeader>
-      {hint ? <CardContent className="text-sm text-muted-foreground">{hint}</CardContent> : null}
+    <Card className={`p-5 flex flex-col justify-between h-full ${danger ? 'bg-rose-50/40 border-rose-200/80 border-r-4 border-r-rose-500' : ''}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-slate-500">{title}</span>
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 ${danger ? 'bg-rose-50 text-rose-600 border-rose-200/60' : 'bg-slate-50 text-slate-600 border-slate-200/60'}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+      </div>
+      <div className={`text-2xl font-bold tabular-nums tracking-tight my-2 ${danger ? 'text-rose-700' : 'text-slate-900'}`}>{value}</div>
+      {hint ? <p className="text-[11px] text-slate-500">{hint}</p> : <span className="h-3" />}
     </Card>
   );
 }

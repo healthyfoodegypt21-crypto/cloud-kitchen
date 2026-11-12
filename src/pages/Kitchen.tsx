@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChefHat, ClipboardList, CookingPot, Loader2, Package2, Printer, Tags, Table2 } from 'lucide-react';
+import { ChefHat, ClipboardList, CookingPot, Package2, Printer, Tags, Table2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { AppLayoutHeaderPortal } from '@/components/AppLayout';
 import KitchenStickerPrintSheet from '@/components/KitchenStickerPrintSheet';
 import KitchenReportPrintSheet from '@/components/KitchenReportPrintSheet';
 import { Input } from '@/components/ui/input';
@@ -107,45 +109,57 @@ export default function Kitchen({
 
   return (
     <>
-    <div className={cn('space-y-4 print:space-y-3', printMode && 'print:hidden')}>
-      <div className="flex flex-wrap items-start justify-between gap-3 print:hidden">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
-            <ChefHat className="h-6 w-6 text-primary" />
-            المطبخ
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            تجميع وجبات التنفيذ اليومية حسب الصنف لتجهيزها مرة واحدة، مع إظهار أي تعديل تحت نفس الوجبة.
-          </p>
+    <div className={cn('space-y-5 print:space-y-3', printMode && 'print:hidden')}>
+      <AppLayoutHeaderPortal>
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 rounded-lg gap-1.5 text-xs font-semibold"
+            onClick={() => setPrintMode('stickers')}
+            disabled={stickers.length === 0}
+          >
+            <Tags className="h-3.5 w-3.5" />
+            <span>طباعة الاستيكرات</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="h-9 rounded-lg gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => setPrintMode('report')}
+          >
+            <Printer className="h-3.5 w-3.5" />
+            <span>طباعة أمر المطبخ</span>
+          </Button>
         </div>
-        <Badge variant="outline" className="rounded-full px-3 py-1 text-sm">
-          الأرقام مطابقة لطلبات نفس يوم التنفيذ
-        </Badge>
-      </div>
+      </AppLayoutHeaderPortal>
 
       <div className="hidden print:block">
         <div className="flex items-center justify-between gap-3 border-b pb-3">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">تقرير المطبخ اليومي</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{selectedBrandName} - {formattedDate}</p>
+            <h1 className="text-2xl font-bold text-slate-900">تقرير المطبخ اليومي</h1>
+            <p className="mt-1 text-sm text-slate-500">{selectedBrandName} - {formattedDate}</p>
           </div>
-          <div className="text-sm text-muted-foreground">إجمالي الوجبات: {summary.totalMealCount}</div>
+          <div className="text-sm text-slate-500 tabular-nums">إجمالي الوجبات: {summary.totalMealCount.toLocaleString('en-US')}</div>
         </div>
       </div>
 
-      <Card className="rounded-3xl border-0 shadow-sm print:hidden">
-        <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-[1.2fr_220px] lg:items-end">
-          <div className="grid gap-2">
-            <label className="text-sm font-medium text-foreground">تاريخ التنفيذ</label>
-            <Input type="date" value={selectedDate} onChange={event => setSelectedDate(event.target.value)} />
-            <p className="text-xs text-muted-foreground">
-              {weekdayLabel ? `${weekdayLabel} - ${formattedDate}` : 'اختر تاريخًا صالحًا'}
-            </p>
+      <Card className="p-4 print:hidden">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_240px_auto] lg:items-center">
+          <div className="grid gap-1.5">
+            <label className="text-xs font-semibold text-slate-600">تاريخ التنفيذ</label>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Input type="date" className="max-w-[200px] h-9 text-xs tabular-nums" value={selectedDate} onChange={event => setSelectedDate(event.target.value)} />
+              <span className="text-xs text-slate-500">
+                {weekdayLabel ? `${weekdayLabel} · ${formattedDate}` : 'اختر تاريخًا صالحًا'}
+              </span>
+            </div>
           </div>
-          <div className="grid gap-2">
-            <label className="text-sm font-medium text-foreground">البراند</label>
+          <div className="grid gap-1.5">
+            <label className="text-xs font-semibold text-slate-600">البراند</label>
             <Select value={selectedBrandId} onValueChange={setSelectedBrandId}>
-              <SelectTrigger><SelectValue placeholder="كل البراندات" /></SelectTrigger>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="كل البراندات" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">كل البراندات</SelectItem>
                 {brands.map(brand => (
@@ -154,86 +168,87 @@ export default function Kitchen({
               </SelectContent>
             </Select>
           </div>
-          <div className="sm:col-span-2 lg:col-span-2 flex justify-end">
-            <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" className="rounded-2xl gap-2" onClick={() => setPrintMode('stickers')} disabled={stickers.length === 0}>
-              <Tags className="h-4 w-4" />
-              طباعة الاستيكرات
-            </Button>
-            <Button type="button" className="rounded-2xl gap-2" onClick={() => setPrintMode('report')}>
-              <Printer className="h-4 w-4" />
-              طباعة أمر المطبخ
-            </Button>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200/60 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+              <ChefHat className="h-3.5 w-3.5" />
+              الأرقام مطابقة لطلبات يوم التنفيذ
+            </span>
           </div>
-        </CardContent>
+        </div>
       </Card>
 
-      <div className="grid gap-3 md:grid-cols-3 print:grid-cols-3">
-        <Card className="rounded-3xl border-0 bg-[linear-gradient(135deg,rgba(255,255,255,1),rgba(240,253,244,1))] shadow-sm print:rounded-xl print:shadow-none print:border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-2 text-muted-foreground"><ClipboardList className="h-4 w-4" />طلبات التنفيذ</div>
-            <p className="mt-2 text-3xl font-bold text-foreground">{summary.orderCount}</p>
-          </CardContent>
+      <div className="grid gap-4 sm:grid-cols-3 print:grid-cols-3 items-stretch">
+        <Card className="p-5 flex flex-col justify-between print:shadow-none">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500">طلبات التنفيذ</span>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-50 text-slate-600 border border-slate-200/60">
+              <ClipboardList className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-slate-900 tabular-nums tracking-tight">{summary.orderCount.toLocaleString('en-US')}</p>
         </Card>
-        <Card className="rounded-3xl border-0 bg-[linear-gradient(135deg,rgba(255,255,255,1),rgba(239,246,255,1))] shadow-sm print:rounded-xl print:shadow-none print:border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-2 text-muted-foreground"><CookingPot className="h-4 w-4" />إجمالي عدد الوجبات</div>
-            <p className="mt-2 text-3xl font-bold text-foreground">{summary.totalMealCount}</p>
-          </CardContent>
+        <Card className="p-5 flex flex-col justify-between border-t-2 border-t-emerald-500 print:shadow-none">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500">إجمالي عدد الوجبات</span>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+              <CookingPot className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-slate-900 tabular-nums tracking-tight">{summary.totalMealCount.toLocaleString('en-US')}</p>
         </Card>
-        <Card className="rounded-3xl border-0 bg-[linear-gradient(135deg,rgba(255,255,255,1),rgba(255,247,237,1))] shadow-sm print:rounded-xl print:shadow-none print:border">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-2 text-muted-foreground"><Package2 className="h-4 w-4" />الأصناف المختلفة</div>
-            <p className="mt-2 text-3xl font-bold text-foreground">{summary.totalDistinctMeals}</p>
-          </CardContent>
+        <Card className="p-5 flex flex-col justify-between print:shadow-none">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500">الأصناف المختلفة</span>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-50 text-slate-600 border border-slate-200/60">
+              <Package2 className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-slate-900 tabular-nums tracking-tight">{summary.totalDistinctMeals.toLocaleString('en-US')}</p>
         </Card>
       </div>
 
       {summary.isCombinedView && !loading && summary.brands.length > 0 && (
-        <Card className="rounded-3xl border-0 bg-[linear-gradient(135deg,rgba(255,255,255,1),rgba(250,250,249,1))] shadow-sm print:rounded-xl print:shadow-none print:border">
-          <CardContent className="p-4">
-            <p className="text-sm text-foreground">
-              تم دمج الأصناف المتكررة بين كل الشركات في كشف واحد، كما تم تفكيك الباقات إلى أطباقها الفعلية وتجميعها مع نفس الأصناف لتسهيل التنفيذ على الشيف.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-xs text-slate-600 print:border">
+          تم دمج الأصناف المتكررة بين كل الشركات في كشف واحد، كما تم تفكيك الباقات إلى أطباقها الفعلية وتجميعها مع نفس الأصناف لتسهيل التنفيذ على الشيف.
+        </div>
       )}
 
       {!loading && dailyMealAggregation.rows.length > 0 && (
-        <Card className="rounded-3xl border-0 shadow-sm print:rounded-xl print:shadow-none print:border">
-          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+        <Card className="overflow-hidden print:shadow-none">
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 border-b border-slate-100 pb-4">
             <div>
-              <CardTitle className="flex items-center gap-2 text-xl"><Table2 className="h-5 w-5 text-primary" />تجميع الوجبات اليومية</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">إجمالي الوجبات المشتركة بين الصفحات، مع كمية كل صفحة والإجمالي النهائي.</p>
+              <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-900"><Table2 className="h-4 w-4 text-emerald-600" />تجميع الوجبات اليومية</CardTitle>
+              <p className="mt-1 text-xs text-slate-500">إجمالي الوجبات المشتركة بين الصفحات، مع كمية كل صفحة والإجمالي النهائي.</p>
             </div>
-            <Badge variant="secondary">{dailyMealAggregation.total} وجبة</Badge>
+            <span className="rounded-full bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 tabular-nums">
+              {dailyMealAggregation.total.toLocaleString('en-US')} وجبة
+            </span>
           </CardHeader>
-          <CardContent className="overflow-x-auto">
+          <CardContent className="p-0 overflow-x-auto">
             <table className="w-full min-w-[640px] border-collapse text-right text-sm">
               <thead>
-                <tr className="border-b bg-muted/40">
-                  <th className="p-3 font-semibold">اسم الوجبة</th>
-                  {dailyMealAggregation.brands.map(brand => <th key={brand.key} className="p-3 text-center font-semibold">{brand.name}</th>)}
-                  <th className="p-3 text-center font-semibold">الإجمالي المطلوب</th>
-                  <th className="p-3 font-semibold">الكومنتات / التعديلات</th>
+                <tr className="border-b border-slate-100 bg-slate-50/70 text-xs text-slate-500">
+                  <th className="px-4 py-2.5 font-semibold">اسم الوجبة</th>
+                  {dailyMealAggregation.brands.map(brand => <th key={brand.key} className="px-4 py-2.5 text-center font-semibold">{brand.name}</th>)}
+                  <th className="px-4 py-2.5 text-center font-semibold">الإجمالي المطلوب</th>
+                  <th className="px-4 py-2.5 font-semibold">الكومنتات / التعديلات</th>
                 </tr>
               </thead>
               <tbody>
                 {dailyMealAggregation.rows.map(row => (
-                  <tr key={row.key} className="border-b last:border-0">
-                    <td className="p-3 font-medium">{row.label}</td>
-                    {dailyMealAggregation.brands.map(brand => <td key={brand.key} className="p-3 text-center">{row.countsByBrand[brand.key] ?? 0}</td>)}
-                    <td className="p-3 text-center font-bold text-primary">{row.total}</td>
-                    <td className="p-3">
+                  <tr key={row.key} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60">
+                    <td className="px-4 py-3 font-semibold text-slate-800">{row.label}</td>
+                    {dailyMealAggregation.brands.map(brand => <td key={brand.key} className="px-4 py-3 text-center tabular-nums text-slate-600">{(row.countsByBrand[brand.key] ?? 0).toLocaleString('en-US')}</td>)}
+                    <td className="px-4 py-3 text-center font-bold text-emerald-700 tabular-nums">{row.total.toLocaleString('en-US')}</td>
+                    <td className="px-4 py-3">
                       {row.modifications.length === 0 ? (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="text-slate-400">—</span>
                       ) : (
                         <div className="space-y-1">
                           {row.modifications.map(modification => (
                             <div key={modification.key} className="flex items-start justify-between gap-2 text-xs">
-                              <span className="text-muted-foreground">{modification.instruction}</span>
-                              <Badge variant="outline" className="shrink-0 rounded-full px-2 py-0">{modification.count}</Badge>
+                              <span className="text-slate-600">{modification.instruction}</span>
+                              <Badge variant="outline" className="shrink-0 rounded-full px-2 py-0 tabular-nums">{modification.count}</Badge>
                             </div>
                           ))}
                         </div>
@@ -248,44 +263,47 @@ export default function Kitchen({
       )}
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-48 w-full rounded-xl" />
+          <Skeleton className="h-48 w-full rounded-xl" />
+        </div>
       ) : groupedCategories.length === 0 ? (
-        <Card className="rounded-3xl border-dashed shadow-sm">
+        <Card className="border-dashed">
           <CardContent className="py-12 text-center">
-            <p className="text-lg font-semibold text-foreground">لا توجد وجبات مجمعة لهذا اليوم</p>
-            <p className="mt-2 text-sm text-muted-foreground">جرّب تغيير التاريخ أو البراند، أو أضف طلبات بتاريخ التنفيذ المطلوب.</p>
+            <p className="text-sm font-bold text-slate-900">لا توجد وجبات مجمعة لهذا اليوم</p>
+            <p className="mt-1 text-xs text-slate-500">جرّب تغيير التاريخ أو البراند، أو أضف طلبات بتاريخ التنفيذ المطلوب.</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-4">
           {groupedCategories.map((brandSummary) => (
-            <Card key={brandSummary.key} className="rounded-3xl border-0 shadow-sm print:rounded-xl print:shadow-none print:border print:break-inside-avoid">
-              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 print:pb-4">
+            <Card key={brandSummary.key} className="print:shadow-none print:break-inside-avoid">
+              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 border-b border-slate-100 pb-4">
                 <div>
-                  <CardTitle className="text-xl">{brandSummary.brandName}</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">{brandSummary.orderCount} طلبات، {brandSummary.totalMealCount} وجبة مطلوبة للتجهيز</p>
+                  <CardTitle className="text-base font-bold text-slate-900">{brandSummary.brandName}</CardTitle>
+                  <p className="mt-1 text-xs text-slate-500 tabular-nums">{brandSummary.orderCount.toLocaleString('en-US')} طلبات · {brandSummary.totalMealCount.toLocaleString('en-US')} وجبة مطلوبة للتجهيز</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {brandSummary.categories.map((section) => (
-                    <Badge key={`${brandSummary.key}-${section.category}`} variant="secondary" className="rounded-full px-3 py-1">
-                      {KITCHEN_CATEGORY_LABELS[section.category]}: {section.items.reduce((sum, item) => sum + item.count, 0)}
-                    </Badge>
+                    <span key={`${brandSummary.key}-${section.category}`} className="rounded-full bg-slate-100 border border-slate-200/80 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 tabular-nums">
+                      {KITCHEN_CATEGORY_LABELS[section.category]}: {section.items.reduce((sum, item) => sum + item.count, 0).toLocaleString('en-US')}
+                    </span>
                   ))}
                 </div>
               </CardHeader>
-              <CardContent className="grid gap-4 lg:grid-cols-2 print:grid-cols-2">
+              <CardContent className="grid gap-4 p-5 lg:grid-cols-2 print:grid-cols-2">
                 {brandSummary.categories.map((section) => (
-                  <div key={`${brandSummary.key}-${section.category}`} className="rounded-3xl border bg-muted/20 p-4 print:rounded-xl print:bg-transparent print:break-inside-avoid">
+                  <div key={`${brandSummary.key}-${section.category}`} className="rounded-xl border border-slate-200/80 bg-slate-50/50 p-4 print:bg-transparent print:break-inside-avoid">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h3 className="text-base font-semibold text-foreground">{KITCHEN_CATEGORY_LABELS[section.category]}</h3>
-                      <Badge variant="outline">{section.items.length} صنف</Badge>
+                      <h3 className="text-sm font-bold text-slate-900">{KITCHEN_CATEGORY_LABELS[section.category]}</h3>
+                      <Badge variant="outline" className="text-[11px] tabular-nums">{section.items.length} صنف</Badge>
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                       {section.items.map((item) => (
-                        <div key={item.key} className="rounded-2xl bg-background p-3 shadow-sm print:rounded-lg print:shadow-none print:border print:break-inside-avoid">
+                        <div key={item.key} className="rounded-lg border border-slate-200/70 bg-white p-3 print:shadow-none print:break-inside-avoid">
                           <div className="flex items-center justify-between gap-3">
-                            <p className="font-semibold text-foreground">{item.label}</p>
-                            <Badge className="rounded-full px-3 py-1 text-sm">{item.count}</Badge>
+                            <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                            <span className="rounded-full bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 text-xs font-bold text-emerald-700 tabular-nums">{item.count.toLocaleString('en-US')}</span>
                           </div>
                           {item.modifications.length > 0 && (
                             <div className="mt-3 space-y-2 border-t pt-3">

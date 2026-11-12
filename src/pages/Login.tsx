@@ -100,13 +100,16 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-sm p-6 space-y-6">
-        <div className="text-center space-y-2">
-          <div className="flex justify-center">
-            <BrandLogo iconClassName="h-16 w-28" textClassName="[&>span]:text-2xl" />
+    <div dir="rtl" className="min-h-screen bg-slate-50/80 text-slate-900 antialiased flex items-center justify-center p-4">
+      <Card className="w-full max-w-sm p-6 space-y-6 border-slate-200/80 rounded-xl shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="text-center space-y-3">
+          <div className="flex items-center justify-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+              <BrandLogo compact iconClassName="w-6 h-6 text-white" />
+            </div>
+            <span className="text-base font-bold tracking-wider text-slate-900">CLOUD KITCHENS</span>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs text-slate-500">
             {mode === 'login' ? 'سجّل الدخول لإدارة العلامات والطلبات' : 'أنشئ حساب المالك للبدء'}
           </p>
         </div>
@@ -114,48 +117,48 @@ export default function Login() {
         {mode === 'login' ? (
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email">البريد الإلكتروني</Label>
-              <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" />
+              <Label htmlFor="email" className="text-xs font-semibold text-slate-700">البريد الإلكتروني</Label>
+              <Input id="email" type="email" dir="ltr" className="text-left" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">كلمة المرور</Label>
-              <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
+              <Label htmlFor="password" className="text-xs font-semibold text-slate-700">كلمة المرور</Label>
+              <Input id="password" type="password" dir="ltr" className="text-left" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold" disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'تسجيل الدخول'}
             </Button>
             {import.meta.env.DEV && (
-              <Button type="button" variant="outline" className="w-full" onClick={signInAsLocalDemo}>
+              <Button type="button" variant="outline" className="w-full text-xs" onClick={signInAsLocalDemo}>
                 دخول تجريبي محلي
               </Button>
             )}
-            <button type="button" onClick={() => setMode('setup')} className="w-full text-sm text-muted-foreground hover:text-primary transition-colors">
+            <button type="button" onClick={() => setMode('setup')} className="w-full text-xs font-medium text-slate-500 hover:text-emerald-700 transition-colors">
               أول مرة؟ أنشئ حساب المالك
             </button>
           </form>
         ) : (
           <form onSubmit={handleSetup} className="space-y-4">
             <div className="space-y-1.5">
-              <Label>الاسم</Label>
+              <Label className="text-xs font-semibold text-slate-700">الاسم</Label>
               <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="اسم المالك" />
             </div>
             <div className="space-y-1.5">
-              <Label>البريد الإلكتروني</Label>
-              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" />
+              <Label className="text-xs font-semibold text-slate-700">البريد الإلكتروني</Label>
+              <Input type="email" dir="ltr" className="text-left" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" />
             </div>
             <div className="space-y-1.5">
-              <Label>كلمة المرور</Label>
-              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="6 أحرف على الأقل" />
+              <Label className="text-xs font-semibold text-slate-700">كلمة المرور</Label>
+              <Input type="password" dir="ltr" className="text-left" value={password} onChange={e => setPassword(e.target.value)} placeholder="6 أحرف على الأقل" />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold" disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'إنشاء حساب المالك'}
             </Button>
             {import.meta.env.DEV && (
-              <Button type="button" variant="outline" className="w-full" onClick={signInAsLocalDemo}>
+              <Button type="button" variant="outline" className="w-full text-xs" onClick={signInAsLocalDemo}>
                 دخول تجريبي محلي
               </Button>
             )}
-            <button type="button" onClick={() => setMode('login')} className="w-full text-sm text-muted-foreground hover:text-primary transition-colors">
+            <button type="button" onClick={() => setMode('login')} className="w-full text-xs font-medium text-slate-500 hover:text-emerald-700 transition-colors">
               لديك حساب بالفعل؟ سجّل الدخول
             </button>
           </form>

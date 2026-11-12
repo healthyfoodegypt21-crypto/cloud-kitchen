@@ -23,6 +23,7 @@ import {
   Mail, Plus, Search, Shield, Store, Trash2, UserRound, Users, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { AppLayoutHeaderPortal } from '@/components/AppLayout';
 import { useBrands } from '@/hooks/useBrands';
 import { useAuth } from '@/hooks/useAuth';
 import { isSupabaseNetworkError, isSupabaseUnavailable, markSupabaseUnavailable } from '@/integrationssupabase/runtime';
@@ -493,37 +494,35 @@ export default function UsersManagement() {
   const lastItem = Math.min(page * pageSize, filteredUsers.length);
 
   return (
-    <div className="space-y-6" dir="rtl">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Users className="h-4 w-4" /> إدارة النظام</div>
-          <h1 className="mt-1 text-2xl font-bold text-foreground">إدارة المستخدمين</h1>
-          <p className="mt-1 text-sm text-muted-foreground">إدارة حسابات الموظفين وأدوارهم ونطاق وصولهم.</p>
-        </div>
+    <div className="space-y-5" dir="rtl">
+      <AppLayoutHeaderPortal>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => void exportRows(filteredUsers)} disabled={loading || isSupabaseUnavailable()}>
-            <Download className="ms-2 h-4 w-4" /> تصدير Excel
+          <Button size="sm" variant="outline" className="h-9 text-xs font-semibold gap-1.5 rounded-lg" onClick={() => void exportRows(filteredUsers)} disabled={loading || isSupabaseUnavailable()}>
+            <Download className="h-3.5 w-3.5" /> تصدير Excel
           </Button>
-          <Button variant="outline" onClick={() => setHubDialogOpen(true)} disabled={isSupabaseUnavailable()}>
-            <Store className="ms-2 h-4 w-4" /> إضافة مطبخ
+          <Button size="sm" variant="outline" className="h-9 text-xs font-semibold gap-1.5 rounded-lg" onClick={() => setHubDialogOpen(true)} disabled={isSupabaseUnavailable()}>
+            <Store className="h-3.5 w-3.5" /> إضافة مطبخ
           </Button>
-          <Button onClick={openCreate} disabled={isSupabaseUnavailable()}>
-            <Plus className="ms-2 h-4 w-4" /> إضافة مستخدم
+          <Button size="sm" className="h-9 text-xs font-semibold gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white" onClick={openCreate} disabled={isSupabaseUnavailable()}>
+            <Plus className="h-3.5 w-3.5" /> إضافة مستخدم
           </Button>
         </div>
-      </header>
+      </AppLayoutHeaderPortal>
 
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-3 items-stretch">
         {([
-          { title: 'المستخدمون النشطون', count: activeCount, dot: 'bg-emerald-500', icon: Users },
-          { title: 'الحسابات المعطلة', count: inactiveCount, dot: 'bg-slate-400', icon: Shield },
-          { title: 'بانتظار التفعيل', count: pendingCount, dot: 'bg-amber-500', icon: Clock3 },
-        ]).map(({ title, count, dot, icon: Icon }) => (
-          <Card key={title}>
-            <CardContent className="flex items-center gap-3 p-4">
-              <span className={`flex h-10 w-10 items-center justify-center rounded-xl bg-muted ${dot}`}><Icon className="h-5 w-5 text-white" /></span>
-              <div><p className="text-sm text-muted-foreground">{title}</p><p className="text-xl font-bold">{count}</p></div>
-            </CardContent>
+          { title: 'المستخدمون النشطون', count: activeCount, badge: 'bg-emerald-50 text-emerald-700 border-emerald-200/60', icon: Users },
+          { title: 'الحسابات المعطلة', count: inactiveCount, badge: 'bg-slate-100 text-slate-600 border-slate-200/80', icon: Shield },
+          { title: 'بانتظار التفعيل', count: pendingCount, badge: 'bg-amber-50 text-amber-700 border-amber-200/80', icon: Clock3 },
+        ]).map(({ title, count, badge, icon: Icon }) => (
+          <Card key={title} className="p-5 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-slate-500">{title}</p>
+              <span className={`flex h-8 w-8 items-center justify-center rounded-lg border ${badge}`}>
+                <Icon className="h-4 w-4" />
+              </span>
+            </div>
+            <p className="mt-2 text-2xl font-bold text-slate-900 tabular-nums tracking-tight">{count.toLocaleString('en-US')}</p>
           </Card>
         ))}
       </section>
@@ -532,8 +531,8 @@ export default function UsersManagement() {
         <CardContent className="space-y-4 p-4">
           <div className="flex flex-col gap-3 xl:flex-row">
             <div className="relative min-w-56 flex-1">
-              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث بالاسم أو البريد أو الهاتف..." className="pe-9" aria-label="البحث عن مستخدم" />
+              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث بالاسم أو البريد أو الهاتف..." className="pr-9" aria-label="البحث عن مستخدم" />
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:w-[680px]">
               <Select value={roleFilter} onValueChange={setRoleFilter}>

@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge';
 
 export default function OrderStatusBadge({ status }: { status: OrderStatus }) {
   return (
-    <Badge className={`${STATUS_COLORS[status]} border-0 font-medium text-xs`}>
+    <Badge variant="outline" className={`${STATUS_COLORS[status]} font-semibold text-[11px] px-2.5 py-0.5 rounded-full`}>
       {STATUS_LABELS[status]}
     </Badge>
   );

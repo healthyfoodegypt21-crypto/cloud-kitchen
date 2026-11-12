@@ -3,7 +3,10 @@ import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, FileSpreadsheet,
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
+import { AppLayoutHeaderPortal } from '@/components/AppLayout';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -307,12 +310,28 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     }
   };
 
+  const [countReviewModal, setCountReviewModal] = useState<{ countId: string; approve: boolean; notes: string } | null>(null);
+
   const reviewCount = async (countId: string, approve: boolean) => {
-    const reviewNotes = approve ? '' : window.prompt('اكتب سبب رفض الجرد:')?.trim() ?? '';
-    if (!approve && !reviewNotes) return;
-    if (approve && !window.confirm('سيتم تطبيق فروق الجرد على الأرصدة والدفعات. هل تريد الاعتماد؟')) return;
-    const result = await invoke('inventory_review_count', { _count_id: countId, _approve: approve, _review_notes: reviewNotes });
-    if (result) toast.success(approve ? 'تم اعتماد الجرد وتطبيق التسوية' : 'تم رفض الجرد');
+    setCountReviewModal({ countId, approve, notes: '' });
+  };
+
+  const confirmReviewCount = async () => {
+    if (!countReviewModal) return;
+    const { countId, approve, notes: reviewNotes } = countReviewModal;
+    if (!approve && !reviewNotes.trim()) {
+      toast.error('يرجى كتابة سبب رفض الجرد');
+      return;
+    }
+    const result = await invoke('inventory_review_count', {
+      _count_id: countId,
+      _approve: approve,
+      _review_notes: approve ? '' : reviewNotes.trim(),
+    });
+    if (result) {
+      toast.success(approve ? 'تم اعتماد الجرد وتطبيق التسوية' : 'تم رفض الجرد');
+      setCountReviewModal(null);
+    }
   };
 
   // Generates server-side notifications for low stock, expiring batches,
@@ -325,51 +344,138 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     }
   };
 
-  if (loading || brandsLoading) return <div className="grid min-h-[40vh] place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  if (loading || brandsLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-28 w-full rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-72 w-full rounded-xl" />
+      </div>
+    );
+  }
 
   const pendingReceipts = purchaseRequests.filter((request) => request.status === 'purchased_pending_receipt').length;
   const unreadNotifications = notifications.filter((notification) => !notification.isRead);
 
   return <div dir="rtl" className={printSheet ? 'space-y-5 print:hidden' : 'space-y-5'}>
-    <header className="flex flex-col gap-4 rounded-2xl border bg-gradient-to-l from-primary/10 via-card to-card p-5 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <p className="text-sm font-medium text-primary">{hub.name} · يخدم {hub.brandIds.length} علامات تجارية</p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">إدارة المخزون</h1>
-        <p className="mt-1 text-sm text-muted-foreground">رصيد واحد مشترك للعلامات، مع تسجيل سحب الوجبات المشتركة من المخزن.</p>
-      </div>
-      {canManage && <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => setSheetDialogOpen(true)}><Printer className="ml-2 h-4 w-4" />ورقة مسحوبات</Button>
-        <Button variant="outline" onClick={() => void runSubmit(generateAlerts)} disabled={submitting}><AlertTriangle className="ml-2 h-4 w-4" />توليد التنبيهات</Button>
-        <Button variant="outline" onClick={() => { setWithdrawalInitialMethod('manual'); setMode('withdrawal'); }}><ArrowUpFromLine className="ml-2 h-4 w-4" />سحب من المخزن</Button>
-        <Button variant="outline" onClick={() => setMode('movement')}><Plus className="ml-2 h-4 w-4" />حركة مخزون</Button>
-        <Button variant="outline" onClick={() => setMode('directPurchase')}><WalletCards className="ml-2 h-4 w-4" />شراء مباشر</Button>
-        <Button onClick={() => setMode('purchase')}><ShoppingCart className="ml-2 h-4 w-4" />طلب شراء</Button>
-      </div>}
-    </header>
+    {canManage && (
+      <AppLayoutHeaderPortal>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button size="sm" variant="outline" className="h-9 text-xs font-semibold gap-1.5 rounded-lg" onClick={() => setSheetDialogOpen(true)}>
+            <Printer className="h-3.5 w-3.5" />ورقة مسحوبات
+          </Button>
+          <Button size="sm" variant="outline" className="h-9 text-xs font-semibold gap-1.5 rounded-lg" onClick={() => { setWithdrawalInitialMethod('manual'); setMode('withdrawal'); }}>
+            <ArrowUpFromLine className="h-3.5 w-3.5" />سحب من المخزن
+          </Button>
+          <Button size="sm" variant="outline" className="h-9 text-xs font-semibold gap-1.5 rounded-lg" onClick={() => setMode('movement')}>
+            <Plus className="h-3.5 w-3.5" />حركة مخزون
+          </Button>
+          <Button size="sm" variant="outline" className="h-9 text-xs font-semibold gap-1.5 rounded-lg" onClick={() => setMode('directPurchase')}>
+            <WalletCards className="h-3.5 w-3.5" />شراء مباشر
+          </Button>
+          <Button size="sm" className="h-9 text-xs font-semibold gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setMode('purchase')}>
+            <ShoppingCart className="h-3.5 w-3.5" />طلب شراء
+          </Button>
+        </div>
+      </AppLayoutHeaderPortal>
+    )}
 
-    {hub.brandIds.length > 1 && <div className="flex flex-wrap gap-2">{hub.brandIds.map((id) => <Badge key={id} variant="secondary">{brands.find((brand) => brand.id === id)?.name ?? 'علامة مرتبطة بالمخزن'}</Badge>)}</div>}
+    <Card className="p-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 tabular-nums">
+          {hub.name} · يخدم {hub.brandIds.length.toLocaleString('en-US')} علامات تجارية
+        </span>
+        <span className="text-xs text-slate-500">رصيد واحد مشترك للعلامات، مع تسجيل سحب الوجبات المشتركة من المخزن.</span>
+        {hub.brandIds.length > 1 && hub.brandIds.map((id) => (
+          <Badge key={id} variant="outline" className="text-[11px]">{brands.find((brand) => brand.id === id)?.name ?? 'علامة مرتبطة بالمخزن'}</Badge>
+        ))}
+      </div>
+      {canManage && (
+        <Button size="sm" variant="ghost" className="h-8 text-xs font-medium text-slate-600 hover:text-slate-900 gap-1.5" onClick={() => void runSubmit(generateAlerts)} disabled={submitting}>
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />توليد التنبيهات
+        </Button>
+      )}
+    </Card>
 
     {partialError && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertTitle>بعض البيانات غير مكتملة</AlertTitle><AlertDescription>تعذر تحميل بعض القوائم الثانوية ({partialError}). البيانات الأساسية للمخزون ظاهرة بشكل صحيح — أعد تحميل الصفحة لاستكمال الباقي.</AlertDescription></Alert>}
 
     {offline && <Alert><AlertTriangle className="h-4 w-4" /><AlertTitle>وضع عدم الاتصال</AlertTitle><AlertDescription>يتم عرض آخر نسخة محفوظة من بيانات المخزون{offlineSnapshotAt ? ` (محفوظة في ${new Date(offlineSnapshotAt).toLocaleString('en-US')})` : ''}. لا يمكن تنفيذ عمليات حتى يعود الاتصال.</AlertDescription></Alert>}
 
-    {mode === 'directPurchase' && <Card className="border-primary/40"><CardHeader><CardTitle>شراء مباشر سجله مدير المخزن</CardTitle><CardDescription>يُسجل في المشتريات وينتظر اعتماد الاستلام قبل تحديث المخزون.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, unitCost: String(item?.lastPurchasePrice || (item ? item.averageCost * item.conversionFactor : 0)), locationName: item?.locationName || locations[0]?.code || 'main' })); }}><option value="">اختر الصنف</option>{items.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name} — {item.purchaseUnit}</option>)}</select></div><div className="space-y-1"><Label>اسم من قام بالشراء *</Label><Input value={purchaserName} onChange={(event) => setPurchaserName(event.target.value)} /></div><div className="space-y-1"><Label>الموقع</Label><LocationSelect locations={locations} value={line.locationName} onChange={(value) => setLine((current) => ({ ...current, locationName: value }))} /></div><div className="space-y-1"><Label>الكمية بوحدة الشراء</Label><Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} /></div><div className="space-y-1"><Label>سعر وحدة الشراء</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div><div className="space-y-1"><Label>المورد</Label><Input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} /></div><div className="space-y-1"><Label>رقم الدفعة</Label><Input value={line.batchNo} onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} /></div></div><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" /><div className="flex gap-2"><Button onClick={() => void runSubmit(submitStoreDirectPurchase)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <WalletCards className="ml-2 h-4 w-4" />}تسجيل الشراء</Button><Button variant="outline" onClick={reset} disabled={submitting}>إلغاء</Button></div></CardContent></Card>}
+    <Sheet open={mode === 'directPurchase'} onOpenChange={(open) => !open && reset()}>
+      <SheetContent side="left" className="w-full sm:max-w-lg overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>شراء مباشر سجله مدير المخزن</SheetTitle>
+          <SheetDescription>يُسجل في المشتريات وينتظر اعتماد الاستلام قبل تحديث المخزون.</SheetDescription>
+        </SheetHeader>
+        <div className="mt-5 space-y-3">
+          <div className="grid gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">الصنف</Label>
+              <select className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, unitCost: String(item?.lastPurchasePrice || (item ? item.averageCost * item.conversionFactor : 0)), locationName: item?.locationName || locations[0]?.code || 'main' })); }}>
+                <option value="">اختر الصنف</option>
+                {items.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name} — {item.purchaseUnit}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">اسم من قام بالشراء *</Label>
+              <Input value={purchaserName} onChange={(event) => setPurchaserName(event.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">الكمية بوحدة الشراء</Label>
+                <Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">سعر وحدة الشراء</Label>
+                <Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">الموقع</Label>
+                <LocationSelect locations={locations} value={line.locationName} onChange={(value) => setLine((current) => ({ ...current, locationName: value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">رقم الدفعة</Label>
+                <Input value={line.batchNo} onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">المورد</Label>
+              <Input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} />
+            </div>
+          </div>
+          <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" />
+          <div className="flex gap-2 pt-2">
+            <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => void runSubmit(submitStoreDirectPurchase)} disabled={submitting}>
+              {submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <WalletCards className="ml-2 h-4 w-4" />}تسجيل الشراء
+            </Button>
+            <Button variant="outline" onClick={reset} disabled={submitting}>إلغاء</Button>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
 
     <Tabs defaultValue="overview" dir="rtl" className="space-y-4">
-      <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl p-1 sm:w-fit sm:grid-cols-6">
-        <TabsTrigger value="overview" className="rounded-lg py-2.5">نظرة عامة</TabsTrigger>
-        <TabsTrigger value="items" className="rounded-lg py-2.5">الأصناف ({items.length})</TabsTrigger>
-        <TabsTrigger value="activity" className="rounded-lg py-2.5">الحركات والجرد</TabsTrigger>
-        <TabsTrigger value="fefo" className="rounded-lg py-2.5">الصلاحية (FEFO)</TabsTrigger>
-        <TabsTrigger value="reports" className="rounded-lg py-2.5">التقارير</TabsTrigger>
-        <TabsTrigger value="audit" className="rounded-lg py-2.5">سجل التدقيق</TabsTrigger>
-      </TabsList>
+      <div className="overflow-x-auto pb-1">
+        <TabsList className="inline-flex h-auto min-w-full sm:min-w-0 justify-start gap-1 rounded-xl border border-slate-200/80 bg-white p-1">
+          <TabsTrigger value="overview" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">نظرة عامة</TabsTrigger>
+          <TabsTrigger value="items" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700 tabular-nums">الأصناف ({items.length.toLocaleString('en-US')})</TabsTrigger>
+          <TabsTrigger value="activity" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">الحركات والجرد</TabsTrigger>
+          <TabsTrigger value="fefo" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">الصلاحية (FEFO)</TabsTrigger>
+          <TabsTrigger value="reports" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">التقارير</TabsTrigger>
+          <TabsTrigger value="audit" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">سجل التدقيق</TabsTrigger>
+        </TabsList>
+      </div>
     <TabsContent value="overview" className="space-y-4">
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <SummaryCard title="أصناف نشطة" value={String(items.filter((item) => item.status === 'active').length)} detail="كتالوج المخزن الموحد" />
-      <SummaryCard title="تحتاج إعادة طلب" value={String(lowStockCount)} detail="وصلت إلى حد إعادة الطلب" emphasis={lowStockCount > 0} />
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 items-stretch">
+      <SummaryCard title="أصناف نشطة" value={items.filter((item) => item.status === 'active').length.toLocaleString('en-US')} detail="كتالوج المخزن الموحد" />
+      <SummaryCard title="تحتاج إعادة طلب" value={lowStockCount.toLocaleString('en-US')} detail="وصلت إلى حد إعادة الطلب" emphasis={lowStockCount > 0} />
       <SummaryCard title="قيمة الرصيد" value={formatEGPCurrency(inventoryValue)} detail="إجمالي الرصيد × متوسط التكلفة" />
-      <SummaryCard title="صرف اليوم" value={formatEGPCurrency(todayWithdrawalValue)} detail={`${pendingReceipts} مشتريات تنتظر الاستلام`} />
+      <SummaryCard title="صرف اليوم" value={formatEGPCurrency(todayWithdrawalValue)} detail={`${pendingReceipts.toLocaleString('en-US')} مشتريات تنتظر الاستلام`} />
     </div>
 
     {unreadNotifications.length > 0 && <section><div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-bold">إشعارات مدير المخزن</h2><p className="text-sm text-muted-foreground">طلبات الشراء الجديدة تظهر هنا فور تسجيلها.</p></div><Badge variant="destructive">{unreadNotifications.length} جديد</Badge></div><div className="grid gap-3">{unreadNotifications.map((notification) => <Card key={notification.id} className="border-amber-300"><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"><div><strong>{notification.title}</strong><p className="mt-1 text-sm text-muted-foreground">{notification.message}</p><p className="mt-1 text-xs text-muted-foreground tabular-nums">{new Date(notification.createdAt).toLocaleString('en-US')}</p></div><Button variant="outline" onClick={() => void markNotificationRead(notification.id)}>تمت القراءة</Button></CardContent></Card>)}</div></section>}
@@ -456,11 +562,50 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       items={items}
       categories={categories}
     />
+    <Dialog open={countReviewModal !== null} onOpenChange={(open) => !open && setCountReviewModal(null)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{countReviewModal?.approve ? 'تأكيد اعتماد الجرد' : 'رفض الجرد المسجل'}</DialogTitle>
+          <DialogDescription>
+            {countReviewModal?.approve
+              ? 'سيتم تطبيق فروق الجرد مباشرةً على الأرصدة والدفعات في المخزن المركزي.'
+              : 'أدخل سبب رفض الجرد لإشعار مُعدّ الجرد وإعادة المراجعة.'}
+          </DialogDescription>
+        </DialogHeader>
+        {!countReviewModal?.approve && (
+          <Textarea
+            value={countReviewModal?.notes ?? ''}
+            onChange={(e) => setCountReviewModal((prev) => (prev ? { ...prev, notes: e.target.value } : null))}
+            placeholder="اكتب سبب رفض الجرد..."
+            rows={3}
+          />
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setCountReviewModal(null)} disabled={submitting}>
+            إلغاء
+          </Button>
+          <Button
+            className={countReviewModal?.approve ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-rose-600 hover:bg-rose-700 text-white'}
+            onClick={() => void runSubmit(confirmReviewCount)}
+            disabled={submitting}
+          >
+            {submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}
+            {countReviewModal?.approve ? 'اعتماد وتطبيق التسوية' : 'تأكيد الرفض'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>;
 }
 
 function SummaryCard({ title, value, detail, emphasis = false }: { title: string; value: string; detail: string; emphasis?: boolean }) {
-  return <Card className={emphasis ? 'border-amber-300 bg-amber-50/40' : undefined}><CardHeader className="space-y-1 p-4"><CardDescription>{title}</CardDescription><CardTitle className="text-xl tabular-nums">{value}</CardTitle></CardHeader><CardContent className="px-4 pb-4 pt-0 text-xs text-muted-foreground">{detail}</CardContent></Card>;
+  return (
+    <Card className={`p-5 flex flex-col justify-between h-full ${emphasis ? 'border-amber-200/90 border-r-4 border-r-amber-500 bg-amber-50/40' : ''}`}>
+      <p className={`text-xs font-medium ${emphasis ? 'text-amber-900' : 'text-slate-500'}`}>{title}</p>
+      <p className={`text-2xl font-bold tabular-nums tracking-tight my-2 ${emphasis ? 'text-amber-950' : 'text-slate-900'}`}>{value}</p>
+      <p className={`text-[11px] ${emphasis ? 'text-amber-800/90' : 'text-slate-500'}`}>{detail}</p>
+    </Card>
+  );
 }
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <div className="space-y-1"><Label>{label}</Label><Input value={value} onChange={(event) => onChange(event.target.value)} /></div>; }
 function LineEditor({ items, locations, line, setLine, showCost = false, quantityLabel = 'الكمية' }: { items: OperationalInventoryItem[]; locations: { code: string; name: string }[]; line: DraftLine; setLine: React.Dispatch<React.SetStateAction<DraftLine>>; showCost?: boolean; quantityLabel?: string }) {

@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useInRouterContext, useNavigate } from 'react-router-dom';
 import { Order, STATUS_LABELS, OrderStatus, ACHIEVEMENT_TIERS, SOURCE_LABELS, OrderSource } from '@/types/order';
 import {
   ClipboardList,
@@ -11,9 +12,17 @@ import {
   AlertTriangle,
   Repeat,
   CircleDollarSign,
+  ArrowUpLeft,
+  BarChart3,
 } from 'lucide-react';
 import { Brand } from '@/hooks/useBrands';
 import { cn, formatEGPCurrency } from '@/lib/utils';
+
+function RouterBridge({ navRef }: { navRef: React.MutableRefObject<((to: string) => void) | null> }) {
+  const navigate = useNavigate();
+  navRef.current = navigate;
+  return null;
+}
 
 interface Props {
   orders: Order[];
@@ -25,6 +34,17 @@ const CARD_BASE =
   'h-full flex flex-col justify-between p-5 bg-white border border-slate-200/80 rounded-xl shadow-[0_1px_2px_rgba(15,23,42,0.03)] hover:border-slate-300 hover:shadow-xs transition-all duration-150';
 
 export default function Dashboard({ orders, brands, getTarget }: Props) {
+  const inRouter = useInRouterContext();
+  const navRef = useRef<((to: string) => void) | null>(null);
+  const [chartMetric, setChartMetric] = useState<'sales' | 'orders'>('sales');
+  const [hoveredDayIdx, setHoveredDayIdx] = useState<number | null>(null);
+
+  const goTo = (to: string) => {
+    if (navRef.current) {
+      navRef.current(to);
+    }
+  };
+
   const today = new Date().toISOString().slice(0, 10);
   const month = new Date().toISOString().slice(0, 7);
   const now = Date.now();
@@ -181,6 +201,7 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
             : 'لا توجد طلبات متأخرة حرجة الآن.',
         icon: AlertTriangle,
         urgent: delayedOrders > 0,
+        href: '/orders?delayed=1',
         iconBadgeClass:
           delayedOrders > 0
             ? 'bg-amber-100/80 text-amber-700 border border-amber-200/80'
@@ -196,6 +217,7 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
             : 'لم تخسر إيراداً من الإلغاء اليوم.',
         icon: CircleDollarSign,
         urgent: false,
+        href: '/orders?status=cancelled',
         iconBadgeClass: 'bg-rose-50 text-rose-600 border border-rose-200/60',
       },
       {
@@ -208,6 +230,7 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
             : 'لا توجد قائمة استرجاع ساخنة الآن.',
         icon: Repeat,
         urgent: false,
+        href: '/customers?segment=at_risk',
         iconBadgeClass: 'bg-sky-50 text-sky-600 border border-sky-200/60',
       },
       {
@@ -219,6 +242,7 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
           : 'ابدأ تتبع مصدر أول طلب فعلي.',
         icon: Sparkles,
         urgent: false,
+        href: '/orders?preset=all',
         iconBadgeClass: 'bg-emerald-50 text-emerald-600 border border-emerald-200/60',
       },
     ];
@@ -285,12 +309,36 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
     },
   ];
 
+  const trend14Days = useMemo(() => {
+    const map = new Map<string, { sales: number; orders: number }>();
+    orders.forEach((o) => {
+      if (o.status === 'cancelled') return;
+      const dayKey = o.created_at.slice(0, 10);
+      const entry = map.get(dayKey) || { sales: 0, orders: 0 };
+      entry.sales += o.price;
+      entry.orders += 1;
+      map.set(dayKey, entry);
+    });
+
+    const days: Array<{ key: string; label: string; sales: number; orders: number }> = [];
+    for (let i = 13; i >= 0; i -= 1) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const label = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+      const bucket = map.get(key) || { sales: 0, orders: 0 };
+      days.push({ key, label, sales: bucket.sales, orders: bucket.orders });
+    }
+    return days;
+  }, [orders]);
+
   const primaryVolumeCards = [
     {
       label: 'طلبات اليوم',
       value: stats.todayOrderCount.toLocaleString('en-US'),
       icon: ClipboardList,
       highlighted: false,
+      href: '/orders',
       footer: (
         <span className="text-[11px] text-slate-500 tabular-nums tracking-tight">
           تم تسليم {stats.deliveredToday.length.toLocaleString('en-US')} طلب اليوم
@@ -302,6 +350,7 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
       value: stats.activeOrders.toLocaleString('en-US'),
       icon: Clock,
       highlighted: false,
+      href: '/orders?status=active',
       footer:
         stats.activeOrders > 0 ? (
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50/70 text-amber-700 border border-amber-200">
@@ -316,6 +365,7 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
       value: formatEGPCurrency(stats.todaySales),
       icon: DollarSign,
       highlighted: false,
+      href: '/orders',
       footer: (
         <span className="text-[11px] text-slate-500 tabular-nums tracking-tight">
           {dailySalesPct.toFixed(0)}% من الهدف اليومي
@@ -327,6 +377,7 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
       value: formatEGPCurrency(stats.monthSales),
       icon: TrendingUp,
       highlighted: true,
+      href: '/orders?preset=all',
       footer: (
         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60 tabular-nums tracking-tight">
           {stats.monthOrderCount.toLocaleString('en-US')} طلب هذا الشهر
@@ -335,8 +386,15 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
     },
   ];
 
+  const maxChartVal = Math.max(
+    1,
+    ...trend14Days.map((d) => (chartMetric === 'sales' ? d.sales : d.orders)),
+  );
+  const activeTrendPoint = hoveredDayIdx !== null ? trend14Days[hoveredDayIdx] : trend14Days[trend14Days.length - 1];
+
   return (
     <div className="space-y-5" data-tier={currentTier?.badge ?? 'none'}>
+      {inRouter && <RouterBridge navRef={navRef} />}
       {/* ROW 1: Executive Focus & Daily Momentum */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
         {/* 1. Daily Mission Card */}
@@ -384,32 +442,44 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
 
       {/* ROW 2: Primary Revenue & Order Volume */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
-        {primaryVolumeCards.map(({ label, value, icon: Icon, highlighted, footer }) => (
+        {primaryVolumeCards.map(({ label, value, icon: Icon, highlighted, href, footer }) => (
           <div
             key={label}
-            className={cn(CARD_BASE, highlighted && 'border-t-2 border-t-emerald-500')}
+            onClick={() => goTo(href)}
+            className={cn(
+              CARD_BASE,
+              inRouter && 'cursor-pointer group',
+              highlighted && 'border-t-2 border-t-emerald-500',
+            )}
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-slate-500">{label}</span>
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-50 text-slate-600 border border-slate-200/60 shrink-0">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-50 text-slate-600 border border-slate-200/60 shrink-0 group-hover:border-slate-300 transition-colors">
                 <Icon className="w-4 h-4" />
               </div>
             </div>
             <div className="text-2xl font-bold text-slate-900 tabular-nums tracking-tight my-2">
               {value}
             </div>
-            <div className="flex items-center justify-between">{footer}</div>
+            <div className="flex items-center justify-between gap-2">
+              {footer}
+              {inRouter && (
+                <ArrowUpLeft className="w-3.5 h-3.5 text-slate-300 group-hover:text-emerald-600 transition-colors shrink-0" />
+              )}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* ROW 3: Operational Risk & Growth Insights */}
+      {/* ROW 3: Operational Risk & Growth Insights (Actionable Drill-Down) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
-        {quickWins.map(({ key, title, value, hint, icon: Icon, urgent, iconBadgeClass }) => (
+        {quickWins.map(({ key, title, value, hint, icon: Icon, urgent, href, iconBadgeClass }) => (
           <div
             key={key}
+            onClick={() => goTo(href)}
             className={cn(
               'h-full flex flex-col justify-between p-5 rounded-xl shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all duration-150',
+              inRouter && 'cursor-pointer group',
               urgent
                 ? 'bg-amber-50/40 border border-amber-200/90 border-r-4 border-r-amber-500 hover:shadow-xs'
                 : 'bg-white border border-slate-200/80 hover:border-slate-300 hover:shadow-xs',
@@ -443,16 +513,104 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
               {value}
             </div>
 
-            <p
-              className={cn(
-                'text-xs leading-relaxed',
-                urgent ? 'text-amber-800/90' : 'text-slate-500',
+            <div className="flex items-end justify-between gap-2">
+              <p
+                className={cn(
+                  'text-xs leading-relaxed',
+                  urgent ? 'text-amber-800/90' : 'text-slate-500',
+                )}
+              >
+                {hint}
+              </p>
+              {inRouter && (
+                <ArrowUpLeft
+                  className={cn(
+                    'w-3.5 h-3.5 shrink-0 transition-colors',
+                    urgent
+                      ? 'text-amber-600 group-hover:text-amber-900'
+                      : 'text-slate-300 group-hover:text-emerald-600',
+                  )}
+                />
               )}
-            >
-              {hint}
-            </p>
+            </div>
           </div>
         ))}
+      </div>
+
+      {/* Interactive 14-Day Revenue & Order Volume Trend */}
+      <div className={CARD_BASE}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center justify-center shrink-0">
+              <BarChart3 className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">اتجاه الأداء خلال آخر 14 يوماً</h2>
+              <p className="text-[11px] text-slate-500 tabular-nums tracking-tight">
+                {activeTrendPoint
+                  ? `${activeTrendPoint.label}: ${formatEGPCurrency(activeTrendPoint.sales)} · ${activeTrendPoint.orders.toLocaleString('en-US')} طلب`
+                  : ''}
+              </p>
+            </div>
+          </div>
+
+          <div className="inline-flex items-center rounded-lg border border-slate-200/80 bg-slate-50 p-0.5">
+            <button
+              type="button"
+              onClick={() => setChartMetric('sales')}
+              className={cn(
+                'px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer',
+                chartMetric === 'sales' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800',
+              )}
+            >
+              الإيراد اليومي
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartMetric('orders')}
+              className={cn(
+                'px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer',
+                chartMetric === 'orders' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800',
+              )}
+            >
+              عدد الطلبات
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-14 gap-1.5 items-end h-32 pt-2" style={{ gridTemplateColumns: 'repeat(14, minmax(0, 1fr))' }}>
+          {trend14Days.map((day, idx) => {
+            const val = chartMetric === 'sales' ? day.sales : day.orders;
+            const heightPct = val > 0 ? Math.max(10, Math.round((val / maxChartVal) * 100)) : 4;
+            const isHovered = hoveredDayIdx === idx;
+            return (
+              <div
+                key={day.key}
+                onMouseEnter={() => setHoveredDayIdx(idx)}
+                onMouseLeave={() => setHoveredDayIdx(null)}
+                className="flex flex-col items-center justify-end h-full gap-1.5 cursor-pointer group"
+              >
+                <div className="w-full flex-1 flex items-end">
+                  <div
+                    className={cn(
+                      'w-full rounded-t-md transition-all duration-150',
+                      val === 0
+                        ? 'bg-slate-100'
+                        : isHovered
+                          ? 'bg-emerald-700'
+                          : 'bg-emerald-500/85 group-hover:bg-emerald-600',
+                    )}
+                    style={{ height: `${heightPct}%` }}
+                    title={`${day.label}: ${chartMetric === 'sales' ? formatEGPCurrency(day.sales) : `${day.orders} طلب`}`}
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 tabular-nums tracking-tight hidden sm:block">
+                  {day.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* ROW 4: Daily & Monthly Targets */}
@@ -677,7 +835,11 @@ export default function Dashboard({ orders, brands, getTarget }: Props) {
             {(Object.entries(STATUS_LABELS) as [OrderStatus, string][]).map(([key, label]) => (
               <div
                 key={key}
-                className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-200/60 px-3 py-2.5"
+                onClick={() => goTo(`/orders?status=${key}`)}
+                className={cn(
+                  'flex items-center justify-between rounded-lg bg-slate-50 border border-slate-200/60 px-3 py-2.5 transition-colors',
+                  inRouter && 'cursor-pointer hover:bg-emerald-50/50 hover:border-emerald-200',
+                )}
               >
                 <span className="text-xs font-medium text-slate-600">{label}</span>
                 <span className="font-bold text-slate-900 text-sm tabular-nums tracking-tight">

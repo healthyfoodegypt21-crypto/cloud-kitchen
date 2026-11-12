@@ -53,6 +53,7 @@ export interface Order {
 
 export const STATUS_LABELS: Record<OrderStatus, string> = {
   new: 'جديد',
+  confirmed: 'مؤكد',
   in_preparation: 'قيد التحضير',
   out_for_delivery: 'خرج للتوصيل',
   delivered: 'تم التسليم',
@@ -60,12 +61,12 @@ export const STATUS_LABELS: Record<OrderStatus, string> = {
 };
 
 export const STATUS_COLORS: Record<OrderStatus, string> = {
-  new: 'bg-info text-info-foreground',
-  confirmed: 'bg-primary text-primary-foreground',
-  in_preparation: 'bg-warning text-warning-foreground',
-  out_for_delivery: 'bg-secondary text-secondary-foreground',
-  delivered: 'bg-success text-success-foreground',
-  cancelled: 'bg-destructive text-destructive-foreground',
+  new: 'bg-sky-50 text-sky-700 border border-sky-200/80 hover:bg-sky-100/70',
+  confirmed: 'bg-indigo-50 text-indigo-700 border border-indigo-200/80 hover:bg-indigo-100/70',
+  in_preparation: 'bg-amber-50 text-amber-700 border border-amber-200/80 hover:bg-amber-100/70',
+  out_for_delivery: 'bg-violet-50 text-violet-700 border border-violet-200/80 hover:bg-violet-100/70',
+  delivered: 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 hover:bg-emerald-100/70',
+  cancelled: 'bg-rose-50 text-rose-700 border border-rose-200/80 hover:bg-rose-100/70',
 };
 
 export const SOURCE_LABELS: Record<OrderSource, string> = {
