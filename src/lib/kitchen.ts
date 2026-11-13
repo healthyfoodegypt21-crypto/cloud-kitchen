@@ -1,10 +1,20 @@
 import { Brand } from '@/hooks/useBrands';
 import { getRecoveredSheetMealsForPhone, resolveOrderMeals } from '@/lib/orderMeals';
 import { compactWhitespace } from '@/lib/utils';
-import { Meal, MenuCategory, PackagePlan, MENU_CATEGORY_ORDER, MENU_CATEGORY_LABELS } from '@/types/menu';
+import { Meal, MenuCategory, PackagePlan } from '@/types/menu';
 import { Order } from '@/types/order';
 
-export type KitchenCategory = MenuCategory | 'uncategorized';
+export type KitchenCookedCategory =
+  | 'chicken'
+  | 'meat'
+  | 'mix'
+  | 'fish'
+  | 'salad'
+  | 'snacks'
+  | 'breakfast_dinner'
+  | 'uncategorized';
+
+export type KitchenCategory = KitchenCookedCategory | 'frozen';
 
 export interface KitchenModificationSummary {
   key: string;
@@ -75,10 +85,132 @@ type AggregateKitchenOrdersOptions = {
   brandId?: string;
 };
 
+export const KITCHEN_COOKED_CATEGORY_ORDER: KitchenCookedCategory[] = [
+  'chicken',
+  'meat',
+  'mix',
+  'fish',
+  'salad',
+  'snacks',
+  'breakfast_dinner',
+  'uncategorized',
+];
+
+export const KITCHEN_CATEGORY_ORDER: KitchenCategory[] = [
+  ...KITCHEN_COOKED_CATEGORY_ORDER,
+  'frozen',
+];
+
 export const KITCHEN_CATEGORY_LABELS: Record<KitchenCategory, string> = {
-  ...MENU_CATEGORY_LABELS,
+  chicken: 'Chicken',
+  meat: 'Beef',
+  mix: 'Mix',
+  fish: 'Seafood',
+  salad: 'Salad',
+  snacks: 'Snacks',
+  breakfast_dinner: 'Breakfast & Dinner',
+  frozen: 'Frozen / Ready to Cook',
   uncategorized: 'غير مصنف',
 };
+
+const FROZEN_OR_READY_TO_COOK_PATTERN = new RegExp(
+  [
+    '\\bfrozen\\b',
+    '\\bready\\s*[-\\s]*to\\s*[-\\s]*cook\\b',
+    '\\braw\\s*(?:and|&)?\\s*frozen\\b',
+    '\\braw\\s+and\\s+ready\\b',
+    '\\buncooked\\b',
+    '\\bpre[-\\s]?marinated\\s+raw\\b',
+    '\\brtc\\b',
+    'فروزن',
+    'مفرزن(?:ة|ات)?',
+    'مجمد(?:ة|ات)?',
+    'جاهز(?:ة)?\\s*لل(?:طبخ|طهي|تسوي[ةه]|تحضير)',
+    'نصف\\s*(?:مطهي|مطهى|تسوي[ةه]|سوا)',
+    'بدون\\s*(?:طبخ|طهي|تسوي[ةه]|سوا)',
+    '(?:^|\\s|\\(|-)نيئ(?:ة)?(?:\\s|\\)|-|$)',
+    '(?:^|\\s|\\(|-)نيء(?:\\s|\\)|-|$)',
+  ].join('|'),
+  'iu',
+);
+
+const BREAKFAST_OR_DINNER_CATEGORY_PATTERN = /(breakfast|braekfast|dinner|فطار|إفطار|افطار|عشاء|عشا|سحور)/iu;
+
+const BREAKFAST_OR_DINNER_LABEL_PATTERN = new RegExp(
+  [
+    '\\bbreakfast\\b',
+    '\\bbraekfast\\b',
+    '\\bdinner\\b',
+    'فطار',
+    'إفطار',
+    'افطار',
+    'عشاء',
+    'عشا',
+    'سحور',
+    '\\bomelette\\b',
+    '\\bomelet\\b',
+    'أومليت',
+    'اومليت',
+    'بيض\\s*مسلوق',
+    '\\bboiled\\s*eggs?\\b',
+    '\\bclub\\s*sandwich\\b',
+    '\\boats\\b.*\\byogurt\\b',
+    '\\byogurt\\b.*\\boats\\b',
+    'شوفان\\s*بالزبادي',
+  ].join('|'),
+  'iu',
+);
+
+export function isFrozenOrReadyToCookText(value?: string | null): boolean {
+  if (!value) return false;
+  return FROZEN_OR_READY_TO_COOK_PATTERN.test(value);
+}
+
+export function resolveKitchenMealCategory(params: {
+  label: string;
+  baseCategory: MenuCategory | null | undefined;
+  customCategory?: string | null;
+  description?: string | null;
+  instruction?: string | null;
+  packageLabel?: string | null;
+}): KitchenCategory {
+  const { label, baseCategory, customCategory, description, instruction, packageLabel } = params;
+
+  if (
+    isFrozenOrReadyToCookText(customCategory) ||
+    isFrozenOrReadyToCookText(label) ||
+    isFrozenOrReadyToCookText(instruction) ||
+    isFrozenOrReadyToCookText(description) ||
+    isFrozenOrReadyToCookText(packageLabel)
+  ) {
+    return 'frozen';
+  }
+
+  const normalizedCustom = compactWhitespace(customCategory ?? '');
+  if (
+    (normalizedCustom && BREAKFAST_OR_DINNER_CATEGORY_PATTERN.test(normalizedCustom)) ||
+    BREAKFAST_OR_DINNER_LABEL_PATTERN.test(label)
+  ) {
+    return 'breakfast_dinner';
+  }
+
+  if (normalizedCustom) {
+    if (/(salad|سلط)/iu.test(normalizedCustom)) return 'salad';
+    if (/(snack|dessert|سناك|حلو)/iu.test(normalizedCustom)) return 'snacks';
+    if (/(seafood|sea\s*food|fish|salmon|shrimp|tuna|أسماك|اسماك|سمك|سي\s*فود|جمبري)/iu.test(normalizedCustom)) return 'fish';
+    if (/(mix|ميكس|مشكل|كومبو)/iu.test(normalizedCustom)) return 'mix';
+    if (/(chicken|poultry|دجاج|فراخ|تشيكن)/iu.test(normalizedCustom)) return 'chicken';
+    if (/(beef|meat|steak|veal|لحوم|لحم|بيف|ستيك|استيك|كفتة|كفته)/iu.test(normalizedCustom)) return 'meat';
+  }
+
+  return baseCategory ?? 'uncategorized';
+}
+
+export function compareKitchenMealLabels(left: string, right: string) {
+  const cleanLeft = compactWhitespace(left.replace(/^\*+\s*/u, ''));
+  const cleanRight = compactWhitespace(right.replace(/^\*+\s*/u, ''));
+  return cleanLeft.localeCompare(cleanRight, 'ar', { sensitivity: 'base', numeric: true });
+}
 
 function normalizeLabel(value: string) {
   return compactWhitespace(
@@ -134,9 +266,10 @@ function combineInstructions(...values: Array<string | undefined>) {
 }
 
 function compareCategory(left: KitchenCategory, right: KitchenCategory) {
-  const leftIndex = left === 'uncategorized' ? MENU_CATEGORY_ORDER.length : MENU_CATEGORY_ORDER.indexOf(left);
-  const rightIndex = right === 'uncategorized' ? MENU_CATEGORY_ORDER.length : MENU_CATEGORY_ORDER.indexOf(right);
-  return leftIndex - rightIndex;
+  const leftIndex = KITCHEN_CATEGORY_ORDER.indexOf(left);
+  const rightIndex = KITCHEN_CATEGORY_ORDER.indexOf(right);
+  return (leftIndex === -1 ? KITCHEN_CATEGORY_ORDER.length : leftIndex)
+    - (rightIndex === -1 ? KITCHEN_CATEGORY_ORDER.length : rightIndex);
 }
 
 function findMealNutrition(mealSummary: KitchenMealSummary, brandSummary: KitchenBrandSummary, meals: Meal[]) {
@@ -237,14 +370,29 @@ export function aggregateKitchenOrders({ orders, brands, meals, packages, date, 
     const mealCustomizationMap = new Map(
       (order.meal_customizations ?? []).map(item => [item.key, normalizeInstruction(item.notes)]),
     );
-    const resolvedMeals = resolveOrderMeals(order, meals, packages).map(meal => ({
-      label: meal.label,
-      category: meal.category ?? 'uncategorized' as const,
-      instruction: combineInstructions(generalInstruction, meal.instruction, mealCustomizationMap.get(meal.customizationKey)),
-    }));
+    const resolvedMeals = resolveOrderMeals(order, meals, packages).map(meal => {
+      const instruction = combineInstructions(generalInstruction, meal.instruction, mealCustomizationMap.get(meal.customizationKey));
+      const category = resolveKitchenMealCategory({
+        label: meal.label,
+        baseCategory: meal.category,
+        customCategory: meal.customCategory,
+        description: meal.description,
+        instruction,
+        packageLabel: order.package,
+      });
+
+      return {
+        label: meal.label,
+        category,
+        instruction,
+      };
+    });
 
     for (const meal of resolvedMeals) {
-      const mealKey = isCombinedView ? normalizeLabel(meal.label) : `${brandKey}::${normalizeLabel(meal.label)}`;
+      const prepGroupKey = meal.category === 'frozen' ? 'frozen' : 'cooked';
+      const mealKey = isCombinedView
+        ? `${prepGroupKey}::${normalizeLabel(meal.label)}`
+        : `${brandKey}::${prepGroupKey}::${normalizeLabel(meal.label)}`;
       const currentMeal = bucket.meals.get(mealKey) ?? {
         key: mealKey,
         label: meal.label,
@@ -287,9 +435,9 @@ export function aggregateKitchenOrders({ orders, brands, meals, packages, date, 
       meals: [...bucket.meals.values()]
         .map(meal => ({
           ...meal,
-          modifications: [...meal.modifications].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, 'ar')),
+          modifications: [...meal.modifications].sort((left, right) => compareKitchenMealLabels(left.instruction, right.instruction)),
         }))
-        .sort((left, right) => compareCategory(left.category, right.category) || right.count - left.count || left.label.localeCompare(right.label, 'ar')),
+        .sort((left, right) => compareCategory(left.category, right.category) || compareKitchenMealLabels(left.label, right.label)),
     }))
     .sort((left, right) => left.brandName.localeCompare(right.brandName, 'ar'));
 
@@ -311,7 +459,8 @@ export function aggregateDailyMealsByBrand({ orders, brands, meals, packages, da
 
   for (const { brand, summary } of summaries) {
     for (const meal of summary.brands.flatMap(item => item.meals)) {
-      const key = normalizeLabel(meal.label);
+      const prepGroupKey = meal.category === 'frozen' ? 'frozen' : 'cooked';
+      const key = `${prepGroupKey}::${normalizeLabel(meal.label)}`;
       const row = rowMap.get(key) ?? {
         key,
         label: meal.label,
@@ -343,10 +492,10 @@ export function aggregateDailyMealsByBrand({ orders, brands, meals, packages, da
   const rows = [...rowMap.values()]
     .map(row => ({
       ...row,
-      modifications: [...row.modifications].sort((left, right) => right.count - left.count || left.instruction.localeCompare(right.instruction, 'ar')),
+      modifications: [...row.modifications].sort((left, right) => compareKitchenMealLabels(left.instruction, right.instruction)),
     }))
     .sort((left, right) =>
-      compareCategory(left.category, right.category) || right.total - left.total || left.label.localeCompare(right.label, 'ar'),
+      compareCategory(left.category, right.category) || compareKitchenMealLabels(left.label, right.label),
     );
 
   return {

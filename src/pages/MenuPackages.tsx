@@ -1854,10 +1854,17 @@ export default function MenuPackages({ brands, brandsLoading = false, orders = [
                   list="company-custom-cats"
                   value={mealForm.custom_category}
                   onChange={(e) => setMealForm((c) => ({ ...c, custom_category: e.target.value }))}
-                  placeholder="مثال: Keto / Breakfast / Beef"
+                  placeholder="مثال: Breakfast & Dinner / Frozen / Ready to Cook"
                 />
                 <datalist id="company-custom-cats">
-                  {customCategoryTabs.map((c) => (
+                  {Array.from(
+                    new Set([
+                      'Breakfast & Dinner',
+                      'Frozen',
+                      'Ready to Cook',
+                      ...customCategoryTabs,
+                    ]),
+                  ).map((c) => (
                     <option key={c} value={c} />
                   ))}
                 </datalist>

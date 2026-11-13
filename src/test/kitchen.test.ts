@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateDailyMealsByBrand, aggregateKitchenOrders } from '@/lib/kitchen';
+import {
+  aggregateDailyMealsByBrand,
+  aggregateKitchenOrders,
+  KITCHEN_CATEGORY_LABELS,
+  KITCHEN_COOKED_CATEGORY_ORDER,
+} from '@/lib/kitchen';
 import { Meal, PackagePlan } from '@/types/menu';
 import { Order } from '@/types/order';
 
@@ -348,5 +353,135 @@ describe('aggregateKitchenOrders', () => {
       expect.objectContaining({ label: 'بيف استيك - بدون رز | بدون بطاطس', count: 1 }),
       expect.objectContaining({ label: 'بيف استيك - بدون صوص', count: 1 }),
     ]));
+  });
+
+  it('orders cooked sections as Chicken, Beef, Mix, Seafood, Salad, Snacks, Breakfast & Dinner and sorts meals alphabetically inside each section', () => {
+    expect(KITCHEN_COOKED_CATEGORY_ORDER.slice(0, 7).map(cat => KITCHEN_CATEGORY_LABELS[cat])).toEqual([
+      'Chicken',
+      'Beef',
+      'Mix',
+      'Seafood',
+      'Salad',
+      'Snacks',
+      'Breakfast & Dinner',
+    ]);
+
+    const catalogMeals: Meal[] = [
+      { id: 'm-chk-z', brand_id: 'brand-1', name: 'Zesty Chicken', category: 'chicken', price: 200, protein: 35, carbs: 20, fat: 8, calories: 300, created_at: '', updated_at: '' },
+      { id: 'm-chk-a', brand_id: 'brand-1', name: 'Almond Teriyaki Chicken', category: 'chicken', price: 200, protein: 35, carbs: 20, fat: 8, calories: 300, created_at: '', updated_at: '' },
+      { id: 'm-beef', brand_id: 'brand-1', name: 'Beef Shawarma', category: 'meat', price: 220, protein: 40, carbs: 20, fat: 10, calories: 350, created_at: '', updated_at: '' },
+      { id: 'm-mix', brand_id: 'brand-1', name: 'Mix Grill', category: 'mix', price: 230, protein: 42, carbs: 20, fat: 10, calories: 360, created_at: '', updated_at: '' },
+      { id: 'm-sea', brand_id: 'brand-1', name: 'Salmon Fillet', category: 'fish', price: 260, protein: 38, carbs: 15, fat: 14, calories: 340, created_at: '', updated_at: '' },
+      { id: 'm-salad', brand_id: 'brand-1', name: 'Greek Salad', category: 'salad', price: 120, protein: 12, carbs: 10, fat: 6, calories: 160, created_at: '', updated_at: '' },
+      { id: 'm-snack', brand_id: 'brand-1', name: 'Protein Cupcake', category: 'snacks', price: 90, protein: 15, carbs: 14, fat: 4, calories: 150, created_at: '', updated_at: '' },
+      { id: 'm-bf', brand_id: 'brand-1', name: 'Dinner Meal 2', category: 'mix', custom_category: 'Dinner', price: 165, protein: 20, carbs: 20, fat: 8, calories: 250, created_at: '', updated_at: '' },
+      { id: 'm-bf-2', brand_id: 'brand-1', name: 'Breakfast Meal 1', category: 'snacks', custom_category: 'Breakfast', price: 165, protein: 20, carbs: 20, fat: 8, calories: 250, created_at: '', updated_at: '' },
+    ];
+
+    const multiOrder: Order = {
+      ...orders[0],
+      id: 'ord-multi',
+      notes: '',
+      meal_customizations: [],
+      // Give Zesty Chicken MORE quantity (3) than Almond Teriyaki Chicken (1) to verify alphabetical order wins over count
+      selected_meal_ids: ['m-bf', 'm-snack', 'm-salad', 'm-sea', 'm-mix', 'm-beef', 'm-chk-z', 'm-chk-z', 'm-chk-z', 'm-chk-a', 'm-bf-2'],
+    };
+
+    const summary = aggregateKitchenOrders({
+      orders: [multiOrder],
+      brands,
+      meals: catalogMeals,
+      packages: [],
+      date: '2026-03-22',
+      brandId: 'brand-1',
+    });
+
+    const orderedMeals = summary.brands[0].meals;
+    expect(orderedMeals.map(m => `${KITCHEN_CATEGORY_LABELS[m.category]}:${m.label}`)).toEqual([
+      'Chicken:Almond Teriyaki Chicken',
+      'Chicken:Zesty Chicken',
+      'Beef:Beef Shawarma',
+      'Mix:Mix Grill',
+      'Seafood:Salmon Fillet',
+      'Salad:Greek Salad',
+      'Snacks:Protein Cupcake',
+      'Breakfast & Dinner:Breakfast Meal 1',
+      'Breakfast & Dinner:Dinner Meal 2',
+    ]);
+  });
+
+  it('isolates frozen and ready-to-cook meals into a separate group even when they share the exact same name as cooked meals', () => {
+    const cookedAndFrozenMeals: Meal[] = [
+      { id: 'm-beef-cooked', brand_id: 'brand-1', name: 'Beef shawarma', category: 'meat', price: 220, protein: 40, carbs: 20, fat: 10, calories: 350, created_at: '', updated_at: '' },
+      { id: 'm-chk-cooked', brand_id: 'brand-1', name: 'Chicken shawarma', category: 'chicken', price: 200, protein: 38, carbs: 20, fat: 8, calories: 320, created_at: '', updated_at: '' },
+      { id: 'm-rtc-cat', brand_id: 'brand-2', name: 'Kofta Box', category: 'meat', custom_category: 'Ready to Cook', price: 210, protein: 40, carbs: 10, fat: 12, calories: 310, created_at: '', updated_at: '' },
+    ];
+
+    const cookedOrder: Order = {
+      ...orders[0],
+      id: 'ord-cooked',
+      brand_id: 'brand-1',
+      notes: '',
+      meal_customizations: [],
+      imported_meal_details: ['Beef shawarma', 'Beef shawarma', 'Chicken shawarma'],
+    };
+
+    const frozenImportedOrder: Order = {
+      ...orders[0],
+      id: 'ord-frozen-1',
+      brand_id: 'brand-1',
+      phone: '01990000001',
+      notes: '',
+      meal_customizations: [],
+      imported_meal_details: [
+        'Beef shawarma — Raw and frozen',
+        'Chicken shawarma — Ready to cook',
+      ],
+    };
+
+    const rtcCatalogOrder: Order = {
+      ...orders[0],
+      id: 'ord-frozen-2',
+      brand_id: 'brand-2',
+      phone: '01990000002',
+      notes: '',
+      meal_customizations: [],
+      selected_meal_ids: ['m-rtc-cat'],
+    };
+
+    const combined = aggregateKitchenOrders({
+      orders: [cookedOrder, frozenImportedOrder, rtcCatalogOrder],
+      brands,
+      meals: cookedAndFrozenMeals,
+      packages: [],
+      date: '2026-03-22',
+      brandId: 'all',
+    });
+
+    const allItems = combined.brands[0].meals;
+    const cookedBeef = allItems.find(m => m.category === 'meat' && m.label === 'Beef shawarma');
+    const cookedChicken = allItems.find(m => m.category === 'chicken' && m.label === 'Chicken shawarma');
+    const frozenItems = allItems.filter(m => m.category === 'frozen');
+
+    expect(cookedBeef?.count).toBe(2);
+    expect(cookedChicken?.count).toBe(1);
+    expect(frozenItems.map(m => ({ label: m.label, count: m.count }))).toEqual([
+      { label: 'Beef shawarma', count: 1 },
+      { label: 'Chicken shawarma', count: 1 },
+      { label: 'Kofta Box', count: 1 },
+    ]);
+
+    const daily = aggregateDailyMealsByBrand({
+      orders: [cookedOrder, frozenImportedOrder, rtcCatalogOrder],
+      brands,
+      meals: cookedAndFrozenMeals,
+      packages: [],
+      date: '2026-03-22',
+    });
+
+    const dailyCookedBeef = daily.rows.find(r => r.category !== 'frozen' && r.label === 'Beef shawarma');
+    const dailyFrozenBeef = daily.rows.find(r => r.category === 'frozen' && r.label === 'Beef shawarma');
+    expect(dailyCookedBeef?.total).toBe(2);
+    expect(dailyFrozenBeef?.total).toBe(1);
   });
 });

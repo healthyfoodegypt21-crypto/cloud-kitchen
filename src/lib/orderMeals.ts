@@ -10,6 +10,8 @@ export interface ResolvedOrderMealItem {
   customizationKey: string;
   instruction?: string;
   category: Meal['category'] | null;
+  customCategory?: string;
+  description?: string;
   calories: number | null;
   protein: number | null;
   carbs: number | null;
@@ -580,6 +582,8 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
       label: matchedMeal?.name ?? item.label,
       customizationKey: item.key || `${order.id}-snapshot-${index + 1}`,
       category: matchedMeal?.category ?? item.category ?? inferCategoryFromMealLabel(item.label),
+      ...(matchedMeal?.custom_category ? { customCategory: matchedMeal.custom_category } : {}),
+      ...(matchedMeal?.description ? { description: matchedMeal.description } : {}),
       calories: matchedMeal?.calories ?? null,
       protein: matchedMeal?.protein ?? null,
       carbs: matchedMeal?.carbs ?? null,
@@ -601,6 +605,8 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
       customizationKey: exactMealMatch?.id ?? `${order.id}-imported-meal-${index + 1}`,
       ...(parsed.instruction ? { instruction: parsed.instruction } : {}),
       category: exactMealMatch?.category ?? inferCategoryFromMealLabel(label),
+      ...(exactMealMatch?.custom_category ? { customCategory: exactMealMatch.custom_category } : {}),
+      ...(exactMealMatch?.description ? { description: exactMealMatch.description } : {}),
       calories: exactMealMatch?.calories ?? null,
       protein: exactMealMatch?.protein ?? null,
       carbs: exactMealMatch?.carbs ?? null,
@@ -634,6 +640,8 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
         label: meal.name,
         customizationKey: meal.id,
         category: meal.category,
+        ...(meal.custom_category ? { customCategory: meal.custom_category } : {}),
+        ...(meal.description ? { description: meal.description } : {}),
         calories: meal.calories,
         protein: meal.protein,
         carbs: meal.carbs,
@@ -653,6 +661,8 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
           label: matchedMeal?.name ?? label,
           customizationKey: matchedMeal?.id ?? `${order.id}-meal-${index + 1}`,
           category: matchedMeal?.category ?? inferCategoryFromMealLabel(label),
+          ...(matchedMeal?.custom_category ? { customCategory: matchedMeal.custom_category } : {}),
+          ...(matchedMeal?.description ? { description: matchedMeal.description } : {}),
           calories: matchedMeal?.calories ?? null,
           protein: matchedMeal?.protein ?? null,
           carbs: matchedMeal?.carbs ?? null,
@@ -685,6 +695,8 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
         label: meal.name,
         customizationKey: meal.id,
         category: meal.category,
+        ...(meal.custom_category ? { customCategory: meal.custom_category } : {}),
+        ...(meal.description ? { description: meal.description } : {}),
         calories: meal.calories,
         protein: meal.protein,
         carbs: meal.carbs,
@@ -705,6 +717,8 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
             label: matchedMeal?.name ?? label,
             customizationKey: matchedMeal?.id ?? `${order.id}-package-fallback-${index + 1}`,
             category: matchedMeal?.category ?? inferCategoryFromMealLabel(label),
+            ...(matchedMeal?.custom_category ? { customCategory: matchedMeal.custom_category } : {}),
+            ...(matchedMeal?.description ? { description: matchedMeal.description } : {}),
             calories: matchedMeal?.calories ?? null,
             protein: matchedMeal?.protein ?? null,
             carbs: matchedMeal?.carbs ?? null,
@@ -726,6 +740,8 @@ export function resolveOrderMeals(order: Order, meals: Meal[], packages: Package
       label: meal?.name ?? item.label,
       customizationKey: item.id || `${order.id}-package-item-${index + 1}`,
       category: meal?.category ?? inferCategoryFromMealLabel(item.label),
+      ...(meal?.custom_category ? { customCategory: meal.custom_category } : {}),
+      ...(meal?.description ? { description: meal.description } : {}),
       calories: meal?.calories ?? null,
       protein: meal?.protein ?? null,
       carbs: meal?.carbs ?? null,
