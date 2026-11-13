@@ -37,9 +37,14 @@ export const supabase = createClient<Database>(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY,
   {
-  auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
+    auth: {
+      storage: localStorage,
+      persistSession: true,
+      autoRefreshToken: true,
+      // Serialize auth session reads in-process instead of Web Navigator LockManager
+      // so concurrent Supabase queries on page mount never throw:
+      // "AbortError: Lock broken by another request with the 'steal' option"
+      lock: async <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => await fn(),
+    },
   },
-});
+);

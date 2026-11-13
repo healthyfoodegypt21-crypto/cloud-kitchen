@@ -9,7 +9,7 @@ import { compactWhitespace } from '@/lib/utils';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import { buildDemoMealsForBrand, buildDemoPackagesForBrand, deleteLocalMeal, deleteLocalPackage, getLocalMenuCatalog, seedLocalDemoCatalog, upsertLocalMeal, upsertLocalPackage } from '@/store/menuCatalog';
 import { Meal, MealIngredientSnapshot, MealInput, PackagePlan, PackagePlanInput } from '@/types/menu';
-import { LOCAL_DEMO_BRANDS } from '@/hooks/useBrands';
+import { isUuidBrandId, LOCAL_DEMO_BRANDS } from '@/hooks/useBrands';
 
 type MenuItemRow = Database['public']['Tables']['menu_items']['Row'] & {
   description?: string | null;
@@ -76,6 +76,11 @@ function isAccessDeniedError(result: CatalogQueryResult<unknown>) {
 
 function isNetworkErrorResult(result: CatalogQueryResult<unknown>) {
   return isSupabaseNetworkError(result.error);
+}
+
+function isAbortLockResult(result: CatalogQueryResult<unknown>) {
+  const msg = (result.error?.message ?? '').toLowerCase();
+  return msg.includes('aborterror') || msg.includes('lock broken') || msg.includes('request was aborted');
 }
 
 function buildCatalogLoadError(results: CatalogQueryResult<unknown>[]): CatalogLoadError | null {
@@ -223,11 +228,19 @@ export function useMenuCatalog() {
       return true;
     }
 
-    const results = await Promise.all([
-      supabase.from('menu_items').select('*').order('created_at', { ascending: false }).then((response) => ({ table: 'menu_items' as const, ...response })),
-      supabase.from('package_plans').select('*').order('created_at', { ascending: false }).then((response) => ({ table: 'package_plans' as const, ...response })),
-      supabase.from('package_plan_items').select('*').order('display_order', { ascending: true }).then((response) => ({ table: 'package_plan_items' as const, ...response })),
-    ]);
+    const runCatalogFetch = () =>
+      Promise.all([
+        supabase.from('menu_items').select('*').order('created_at', { ascending: false }).then((response) => ({ table: 'menu_items' as const, ...response })),
+        supabase.from('package_plans').select('*').order('created_at', { ascending: false }).then((response) => ({ table: 'package_plans' as const, ...response })),
+        supabase.from('package_plan_items').select('*').order('display_order', { ascending: true }).then((response) => ({ table: 'package_plan_items' as const, ...response })),
+      ]);
+
+    let results = await runCatalogFetch();
+
+    if (results.some(isAbortLockResult)) {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      results = await runCatalogFetch();
+    }
 
     if (results.some(isNetworkErrorResult)) {
       markSupabaseUnavailable();
@@ -283,18 +296,54 @@ export function useMenuCatalog() {
     onRefresh: refresh,
   });
 
-  const saveMeal = async (input: MealInput) => {
+  const resolveDatabaseBrandId = async (candidateBrandId: string, fallbackBrandName?: string): Promise<string | null> => {
+    if (isUuidBrandId(candidateBrandId)) {
+      return candidateBrandId;
+    }
+
+    const demoMatch = LOCAL_DEMO_BRANDS.find((b) => b.id === candidateBrandId);
+    const targetName = compactWhitespace(fallbackBrandName ?? demoMatch?.name ?? '');
+    if (!targetName) {
+      return null;
+    }
+
+    const { data: existingBrands } = await supabase.from('brands').select('id, name');
+    const found = (existingBrands ?? []).find(
+      (b) => compactWhitespace(b.name).toLowerCase() === targetName.toLowerCase(),
+    );
+    if (found?.id && isUuidBrandId(found.id)) {
+      return found.id;
+    }
+
+    const { data: createdBrand } = await supabase
+      .from('brands')
+      .insert({ name: targetName, color: demoMatch?.color ?? '#10b981' })
+      .select('id')
+      .single();
+
+    return createdBrand?.id && isUuidBrandId(createdBrand.id) ? createdBrand.id : null;
+  };
+
+  const saveMeal = async (input: MealInput, options?: { silent?: boolean; skipRefresh?: boolean }) => {
     if (storageMode === 'local') {
       const nextState = upsertLocalMeal(input);
       setMeals(nextState.meals);
       setPackages(nextState.packages);
-      toast.success(input.id ? 'تم تعديل الوجبة محليًا' : 'تمت إضافة الوجبة محليًا');
+      if (!options?.silent) {
+        toast.success(input.id ? 'تم تعديل الوجبة محليًا' : 'تمت إضافة الوجبة محليًا');
+      }
       return true;
     }
 
+    const resolvedBrandId = await resolveDatabaseBrandId(input.brand_id);
+    if (!resolvedBrandId) {
+      toast.error('تعذر تحديد معرف البراند في قاعدة البيانات. اضغط تحديث وأعد المحاولة.');
+      return false;
+    }
+
     const basePayload: MenuItemInsert = {
-      id: input.id,
-      brand_id: input.brand_id,
+      ...(input.id ? { id: input.id } : {}),
+      brand_id: resolvedBrandId,
       name: compactWhitespace(input.name),
       category: input.category,
       price: input.price,
@@ -317,13 +366,13 @@ export function useMenuCatalog() {
     const looseClient = asSupabaseLooseClient(supabase);
     let { error } = input.id
       ? await looseClient.from('menu_items').update(extendedPayload).eq('id', input.id)
-      : await looseClient.from('menu_items').insert(extendedPayload);
+      : await looseClient.from('menu_items').upsert(extendedPayload, { onConflict: 'brand_id,name' });
 
     // Graceful fallback if optional columns haven't been migrated yet on remote DB
     if (error && /(column|schema cache)/i.test(error.message ?? '')) {
       const retry = input.id
         ? await supabase.from('menu_items').update(basePayload).eq('id', input.id)
-        : await supabase.from('menu_items').insert(basePayload);
+        : await supabase.from('menu_items').upsert(basePayload, { onConflict: 'brand_id,name' });
       error = retry.error;
     }
     if (error) {
@@ -338,18 +387,98 @@ export function useMenuCatalog() {
         const nextState = upsertLocalMeal(input);
         setMeals(nextState.meals);
         setPackages(nextState.packages);
-        toast.success(input.id ? 'تم تعديل الوجبة محليًا' : 'تمت إضافة الوجبة محليًا');
+        if (!options?.silent) {
+          toast.success(input.id ? 'تم تعديل الوجبة محليًا' : 'تمت إضافة الوجبة محليًا');
+        }
         return true;
       }
 
-      toast.error(error.message || (input.id ? 'تعذر تعديل الوجبة' : 'تعذر إضافة الوجبة'));
+      if (!options?.silent) {
+        toast.error(error.message || (input.id ? 'تعذر تعديل الوجبة' : 'تعذر إضافة الوجبة'));
+      }
       console.error(error);
       return false;
     }
 
-    await refresh();
-    toast.success(input.id ? 'تم تعديل الوجبة' : 'تمت إضافة الوجبة');
+    if (!options?.skipRefresh) {
+      await refresh();
+    }
+    if (!options?.silent) {
+      toast.success(input.id ? 'تم تعديل الوجبة' : 'تمت إضافة الوجبة');
+    }
     return true;
+  };
+
+  const bulkSyncMeals = async (inputs: MealInput[], fallbackBrandName?: string) => {
+    if (inputs.length === 0) return { synced: 0, error: null as string | null };
+
+    if (storageMode === 'local') {
+      let latest = getLocalMenuCatalog();
+      for (const item of inputs) {
+        const res = upsertLocalMeal(item);
+        latest = { meals: res.meals, packages: res.packages };
+      }
+      setMeals(latest.meals);
+      setPackages(latest.packages);
+      return { synced: inputs.length, error: null };
+    }
+
+    const resolvedBrandId = await resolveDatabaseBrandId(inputs[0].brand_id, fallbackBrandName);
+    if (!resolvedBrandId) {
+      return {
+        synced: 0,
+        error: 'تعذر العثور على سجل البراند الحقيقي (UUID) في قاعدة البيانات. حدّث الصفحة وحاول مجددًا.',
+      };
+    }
+
+    // Deduplicate by normalized meal name within the batch
+    const dedupedByName = new Map<string, MealInput>();
+    for (const item of inputs) {
+      const cleanName = compactWhitespace(item.name);
+      if (!cleanName) continue;
+      dedupedByName.set(cleanName.toLowerCase(), { ...item, name: cleanName, brand_id: resolvedBrandId });
+    }
+    const uniqueInputs = Array.from(dedupedByName.values());
+
+    const baseRows: MenuItemInsert[] = uniqueInputs.map((item) => ({
+      brand_id: resolvedBrandId,
+      name: item.name,
+      category: item.category,
+      price: item.price,
+      protein: item.protein,
+      carbs: item.carbs,
+      fat: item.fat,
+      calories: item.calories,
+    }));
+
+    const extendedRows: Array<Record<string, unknown>> = uniqueInputs.map((item, idx) => ({
+      ...baseRows[idx],
+      description: compactWhitespace(item.description ?? ''),
+      custom_category: compactWhitespace(item.custom_category ?? ''),
+      fiber: item.fiber ?? null,
+      is_available: item.is_available ?? true,
+      display_order: item.display_order ?? idx,
+      ingredients_snapshot: item.ingredients ?? [],
+    }));
+
+    const looseClient = asSupabaseLooseClient(supabase);
+    let { error } = await looseClient
+      .from('menu_items')
+      .upsert(extendedRows, { onConflict: 'brand_id,name' });
+
+    if (error && /(column|schema cache)/i.test(error.message ?? '')) {
+      const retry = await supabase
+        .from('menu_items')
+        .upsert(baseRows, { onConflict: 'brand_id,name' });
+      error = retry.error;
+    }
+
+    if (error) {
+      return { synced: 0, error: error.message || 'تعذر مزامنة الوجبات' };
+    }
+
+    await refresh();
+    return { synced: uniqueInputs.length, error: null };
   };
 
   const deleteMeal = async (mealId: string) => {
@@ -413,9 +542,15 @@ export function useMenuCatalog() {
       return true;
     }
 
+    const resolvedBrandId = await resolveDatabaseBrandId(input.brand_id);
+    if (!resolvedBrandId) {
+      toast.error('تعذر تحديد معرف البراند في قاعدة البيانات. اضغط تحديث وأعد المحاولة.');
+      return false;
+    }
+
     const packagePayload: PackagePlanInsert = {
-      id: input.id,
-      brand_id: input.brand_id,
+      ...(input.id ? { id: input.id } : {}),
+      brand_id: resolvedBrandId,
       name: compactWhitespace(input.name),
       days_count: input.days_count,
       price: input.price,
@@ -545,8 +680,14 @@ export function useMenuCatalog() {
     const demoMealsBlueprint = buildDemoMealsForBrand(normalizedBrandName);
     const demoPackagesBlueprint = buildDemoPackagesForBrand(normalizedBrandName);
 
+    const resolvedBrandId = await resolveDatabaseBrandId(brandId, normalizedBrandName);
+    if (!resolvedBrandId) {
+      toast.error('تعذر تحديد معرف البراند في قاعدة البيانات.');
+      return false;
+    }
+
     const demoMeals: MealInput[] = demoMealsBlueprint.map((meal) => ({
-      brand_id: brandId,
+      brand_id: resolvedBrandId,
       name: meal.name,
       category: meal.category,
       price: meal.price,
@@ -601,7 +742,7 @@ export function useMenuCatalog() {
 
     for (const pkg of demoPackagesBlueprint) {
       const packagePayload: PackagePlanInsert = {
-        brand_id: brandId,
+        brand_id: resolvedBrandId,
         name: pkg.name,
         days_count: pkg.days_count,
         price: pkg.price,
@@ -667,6 +808,7 @@ export function useMenuCatalog() {
     loadError,
     refresh,
     saveMeal,
+    bulkSyncMeals,
     deleteMeal,
     savePackage,
     deletePackage,

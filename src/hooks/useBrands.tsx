@@ -16,6 +16,17 @@ export const LOCAL_DEMO_BRANDS: Brand[] = [
   { id: 'brand-3', name: 'Protein Box', color: '#f59e0b' },
 ];
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuidBrandId(id: string | null | undefined): boolean {
+  return Boolean(id && UUID_REGEX.test(id));
+}
+
+function isAbortLockError(error: { message?: string } | null | undefined): boolean {
+  const msg = (error?.message ?? '').toLowerCase();
+  return msg.includes('aborterror') || msg.includes('lock broken') || msg.includes('request was aborted');
+}
+
 export function useBrands() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,14 +39,22 @@ export function useBrands() {
     }
 
     setLoading(true);
-    const { data, error } = await supabase.from('brands').select('*');
+    let { data, error } = await supabase.from('brands').select('*');
+    if (error && isAbortLockError(error)) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const retry = await supabase.from('brands').select('*');
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error) {
       if (isSupabaseNetworkError(error)) {
         markSupabaseUnavailable();
+        setBrands(LOCAL_DEMO_BRANDS);
+      } else {
+        console.error(error);
+        setBrands((prev) => (prev.length > 0 ? prev : LOCAL_DEMO_BRANDS));
       }
-
-      console.error(error);
-      setBrands(LOCAL_DEMO_BRANDS);
       setLoading(false);
       return;
     }
@@ -59,5 +78,5 @@ export function useBrands() {
     onRefresh: fetchBrands,
   });
 
-  return { brands, loading };
+  return { brands, loading, refresh: fetchBrands };
 }

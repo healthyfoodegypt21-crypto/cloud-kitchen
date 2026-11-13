@@ -6,11 +6,18 @@ import {
   computePackageSavings,
   parseImportedIngredientsList,
 } from '@/lib/menuHub';
+import { isUuidBrandId } from '@/hooks/useBrands';
 import { hasPageAccess } from '@/lib/permissions';
 import type { Meal, PackagePlan } from '@/types/menu';
 import type { Order } from '@/types/order';
 
 describe('Unified Menu Hub helpers', () => {
+  it('distinguishes real database UUID brand IDs from fallback demo brand IDs', () => {
+    expect(isUuidBrandId('brand-3')).toBe(false);
+    expect(isUuidBrandId('brand-1')).toBe(false);
+    expect(isUuidBrandId('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
+  });
+
   it('grants menu-packages access when user holds either menu-packages or legacy companies-menus permission', () => {
     expect(hasPageAccess('call_center', ['companies-menus'], 'menu-packages')).toBe(true);
     expect(hasPageAccess('call_center', ['menu-packages'], 'companies-menus')).toBe(true);

@@ -240,9 +240,10 @@ interface Props {
   brands: Brand[];
   brandsLoading?: boolean;
   orders?: Order[];
+  onRefreshBrands?: () => Promise<void> | void;
 }
 
-export default function MenuPackages({ brands, brandsLoading = false, orders = [] }: Props) {
+export default function MenuPackages({ brands, brandsLoading = false, orders = [], onRefreshBrands }: Props) {
   const { role, pagePermissions = [], isDemoMode } = useAuth();
   const {
     meals,
@@ -253,6 +254,7 @@ export default function MenuPackages({ brands, brandsLoading = false, orders = [
     loadError,
     refresh,
     saveMeal,
+    bulkSyncMeals,
     deleteMeal,
     savePackage,
     deletePackage,
@@ -451,11 +453,11 @@ export default function MenuPackages({ brands, brandsLoading = false, orders = [
     const catNameById = new Map(companyCategories.map((c) => [c.id, c.name]));
     const ingNameById = new Map(companyIngredients.map((i) => [i.id, i.name]));
 
-    for (const cm of unsyncedCompanyMeals) {
+    const batch: MealInput[] = unsyncedCompanyMeals.map((cm) => {
       const catName = catNameById.get(cm.category_id) ?? '';
       const stdCat = mapCustomCategoryToMenuCategory(catName, cm.name);
-      await saveMeal({
-        brand_id: selectedBrandId,
+      return {
+        brand_id: linkedCompany?.brand_id || selectedBrandId,
         name: cm.name,
         description: cm.description,
         category: stdCat,
@@ -476,12 +478,35 @@ export default function MenuPackages({ brands, brandsLoading = false, orders = [
             weight_after_grams: link.weight_after_grams,
           }))
           .filter((x) => Boolean(x.name)),
-      });
+      };
+    });
+
+    const targetBrandName = selectedBrand?.name || linkedCompany?.name || '';
+
+    if (typeof bulkSyncMeals === 'function') {
+      const { synced, error } = await bulkSyncMeals(batch, targetBrandName);
+      setSyncingFromCompany(false);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      if (onRefreshBrands) {
+        await onRefreshBrands();
+      }
+      toast.success(`تمت مزامنة ${synced.toLocaleString('en-US')} وجبة مع كتالوج الطلبات والمطبخ بنجاح`);
+      return;
     }
 
+    let okCount = 0;
+    for (const item of batch) {
+      const ok = await saveMeal(item);
+      if (ok) okCount += 1;
+    }
     setSyncingFromCompany(false);
     await refresh();
-    toast.success(`تمت مزامنة ${unsyncedCompanyMeals.length.toLocaleString('en-US')} وجبة مع كتالوج الطلبات والمطبخ`);
+    if (okCount > 0) {
+      toast.success(`تمت مزامنة ${okCount.toLocaleString('en-US')} وجبة مع كتالوج الطلبات والمطبخ`);
+    }
   };
 
   const filteredPackages = useMemo(
@@ -1044,6 +1069,7 @@ export default function MenuPackages({ brands, brandsLoading = false, orders = [
             size="sm"
             className="h-9 rounded-lg gap-1.5 text-xs font-semibold"
             onClick={() => {
+              if (onRefreshBrands) void onRefreshBrands();
               void refresh();
               void refreshCompanies();
             }}
