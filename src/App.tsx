@@ -22,6 +22,8 @@ const LeaderboardRoute = lazy(() => import("./pages/LeaderboardRoute"));
 const MenuPackagesRoute = lazy(() => import("./pages/MenuPackagesRoute"));
 const InventoryRoute = lazy(() => import("./pages/InventoryRoute"));
 const PurchasesRoute = lazy(() => import("./pages/PurchasesRoute"));
+const ExpensesRoute = lazy(() => import("./pages/ExpensesRoute"));
+const RecurringExpensesRoute = lazy(() => import("./pages/RecurringExpensesRoute"));
 const HR = lazy(() => import("./pages/HR"));
 const UsersManagement = lazy(() => import("./pages/UsersManagement"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -52,12 +54,13 @@ const pageRoutes: Record<AppPageId, string> = {
   'companies-menus': '/menu-packages',
   inventory: '/inventory',
   purchases: '/purchases',
+  expenses: '/expenses',
   hr: '/hr',
   users: '/users',
   settings: '/settings',
 };
 
-const pagePriority: AppPageId[] = ['dashboard', 'orders', 'kitchen', 'inventory', 'purchases', 'hr', 'customers', 'leaderboard', 'menu-packages', 'companies-menus', 'settings', 'users'];
+const pagePriority: AppPageId[] = ['dashboard', 'orders', 'kitchen', 'inventory', 'purchases', 'expenses', 'hr', 'customers', 'leaderboard', 'menu-packages', 'companies-menus', 'settings', 'users'];
 
 function permittedHome(role: string | null, pagePermissions: string[], isDemoMode: boolean) {
   if (isDemoMode || role === 'owner') return '/';
@@ -128,6 +131,16 @@ function AppRoutes() {
       <Route path="/purchases" element={
         <ProtectedRoute allowDemo requiredPage="purchases">
           <AppLayout><Suspense fallback={<RouteFallback />}><PurchasesRoute /></Suspense></AppLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/expenses" element={
+        <ProtectedRoute allowDemo requiredPage="expenses">
+          <AppLayout><Suspense fallback={<RouteFallback />}><ExpensesRoute /></Suspense></AppLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/expenses/recurring" element={
+        <ProtectedRoute allowDemo requiredPage="expenses">
+          <AppLayout><Suspense fallback={<RouteFallback />}><RecurringExpensesRoute /></Suspense></AppLayout>
         </ProtectedRoute>
       } />
       <Route path="/hr" element={

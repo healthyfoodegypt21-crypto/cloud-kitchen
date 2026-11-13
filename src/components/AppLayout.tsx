@@ -14,6 +14,8 @@ import {
   ChefHat,
   Boxes,
   ShoppingCart,
+  Wallet,
+  CalendarClock,
   UserCog,
   Shield,
 } from 'lucide-react';
@@ -63,6 +65,13 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    category: 'المالية والمحاسبة',
+    items: [
+      { to: '/expenses', label: 'المصروفات والتحليل المالي', icon: Wallet, pageId: 'expenses', allowInDemo: true },
+      { to: '/expenses/recurring', label: 'الالتزامات والفواتير المتكررة', icon: CalendarClock, pageId: 'expenses', allowInDemo: true },
+    ],
+  },
+  {
     category: 'الأداء والإدارة',
     items: [
       { to: '/leaderboard', label: 'لوحة الصدارة', icon: Trophy, pageId: 'leaderboard', allowInDemo: true },
@@ -83,6 +92,8 @@ const ROUTE_TITLES: Record<string, string> = {
   '/menu-packages': 'الشركات والمنيو والباقات',
   '/companies-menus': 'الشركات والمنيو والباقات',
   '/customers': 'العملاء',
+  '/expenses': 'المصروفات والتحليل المالي',
+  '/expenses/recurring': 'الالتزامات والفواتير المتكررة',
   '/leaderboard': 'لوحة الصدارة',
   '/hr': 'الموارد البشرية',
   '/users': 'المستخدمون',
