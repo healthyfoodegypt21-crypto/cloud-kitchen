@@ -53,4 +53,34 @@ describe('withdrawal sheet text parsing', () => {
     expect(result.lines).toHaveLength(0);
     expect(result.ignoredLines).toContain('ملاحظة بدون كمية');
   });
+
+  it('parses photographed/handwritten WithdrawalSheetPrintSheet table rows (serial + item + unit + qty + remaining) and skips blank form rows', () => {
+    const ocrSheetText = [
+      'ورقة مسحوبات',
+      'المخزن المركزي — السبت 14 نوفمبر 2026',
+      'أمين المخزن (المسلّم): ............',
+      'م | اسم الصنف | الوحدة | الكمية المسحوبة | الرصيد الفعلي المتبقي | ملاحظات',
+      '1 | الطماطم | كجم | 5 | 10',
+      '2 بصل كجم 3',
+      '3 دجاج 4 12',
+      '4 ............',
+      'توقيع مسؤول المخزن',
+    ].join('\n');
+
+    const result = parseWithdrawalSheetText(ocrSheetText, items);
+
+    expect(result.ignoredLines).toEqual([]);
+    expect(result.lines).toHaveLength(3);
+    expect(result.lines[0]).toMatchObject({ itemId: 'tomato', quantity: 5, remainingQuantity: 10, sourceUnit: 'kg' });
+    expect(result.lines[1]).toMatchObject({ itemId: 'onion', quantity: 3, remainingQuantity: null, sourceUnit: 'kg' });
+    expect(result.lines[2]).toMatchObject({ itemId: 'chicken', quantity: 4, remainingQuantity: 12 });
+  });
+
+  it('parses leading quantities and colloquial fractions in withdrawal messages', () => {
+    const result = parseWithdrawalSheetText('سحب 2 و نص كجم طماطم متبقي 7.5\nنص كيلو بصل', items);
+
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines[0]).toMatchObject({ itemId: 'tomato', quantity: 2.5, remainingQuantity: 7.5, sourceUnit: 'kg' });
+    expect(result.lines[1]).toMatchObject({ itemId: 'onion', quantity: 0.5, sourceUnit: 'kg' });
+  });
 });

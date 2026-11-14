@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardPaste, FileImage, FileSpreadsheet, Loader2, PenLine, Plus, Printer, Sparkles, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { downscaleImage } from '@/lib/ocrImage';
+import AiVisionStatusControl from '@/components/AiVisionStatusControl';
+import { extractImageFromClipboardEvent, smartReadImage } from '@/lib/ocrImage';
 import { parseWithdrawalSheetText, type WithdrawalImportLine } from '@/lib/withdrawalImport';
 import type { InventoryLocation, OperationalInventoryItem } from '@/types/operationalInventory';
 
@@ -70,8 +71,21 @@ export default function WithdrawalQuickEntry({
   const [ignoredLines, setIgnoredLines] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [isReadingImage, setIsReadingImage] = useState(false);
+  const [ocrStatusText, setOcrStatusText] = useState('جارٍ استخراج النص من الصورة...');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState('');
   const ocrAbortRef = useRef<AbortController | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreview('');
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
 
   const activeItems = useMemo(() => items.filter((item) => item.status === 'active'), [items]);
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
@@ -84,7 +98,7 @@ export default function WithdrawalQuickEntry({
     }
     setLines(result.lines.map((line) => ({ ...line, discrepancyAction: defaultActionFor(line, itemById.get(line.itemId)) })));
     setIgnoredLines(result.ignoredLines);
-    toast.success(`تم استخراج ${result.lines.length} سطر؛ راجع الربط والكميات قبل التسجيل.`);
+    toast.success(`تم استخراج ${result.lines.length} سطر بذكاء؛ راجع الربط والكميات قبل التسجيل.`);
   };
 
   const readImage = async (file: File) => {
@@ -97,26 +111,21 @@ export default function WithdrawalQuickEntry({
       return;
     }
 
+    setImageFile(file);
     setIsReadingImage(true);
+    setOcrStatusText('جارٍ تحسين صورة ورقة المسحوبات وقراءة الجداول...');
     const controller = new AbortController();
     ocrAbortRef.current = controller;
-    const timeoutId = window.setTimeout(() => controller.abort(), 60_000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 75_000);
     try {
-      const ocrSource = await downscaleImage(file, 1600);
-      const { createWorker } = await import('tesseract.js');
-      const worker = await createWorker('ara+eng');
-      try {
-        const { data } = await Promise.race([
-          worker.recognize(ocrSource),
-          new Promise<never>((_, reject) => {
-            controller.signal.addEventListener('abort', () => reject(new Error('تم إلغاء قراءة الصورة')));
-          }),
-        ]);
-        setText(data.text);
-        analyze(data.text);
-      } finally {
-        await worker.terminate();
-      }
+      const readResult = await smartReadImage(file, {
+        domain: 'withdrawal',
+        catalogHints: activeItems.map((item) => item.name),
+        signal: controller.signal,
+        onProgress: (stageText) => setOcrStatusText(stageText),
+      });
+      setText(readResult.text);
+      analyze(readResult.text);
     } catch (error) {
       if (controller.signal.aborted) {
         toast.error('استغرقت قراءة الصورة وقتًا طويلًا أو أُلغيت. جرّب صورة أوضح.');
@@ -226,15 +235,28 @@ export default function WithdrawalQuickEntry({
   };
 
   return (
-    <div className="space-y-4">
+    <div
+      className="space-y-4"
+      onPaste={(e) => {
+        const pastedImg = extractImageFromClipboardEvent(e);
+        if (pastedImg && !isReadingImage) {
+          e.preventDefault();
+          setMethod('image');
+          void readImage(pastedImg);
+        }
+      }}
+    >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/30 p-3.5 rounded-xl border">
         <div>
-          <h3 className="font-bold text-base flex items-center gap-2">
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-            <span>تسجيل وتأكيد مسحوبات المطبخ</span>
-          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-bold text-base flex items-center gap-2">
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              <span>تسجيل وتأكيد مسحوبات المطبخ</span>
+            </h3>
+            <AiVisionStatusControl />
+          </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            سجل الكميات المسحوبة يدويًا، أو الصق نصًا، أو ارفع صورة ورقة المسحوبات الورقية الموقعة لخصمها آليًا.
+            سجل الكميات المسحوبة يدويًا، أو اكتب/الصق نصًا بأي صيغة، أو ارفع صورة ورقة المسحوبات المكتوبة بخط اليد (أو بـ Ctrl+V).
           </p>
         </div>
         {onOpenPrintSheet && (
@@ -295,13 +317,31 @@ export default function WithdrawalQuickEntry({
                 event.currentTarget.value = '';
               }}
             />
-            <p className="text-xs text-muted-foreground">تُقرأ الصورة داخل المتصفح ولا تُرفع. اكتب كل صنف في سطر مع الكمية، و«متبقي» ثم الكمية المتبقية عند وجودها.</p>
-            {isReadingImage && (
+            <p className="text-xs text-muted-foreground">يدعم قراءة جدول ورقة المسحوبات المطبوعة والمكتوبة بخط اليد (أو الصق الصورة مباشرة بـ Ctrl+V).</p>
+            {isReadingImage ? (
               <div className="flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> جارٍ استخراج النص من الصورة...
+                <Loader2 className="h-4 w-4 animate-spin" /> {ocrStatusText}
                 <Button type="button" variant="ghost" size="sm" className="mr-auto" onClick={() => ocrAbortRef.current?.abort()}>إلغاء</Button>
               </div>
-            )}
+            ) : imagePreview ? (
+              <div className="space-y-2">
+                <div className="flex items-start gap-3 rounded-lg border p-2">
+                  <img src={imagePreview} alt="معاينة ورقة المسحوبات" className="max-h-44 min-w-0 rounded object-contain" />
+                  <Button type="button" variant="ghost" size="icon" aria-label="إزالة الصورة" onClick={() => setImageFile(null)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                {text && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">النص المقروء من الورقة (يمكن تعديله وإعادة التحليل)</Label>
+                    <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} dir="auto" />
+                    <Button type="button" variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => analyze(text)}>
+                      <Sparkles className="h-3.5 w-3.5" /> إعادة تحليل النص
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         </TabsContent>
       </Tabs>

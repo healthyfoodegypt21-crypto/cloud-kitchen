@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { useTargets } from '@/hooks/useTargets';
 import { AppLayoutHeaderPortal } from '@/components/AppLayout';
-import { Loader2, KeyRound, Target, TrendingUp, CircleDollarSign } from 'lucide-react';
+import AiVisionStatusControl from '@/components/AiVisionStatusControl';
+import { Loader2, KeyRound, Sparkles, Target, TrendingUp, CircleDollarSign } from 'lucide-react';
 import { toast } from 'sonner';
 
 const TARGET_FIELDS = [
@@ -190,6 +191,23 @@ export default function Settings() {
           </div>
         </Card>
       </div>
+
+      <Card className="p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-emerald-700">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <h2 className="text-base font-bold text-slate-900">محرك الذكاء الاصطناعي للإدخال السريع وقراءة خط اليد (AI Vision)</h2>
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500">
+              يُستخدم في فواتير المشتريات، استيراد الطلبات من الصور، وورقة مسحوبات المخزن المكتوبة بخط اليد لرفع دقة التعرف على الأصناف والأرقام إلى أقصى درجة.
+            </p>
+          </div>
+          <AiVisionStatusControl compact={false} />
+        </div>
+      </Card>
     </div>
   );
 }

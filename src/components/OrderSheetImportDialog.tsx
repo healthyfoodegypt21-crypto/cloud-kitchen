@@ -18,7 +18,9 @@ import { Meal, PackagePlan } from '@/types/menu';
 import { Order, OrderMode, OrderSource, OrderStatus } from '@/types/order';
 import { compactWhitespace, getTodayDateValue, isValidDateValue, normalizePhone } from '@/lib/utils';
 import { getImportedOrderNumber } from '@/lib/orderImport';
-import { parseWhatsAppOrder } from '@/lib/whatsappOrderImport';
+import { extractImageFromClipboardEvent, smartReadImage } from '@/lib/ocrImage';
+import { parseWhatsAppOrder, type WhatsAppOrderCatalogContext } from '@/lib/whatsappOrderImport';
+import AiVisionStatusControl from '@/components/AiVisionStatusControl';
 
 type ImportTarget = 'orders' | 'customers';
 type ImportMethod = 'excel' | 'text' | 'image';
@@ -211,7 +213,7 @@ function normalizeArabicDigits(value: string) {
   return value.replace(/[٠-٩۰-۹]/g, digit => String('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹'.indexOf(digit) % 10));
 }
 
-export function parsePastedOrder(value: string): ExcelRow | null {
+export function parsePastedOrder(value: string, context?: WhatsAppOrderCatalogContext): ExcelRow | null {
   const fieldAliases: Array<{ key: string; aliases: string[] }> = [
     { key: 'اسم العميل', aliases: aliases.name },
     { key: 'الهاتف', aliases: aliases.phone },
@@ -248,21 +250,26 @@ export function parsePastedOrder(value: string): ExcelRow | null {
   }
 
   if (!parsed['الهاتف']) {
-    const phoneMatch = normalizedText.match(/(?:\+?20\s*)?0?1[0125](?:[\s-]*\d){8}/u);
-    if (phoneMatch) parsed['الهاتف'] = phoneMatch[0];
+    const phoneMatch = normalizedText.match(/(?:\+?20\s*)?0?1[0125](?:[\s.-]*\d){8}/u);
+    if (phoneMatch) parsed['الهاتف'] = phoneMatch[0].replace(/[\s.-]+/g, '');
   }
 
-  // Well-formed labeled messages keep the existing behavior untouched.
+  // Well-formed labeled messages keep the existing behavior untouched, while still merging any extra meal lines if needed
   const labeledFieldCount = Object.entries(parsed)
     .filter(([key, fieldValue]) => key !== 'الهاتف' && text(fieldValue))
     .length;
   if (labeledFieldCount >= 2) {
+    if (!parsed['التفاصيل']) {
+      const smartFallback = parseWhatsAppOrder(value, context);
+      if (smartFallback?.['التفاصيل']) {
+        parsed['التفاصيل'] = smartFallback['التفاصيل'];
+      }
+    }
     return parsed;
   }
 
-  // Free-form WhatsApp messages: run the smart parser and let any labeled
-  // values win over the guessed ones.
-  const smart = parseWhatsAppOrder(value);
+  // Free-form WhatsApp / handwritten messages: run the smart context-aware parser
+  const smart = parseWhatsAppOrder(value, context);
   if (!smart) {
     return Object.keys(parsed).length ? parsed : null;
   }
@@ -304,9 +311,30 @@ function listValue(value: unknown) {
 }
 
 function findBrand(value: unknown, brands: Brand[]) {
-  const raw = text(value);
+  const raw = text(value).toLowerCase();
   if (!raw && brands.length === 1) return brands[0];
-  return brands.find(brand => brand.id === raw || brand.name.trim().toLowerCase() === raw.toLowerCase());
+  if (!raw) return undefined;
+
+  const exact = brands.find(
+    (brand) => brand.id === raw || brand.name.trim().toLowerCase() === raw,
+  );
+  if (exact) return exact;
+
+  if (/(?:هيلثي\s*فود|هلثي\s*فود|healthy\s*food)/iu.test(raw)) {
+    return brands.find((b) => b.name.toLowerCase().includes('healthy food'));
+  }
+  if (/(?:هيلثي\s*ستيشن|هلثي\s*ستيشن|healthy\s*station)/iu.test(raw)) {
+    return brands.find((b) => b.name.toLowerCase().includes('healthy station'));
+  }
+  if (/(?:بروتين\s*بوكس|protein\s*box)/iu.test(raw)) {
+    return brands.find((b) => b.name.toLowerCase().includes('protein box'));
+  }
+
+  return brands.find(
+    (brand) =>
+      brand.name.trim().toLowerCase().includes(raw) ||
+      raw.includes(brand.name.trim().toLowerCase()),
+  );
 }
 
 function mapStatus(value: unknown): OrderStatus {
@@ -341,6 +369,7 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
   const [method, setMethod] = useState<ImportMethod>('excel');
   const [pastedText, setPastedText] = useState('');
   const [readingImage, setReadingImage] = useState(false);
+  const [ocrStatusText, setOcrStatusText] = useState('جاري قراءة الصورة...');
   const [target, setTarget] = useState<ImportTarget | ''>('');
   const [workbook, setWorkbook] = useState<{ sheets: string[]; rowsBySheet: Record<string, ExcelRow[]> } | null>(null);
   const [sheetName, setSheetName] = useState('');
@@ -400,8 +429,17 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
     }
   };
 
+  const catalogContext = useMemo<WhatsAppOrderCatalogContext>(
+    () => ({
+      mealNames: meals.map((m) => m.name),
+      packageNames: packages.map((p) => p.name),
+      brandNames: brands.map((b) => b.name),
+    }),
+    [brands, meals, packages],
+  );
+
   const prepareSingleOrder = (sourceText: string, sourceName: string) => {
-    const row = parsePastedOrder(sourceText);
+    const row = parsePastedOrder(sourceText, catalogContext);
     if (!row) {
       toast.error('لم أستطع استخراج بيانات واضحة. استخدم قالبًا مثل: الاسم: ...، الهاتف: ...، العنوان: ...، الطلب: ...');
       return false;
@@ -413,7 +451,11 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
     setTarget('orders');
     setWorkbook({ sheets: [sheet], rowsBySheet: { [sheet]: [row] } });
     setSheetName(sheet);
-    setSelectedBrandId(matchedBrand?.id ?? '');
+    if (matchedBrand?.id) {
+      setSelectedBrandId(matchedBrand.id);
+    } else if (!selectedBrandId) {
+      setSelectedBrandId('');
+    }
     setFileName(sourceName);
     setResult(null);
     return true;
@@ -431,19 +473,19 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
     }
 
     setReadingImage(true);
+    setOcrStatusText('جارٍ تحسين الصورة وقراءة تفاصيل الطلب...');
     try {
-      const { createWorker } = await import('tesseract.js');
-      const worker = await createWorker('ara+eng');
-      try {
-        const { data } = await worker.recognize(file);
-        setPastedText(data.text);
-        if (prepareSingleOrder(data.text, file.name)) setMethod('image');
-      } finally {
-        await worker.terminate();
-      }
+      const readResult = await smartReadImage(file, {
+        domain: 'order',
+        catalogHints: [...meals.map((m) => m.name), ...packages.map((p) => p.name)],
+        brandHints: brands.map((b) => b.name),
+        onProgress: (stageText) => setOcrStatusText(stageText),
+      });
+      setPastedText(readResult.text);
+      if (prepareSingleOrder(readResult.text, file.name)) setMethod('image');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'تعذر قراءة الصورة';
-      toast.error(`تعذر استخراج النص من الصورة: ${message}`);
+      const errMessage = error instanceof Error ? error.message : 'تعذر قراءة الصورة';
+      toast.error(`تعذر استخراج النص من الصورة: ${errMessage}`);
     } finally {
       setReadingImage(false);
     }
@@ -616,10 +658,23 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
       <DialogTrigger asChild>
         <Button variant="outline" className="rounded-2xl gap-2"><Upload className="h-4 w-4" />استيراد طلبات</Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent
+        className="max-h-[90vh] max-w-3xl overflow-y-auto"
+        onPaste={(e) => {
+          const pastedImg = extractImageFromClipboardEvent(e);
+          if (pastedImg && !readingImage) {
+            e.preventDefault();
+            setMethod('image');
+            void handleImage(pastedImg);
+          }
+        }}
+      >
         <DialogHeader>
-          <DialogTitle>إضافة طلبات بسرعة</DialogTitle>
-          <DialogDescription>استورد من Excel أو الصق نص الطلب أو ارفع صورة. راجع البيانات واختر العلامة قبل الحفظ.</DialogDescription>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <DialogTitle>إضافة طلبات بسرعة</DialogTitle>
+            <AiVisionStatusControl />
+          </div>
+          <DialogDescription>استورد من Excel أو اكتب/الصق رسالة العميل بأي صيغة أو ارفع صورة فاتورة/واتساب أو خط يد (أو الصقها بـ Ctrl+V).</DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-3 gap-2">
@@ -657,7 +712,7 @@ export default function OrderSheetImportDialog({ saveImportedOrder, onImported, 
           <Label htmlFor="order-image-file">ارفع Screenshot أو صورة الطلب</Label>
           <Input id="order-image-file" type="file" accept="image/*" disabled={readingImage} onChange={event => { void handleImage(event.target.files?.[0]); event.currentTarget.value = ''; }} />
           <p className="text-xs text-muted-foreground">تتم قراءة الصورة داخل المتصفح باستخدام OCR. الحد الأقصى 12 ميجابايت؛ راجع النص المستخرج قبل الحفظ.</p>
-          {readingImage && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />جاري قراءة الصورة...</div>}
+          {readingImage && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{ocrStatusText}</div>}
           {!readingImage && pastedText && <div className="grid gap-2"><Label htmlFor="ocr-order-text">النص المقروء (يمكن تصحيحه ثم إعادة التحليل)</Label><Textarea id="ocr-order-text" value={pastedText} onChange={event => setPastedText(event.target.value)} className="min-h-24" /><Button type="button" variant="outline" className="w-fit gap-2" onClick={() => { if (prepareSingleOrder(pastedText, fileName || 'صورة')) setMethod('image'); }}><ScanLine className="h-4 w-4" />إعادة تحليل النص</Button></div>}
         </div>}
 

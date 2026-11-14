@@ -130,4 +130,61 @@ describe('smart purchase message parsing', () => {
 
     expect(result.lines[0]).toMatchObject({ sourceName: 'طماطم', quantity: 2, unitPrice: 25.25 });
   });
+
+  it('distinguishes per-unit price ("الكيلو ب 30") from total price ("ب 150") without dividing twice', () => {
+    const perUnit = parseSmartPurchaseMessage('5 كيلو طماطم الكيلو ب 30 جنيه', inventoryItems);
+    const fromTotal = parseSmartPurchaseMessage('5 كيلو طماطم ب 150 جنيه', inventoryItems);
+
+    expect(perUnit.lines[0]).toMatchObject({ itemId: 'tomato', quantity: 5, unitPrice: 30, sourceUnit: 'kg' });
+    expect(fromTotal.lines[0]).toMatchObject({ itemId: 'tomato', quantity: 5, unitPrice: 30, sourceUnit: 'kg' });
+  });
+
+  it('parses colloquial fractions ("نص كيلو"), implicit-1 units ("كيلو طماطم"), and definite article matching ("الطماطم")', () => {
+    const result = parseSmartPurchaseMessage(
+      'نص كيلو ثوم ب 40 جنيه\nكيلو الطماطم ب 25 جنيه\n2 كيلو ونص بصل ب 50 جنيه',
+      inventoryItems,
+    );
+
+    expect(result.lines).toHaveLength(3);
+    expect(result.lines[0]).toMatchObject({ sourceName: 'ثوم', quantity: 0.5, unitPrice: 80, sourceUnit: 'kg' });
+    expect(result.lines[1]).toMatchObject({ itemId: 'tomato', quantity: 1, unitPrice: 25, sourceUnit: 'kg' });
+    expect(result.lines[2]).toMatchObject({ sourceName: 'بصل', quantity: 2.5, unitPrice: 20, sourceUnit: 'kg' });
+  });
+
+  it('parses structured invoice table rows (LTR, RTL OCR, pipe-delimited) and extracts invoice metadata', () => {
+    const result = parseSmartPurchaseMessage(
+      [
+        'المورد: أولاد رجب للتوريدات',
+        'رقم الفاتورة: INV-2026-88',
+        'التاريخ: 14/11/2026',
+        'الخصم: 25',
+        'الضريبة: 15',
+        'الدفع: انستاباي',
+        '1 | طماطم | كجم | 5 | 30 | 150',
+        '200 100 2 bag Rice',
+      ].join('\n'),
+      inventoryItems,
+    );
+
+    expect(result).toMatchObject({
+      supplierName: 'أولاد رجب للتوريدات',
+      invoiceNumber: 'INV-2026-88',
+      invoiceDate: '2026-11-14',
+      discountAmount: 25,
+      taxAmount: 15,
+      paymentMethod: 'bank_transfer',
+    });
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines[0]).toMatchObject({ itemId: 'tomato', quantity: 5, unitPrice: 30, sourceUnit: 'kg' });
+    expect(result.lines[1]).toMatchObject({ itemId: 'rice', quantity: 2, unitPrice: 100, sourceUnit: 'bag' });
+    expect(result.ignoredLines).toEqual([]);
+  });
+
+  it('splits multi-item single-line comma-separated purchase messages', () => {
+    const result = parseSmartPurchaseMessage('طماطم 5 كجم × 30، بصل 4 كجم × 25', inventoryItems);
+
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines[0]).toMatchObject({ itemId: 'tomato', quantity: 5, unitPrice: 30 });
+    expect(result.lines[1]).toMatchObject({ sourceName: 'بصل', quantity: 4, unitPrice: 25 });
+  });
 });

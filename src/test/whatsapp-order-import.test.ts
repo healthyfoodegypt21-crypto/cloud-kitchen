@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseWhatsAppOrder } from '@/lib/whatsappOrderImport';
 import { parsePastedOrder } from '@/components/OrderSheetImportDialog';
+import { cleanOcrExtractedText } from '@/lib/ocrImage';
 
 const REAL_MESSAGE = [
   'نهى احمد',
@@ -80,5 +81,42 @@ describe('WhatsApp free-form order parsing', () => {
       'المبلغ': '1400',
     });
     expect(parsed?.['التفاصيل']).toContain('Beef Shawarma');
+  });
+
+  it('extracts trailing quantities, catalog meal names without numbers, brand, map URL, and combined price+delivery', () => {
+    const msg = [
+      'بروتين بوكس',
+      'كابتن عمر حسن 010 1234 5678',
+      'التجمع الخامس',
+      'شارع التسعين الشمالي فيلا 14 الدور الأول',
+      'https://maps.app.goo.gl/xyz123',
+      'Beef Shawarma x2',
+      'Chicken Teriyaki',
+      'وجبتين كفتة دايت',
+      '1200 + 50 توصيل',
+    ].join('\n');
+
+    const parsed = parsePastedOrder(msg, {
+      mealNames: ['Beef Shawarma', 'Chicken Teriyaki', 'كفتة دايت'],
+      brandNames: ['Healthy Food', 'Protein Box'],
+    });
+
+    expect(parsed).toMatchObject({
+      'البراند': 'Protein Box',
+      'اسم العميل': 'عمر حسن',
+      'الهاتف': '01012345678',
+      'المنطقة': 'التجمع الخامس',
+      'رابط الموقع': 'https://maps.app.goo.gl/xyz123',
+      'المبلغ': '1200',
+      'التوصيل': '50',
+      'التفاصيل': 'Beef Shawarma، Beef Shawarma، Chicken Teriyaki، كفتة دايت، كفتة دايت',
+    });
+  });
+
+  it('cleans OCR table borders, dotted lines, and digit confusions accurately', () => {
+    const rawOcr = '┃ 1 ┃ طماطم ┃ كجم ┃ 5O ┃\n...........\nموبايل: 0l012345678';
+    const cleaned = cleanOcrExtractedText(rawOcr);
+
+    expect(cleaned).toBe('1 | طماطم | كجم | 50\nموبايل: 01012345678');
   });
 });

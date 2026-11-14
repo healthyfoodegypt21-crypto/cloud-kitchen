@@ -12,7 +12,8 @@ import { INVENTORY_CATEGORY_LABELS } from '@/types/inventory';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { parseSmartPurchaseMessage, unitMatchesInventory, type SmartPurchaseCatalogItem, type SmartPurchaseLine } from '@/lib/smartPurchaseImport';
 import { convertInvoiceLineToPurchaseUnit } from '@/lib/procurementUnits';
-import { downscaleImage } from '@/lib/ocrImage';
+import { extractImageFromClipboardEvent, smartReadImage } from '@/lib/ocrImage';
+import AiVisionStatusControl from '@/components/AiVisionStatusControl';
 import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
 
 export type SmartPurchaseSubmission = {
@@ -71,6 +72,7 @@ export default function SmartPurchaseImportDialog({
   const [ignoredLines, setIgnoredLines] = useState<string[]>([]);
   const [imagePreview, setImagePreview] = useState('');
   const [isReadingImage, setIsReadingImage] = useState(false);
+  const [ocrStatusText, setOcrStatusText] = useState('جارٍ استخراج النص من الصورة...');
   const [isSaving, setIsSaving] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [categoryDialogLineId, setCategoryDialogLineId] = useState('');
@@ -149,15 +151,42 @@ export default function SmartPurchaseImportDialog({
 
   const applyParse = (text: string) => {
     const result = parseSmartPurchaseMessage(text, inventoryItems);
-    setLines(result.lines);
+    const enrichedLines = result.lines.map((line) => {
+      const linked = selectedItems.get(line.itemId);
+      return {
+        ...line,
+        category: linked ? linked.category : suggestCategory(line.sourceName),
+      };
+    });
+    setLines(enrichedLines);
     setIgnoredLines(result.ignoredLines);
+
     if (result.supplierName) {
-      setSupplierName(result.supplierName);
+      const normSup = result.supplierName.trim().toLowerCase();
+      const matchedSupplier = suppliers.find(
+        (s) =>
+          s.name.trim().toLowerCase() === normSup ||
+          s.name.trim().toLowerCase().includes(normSup) ||
+          normSup.includes(s.name.trim().toLowerCase()),
+      );
+      if (matchedSupplier) {
+        setSupplierId(matchedSupplier.id);
+        setSupplierName(matchedSupplier.name);
+      } else {
+        setSupplierId('');
+        setSupplierName(result.supplierName);
+      }
     }
+    if (result.invoiceNumber) setInvoiceNumber(result.invoiceNumber);
+    if (result.invoiceDate) setInvoiceDate(result.invoiceDate);
+    if (result.taxAmount !== undefined) setTaxAmount(result.taxAmount);
+    if (result.discountAmount !== undefined) setDiscountAmount(result.discountAmount);
+    if (result.paymentMethod) setPaymentMethod(result.paymentMethod);
+
     if (result.lines.length === 0) {
       toast.error('لم أتعرف على أصناف. اكتب كل صنف في سطر مستقل بأي صيغة، مثل: طماطم 5 كجم × 30 أو اشتريت 3 جرجير سعر الواحده 3.5 جنيه.');
     } else {
-      toast.success(`تم استخراج ${result.lines.length} صنف؛ راجع البيانات قبل التسجيل.`);
+      toast.success(`تم استخراج ${result.lines.length} صنف بذكاء؛ راجع البيانات قبل التسجيل.`);
     }
   };
 
@@ -180,34 +209,28 @@ export default function SmartPurchaseImportDialog({
     }
 
     setImageFile(file);
+    setInvoiceFile((current) => current ?? file);
     setIsReadingImage(true);
+    setOcrStatusText('جارٍ تجهيز الصورة للتحليل الذكي...');
     const controller = new AbortController();
     ocrAbortRef.current = controller;
-    const timeoutId = window.setTimeout(() => controller.abort(), 60_000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 75_000);
     try {
-      // Downscale large photos before OCR to keep the browser responsive.
-      const ocrSource = await downscaleImage(file, 1600);
-      const { createWorker } = await import('tesseract.js');
-      const worker = await createWorker('ara+eng');
-      try {
-        const recognizePromise = worker.recognize(ocrSource);
-        const { data } = await Promise.race([
-          recognizePromise,
-          new Promise<never>((_, reject) => {
-            controller.signal.addEventListener('abort', () => reject(new Error('تم إلغاء قراءة الصورة')));
-          }),
-        ]);
-        setMessage(data.text);
-        applyParse(data.text);
-      } finally {
-        await worker.terminate();
-      }
+      const readResult = await smartReadImage(file, {
+        domain: 'purchase',
+        catalogHints: inventoryItems.map((item) => item.name),
+        supplierHints: suppliers.map((s) => s.name),
+        signal: controller.signal,
+        onProgress: (stageText) => setOcrStatusText(stageText),
+      });
+      setMessage(readResult.text);
+      applyParse(readResult.text);
     } catch (error) {
       if (controller.signal.aborted) {
         toast.error('استغرقت قراءة الصورة وقتًا طويلًا أو أُلغيت. جرّب صورة أوضح.');
       } else {
-        const message = error instanceof Error ? error.message : 'تعذر قراءة الصورة';
-        toast.error(`تعذر استخراج النص من الصورة: ${message}`);
+        const errMessage = error instanceof Error ? error.message : 'تعذر قراءة الصورة';
+        toast.error(`تعذر استخراج النص من الصورة: ${errMessage}`);
       }
     } finally {
       window.clearTimeout(timeoutId);
@@ -315,11 +338,23 @@ export default function SmartPurchaseImportDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
+      <DialogContent
+        className="max-h-[92vh] overflow-y-auto sm:max-w-5xl"
+        onPaste={(e) => {
+          const pastedImg = extractImageFromClipboardEvent(e);
+          if (pastedImg && !isReadingImage) {
+            e.preventDefault();
+            void readImage(pastedImg);
+          }
+        }}
+      >
         <DialogHeader>
-          <DialogTitle>الإدخال السريع الذكي للمشتريات</DialogTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <DialogTitle>الإدخال السريع الذكي للمشتريات</DialogTitle>
+            <AiVisionStatusControl />
+          </div>
           <DialogDescription>
-            الصق رسالة المورد أو اختر صورة فاتورة. تُقرأ الصورة داخل المتصفح؛ راجع الصنف والكمية والسعر قبل تسجيل الشراء وإرساله للمخزن للاستلام. تُضاف الكميات بعد اعتماد الاستلام.
+            اكتب بأي صيغة حرة، الصق رسالة المورد، ارفع صورة الفاتورة (أو الصقها مباشرة بـ Ctrl+V) حتى لو مكتوبة بخط اليد — سيستخرج النظام الأصناف والكميات والأسعار والمورد تلقائيًا.
           </DialogDescription>
         </DialogHeader>
 
@@ -355,10 +390,10 @@ export default function SmartPurchaseImportDialog({
                 event.currentTarget.value = '';
               }}
             />
-            <p className="text-xs text-muted-foreground">يدعم صور الفواتير بالعربية والإنجليزية. تتم المعالجة محليًا في المتصفح ولا تُرفع الصورة.</p>
+            <p className="text-xs text-muted-foreground">يدعم الفواتير المطبوعة والمكتوبة بخط اليد بالعربية والإنجليزية (أو الصق الصورة بـ Ctrl+V).</p>
             {isReadingImage ? (
               <div className="flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> جارٍ استخراج النص من الصورة...
+                <Loader2 className="h-4 w-4 animate-spin" /> {ocrStatusText}
                 <Button type="button" variant="ghost" size="sm" className="mr-auto" onClick={cancelImageRead}>إلغاء</Button>
               </div>
             ) : imagePreview ? (
