@@ -117,19 +117,20 @@ const FROZEN_OR_READY_TO_COOK_PATTERN = new RegExp(
   [
     '\\bfrozen\\b',
     '\\bready\\s*[-\\s]*to\\s*[-\\s]*cook\\b',
-    '\\braw\\s*(?:and|&)?\\s*frozen\\b',
-    '\\braw\\s+and\\s+ready\\b',
+    '\\braw\\b',
     '\\buncooked\\b',
-    '\\bpre[-\\s]?marinated\\s+raw\\b',
     '\\brtc\\b',
     'فروزن',
-    'مفرزن(?:ة|ات)?',
-    'مجمد(?:ة|ات)?',
-    'جاهز(?:ة)?\\s*لل(?:طبخ|طهي|تسوي[ةه]|تحضير)',
+    'فروزين',
+    'فرزون',
+    'مفرزن(?:ة|ه|ات)?',
+    'مجمد(?:ة|ه|ات)?',
+    'متجمد(?:ة|ه|ات)?',
+    'جاهز(?:ة|ه)?\\s*لل(?:طبخ|طهي|تسوي[ةه]|تحضير)',
     'نصف\\s*(?:مطهي|مطهى|تسوي[ةه]|سوا)',
-    'بدون\\s*(?:طبخ|طهي|تسوي[ةه]|سوا)',
-    '(?:^|\\s|\\(|-)نيئ(?:ة)?(?:\\s|\\)|-|$)',
-    '(?:^|\\s|\\(|-)نيء(?:\\s|\\)|-|$)',
+    '(?:بدون|من\\s*غير)\\s*(?:طبخ|طهي|تسوي[ةه]|سوا)',
+    '(?:تتبيل|متبل(?:ة|ه)?)\\s*فقط',
+    '(?:^|[\\s(\\-،,|/])(?:ني|نيه|نية|نيء|نيئه|نيئة|ناي|نايه|ناية)(?=$|[\\s)\\-،,.|/])',
   ].join('|'),
   'iu',
 );
@@ -366,7 +367,11 @@ export function aggregateKitchenOrders({ orders, brands, meals, packages, date, 
     const isImportedOrder = (order.imported_meal_details ?? []).length > 0
       || /تفاصيل\s*(?:الطلب\s*المستوردة|الشيت)\s*:/u.test(order.notes)
       || Boolean(getRecoveredSheetMealsForPhone(order.phone));
-    const generalInstruction = isImportedOrder ? '' : normalizeInstruction(order.notes);
+    const cleanedOrderNote = normalizeInstruction(order.notes);
+    const orderLevelFrozenInstruction = isImportedOrder && isFrozenOrReadyToCookText(cleanedOrderNote)
+      ? cleanedOrderNote
+      : '';
+    const generalInstruction = isImportedOrder ? orderLevelFrozenInstruction : cleanedOrderNote;
     const mealCustomizationMap = new Map(
       (order.meal_customizations ?? []).map(item => [item.key, normalizeInstruction(item.notes)]),
     );

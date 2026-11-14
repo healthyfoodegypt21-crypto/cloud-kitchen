@@ -1387,7 +1387,16 @@ export function aggregateKitchenIngredients({
       /تفاصيل\s*(?:الطلب\s*المستوردة|الشيت)\s*:/u.test(order.notes) ||
       Boolean(getRecoveredSheetMealsForPhone(order.phone));
 
-    const generalInstruction = isImportedOrder ? '' : cleanInstructionText(order.notes);
+    const cleanedOrderNote = cleanInstructionText(order.notes);
+    const generalInstruction = isImportedOrder
+      ? resolveKitchenMealCategory({
+          label: '',
+          baseCategory: null,
+          instruction: cleanedOrderNote,
+        }) === 'frozen'
+        ? cleanedOrderNote
+        : ''
+      : cleanedOrderNote;
     const customizationMap = new Map(
       (order.meal_customizations ?? []).map((item) => [item.key, cleanInstructionText(item.notes)]),
     );

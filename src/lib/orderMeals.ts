@@ -54,11 +54,29 @@ export function parseMealLabelAndInstruction(rawLabel: string): { label: string;
     return { label, ...(instruction ? { instruction } : {}) };
   }
 
-  const separatorMatch = trimmed.match(/^(.*?)\s+—\s+(.+)$/u);
+  const separatorMatch = trimmed.match(/^(.*?)\s+[—–]\s+(.+)$/u);
   if (separatorMatch) {
     const label = separatorMatch[1].replace(/^\*+\s*/u, '').trim().replace(/\s+/g, ' ');
     const instruction = separatorMatch[2].trim().replace(/\s+/g, ' ');
     return { label, ...(instruction ? { instruction } : {}) };
+  }
+
+  // Also split hyphen or parenthetical frozen/raw suffixes e.g. "Beef Shawarma - Raw and frozen", "Beef Shawarma - توصل نيه", or "Beef Shawarma (Frozen)"
+  const frozenSuffixCore =
+    '(?:raw\\b|frozen\\b|ready\\s*[-\\s]*to\\s*[-\\s]*cook\\b|uncooked\\b|فروزن|فروزين|فرزون|مفرزن|مجمد|متجمد|جاهز(?:ة|ه)?\\s*لل(?:طبخ|طهي|تسوي[ةه])|(?:(?:توصل|تكون|وجب[ةه])\\s+)?(?:ني(?:ه|ة|ء|ئه|ئة)?|ناي(?:ه|ة)?))';
+
+  const hyphenFrozenMatch = trimmed.match(new RegExp(`^(.*?)\\s+-\\s+(${frozenSuffixCore}.*)$`, 'iu'));
+  if (hyphenFrozenMatch && hyphenFrozenMatch[1].trim()) {
+    const label = hyphenFrozenMatch[1].replace(/^\*+\s*/u, '').trim().replace(/\s+/g, ' ');
+    const instruction = hyphenFrozenMatch[2].trim().replace(/\s+/g, ' ');
+    return { label, instruction };
+  }
+
+  const parenFrozenMatch = trimmed.match(new RegExp(`^(.*?)\\s*\\(\\s*(${frozenSuffixCore}.*?)\\s*\\)$`, 'iu'));
+  if (parenFrozenMatch && parenFrozenMatch[1].trim()) {
+    const label = parenFrozenMatch[1].replace(/^\*+\s*/u, '').trim().replace(/\s+/g, ' ');
+    const instruction = parenFrozenMatch[2].trim().replace(/\s+/g, ' ');
+    return { label, instruction };
   }
 
   return { label: trimmed.replace(/^\*+\s*/u, '').trim().replace(/\s+/g, ' ') };

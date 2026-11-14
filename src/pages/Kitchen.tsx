@@ -374,7 +374,14 @@ export default function Kitchen({
               <tbody>
                 {frozenDailyRows.map(row => (
                   <tr key={row.key} className="border-b border-slate-100 last:border-0 hover:bg-sky-50/30">
-                    <td className="px-4 py-3 font-semibold text-slate-800">{row.label}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-800">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{row.label}</span>
+                        <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800 text-[10px] font-bold">
+                          Frozen / نيء
+                        </Badge>
+                      </div>
+                    </td>
                     {dailyMealAggregation.brands.map(brand => <td key={brand.key} className="px-4 py-3 text-center tabular-nums text-slate-600">{(row.countsByBrand[brand.key] ?? 0).toLocaleString('en-US')}</td>)}
                     <td className="px-4 py-3 text-center font-bold text-sky-700 tabular-nums">{row.total.toLocaleString('en-US')}</td>
                     <td className="px-4 py-3">
@@ -510,7 +517,12 @@ export default function Kitchen({
                         return (
                           <div key={item.key} className="rounded-lg border border-sky-200/80 bg-white p-3 print:shadow-none print:break-inside-avoid">
                             <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                                <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800 text-[10px] font-bold">
+                                  Frozen / نيء
+                                </Badge>
+                              </div>
                               <span className="rounded-full bg-sky-50 border border-sky-200 px-2.5 py-0.5 text-xs font-bold text-sky-800 tabular-nums">
                                 {item.count.toLocaleString('en-US')}
                               </span>

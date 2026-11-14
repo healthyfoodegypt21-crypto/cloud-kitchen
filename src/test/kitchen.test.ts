@@ -484,4 +484,49 @@ describe('aggregateKitchenOrders', () => {
     expect(dailyCookedBeef?.total).toBe(2);
     expect(dailyFrozenBeef?.total).toBe(1);
   });
+
+  it('never merges 4x "Beef Shawarma — Raw and frozen" with 1x cooked "Beef Shawarma — اللحمه تكون مستويه كويس جدا" even inside the same imported order', () => {
+    const mixedCustomerOrder: Order = {
+      ...orders[0],
+      id: 'ord-mixed-shawarma',
+      brand_id: 'brand-2',
+      phone: '01995556666',
+      notes: 'تفاصيل الطلب المستوردة: Beef Shawarma — Raw and frozen، Beef Shawarma — اللحمه تكون مستويه كويس جدا - رسوم التوصيل: 60',
+      meal_customizations: [],
+      imported_meal_details: [
+        'Beef Shawarma — Raw and frozen',
+        'Beef Shawarma — Raw and frozen',
+        'Beef Shawarma (Raw and frozen)',
+        'Beef Shawarma - توصل نيه',
+        'Beef Shawarma — اللحمه تكون مستويه كويس جدا',
+      ],
+    };
+
+    const daily = aggregateDailyMealsByBrand({
+      orders: [mixedCustomerOrder],
+      brands,
+      meals,
+      packages: [],
+      date: '2026-03-22',
+    });
+
+    const cookedRows = daily.rows.filter(r => r.category !== 'frozen');
+    const frozenRows = daily.rows.filter(r => r.category === 'frozen');
+
+    expect(cookedRows).toHaveLength(1);
+    expect(cookedRows[0].label).toBe('Beef Shawarma');
+    expect(cookedRows[0].total).toBe(1);
+    expect(cookedRows[0].modifications).toEqual([
+      expect.objectContaining({ instruction: 'اللحمه تكون مستويه كويس جدا', count: 1 }),
+    ]);
+
+    expect(frozenRows).toHaveLength(1);
+    expect(frozenRows[0].label).toBe('Beef Shawarma');
+    expect(frozenRows[0].total).toBe(4);
+    expect(frozenRows[0].modifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ instruction: 'Raw and frozen', count: 3 }),
+      expect.objectContaining({ instruction: 'توصل نيه', count: 1 }),
+    ]));
+    expect(frozenRows[0].modifications).toHaveLength(2);
+  });
 });
