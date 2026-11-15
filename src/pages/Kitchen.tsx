@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChefHat, ClipboardList, CookingPot, Package2, Printer, Scale, Snowflake, Tags, Table2 } from 'lucide-react';
+import { ChefHat, ClipboardCheck, ClipboardList, CookingPot, Package2, Printer, Scale, Snowflake, Tags, Table2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AppLayoutHeaderPortal } from '@/components/AppLayout';
 import KitchenIngredientsPanel from '@/components/KitchenIngredientsPanel';
 import KitchenIngredientsPrintSheet from '@/components/KitchenIngredientsPrintSheet';
+import KitchenOrderAssemblyPrintSheet from '@/components/KitchenOrderAssemblyPrintSheet';
+import KitchenOrderAssemblyTab from '@/components/KitchenOrderAssemblyTab';
 import KitchenStickerPrintSheet from '@/components/KitchenStickerPrintSheet';
 import KitchenReportPrintSheet from '@/components/KitchenReportPrintSheet';
 import { Input } from '@/components/ui/input';
@@ -27,6 +30,7 @@ import {
   loadCustomPortionWeights,
   saveCustomPortionWeights,
 } from '@/lib/kitchenIngredients';
+import { buildKitchenOrderAssemblyReport } from '@/lib/kitchenOrderAssembly';
 import { cn, formatArabicDate, getArabicWeekday, getTodayDateValue } from '@/lib/utils';
 import { Meal, PackagePlan } from '@/types/menu';
 import { Order } from '@/types/order';
@@ -42,7 +46,8 @@ interface Props {
   seedDemoOrders: (brands: Brand[], options?: { silent?: boolean }) => Promise<boolean>;
 }
 
-type KitchenPrintMode = 'report' | 'stickers' | 'ingredients' | null;
+type KitchenPrintMode = 'report' | 'stickers' | 'ingredients' | 'assembly' | null;
+type KitchenSubTab = 'prep' | 'assembly';
 
 export default function Kitchen({
   brands,
@@ -55,8 +60,12 @@ export default function Kitchen({
   seedDemoOrders,
 }: Props) {
   const { role } = useAuth();
+  const [activeSubTab, setActiveSubTab] = useState<KitchenSubTab>('prep');
   const [selectedDate, setSelectedDate] = useState(getTodayDateValue());
   const [selectedBrandId, setSelectedBrandId] = useState('all');
+  const [assemblyCompanyFilter, setAssemblyCompanyFilter] = useState('all');
+  const [assemblySearchQuery, setAssemblySearchQuery] = useState('');
+  const [assemblyPrintScope, setAssemblyPrintScope] = useState<string>('all');
   const [printMode, setPrintMode] = useState<KitchenPrintMode>(null);
   const [ingredientsPrintScope, setIngredientsPrintScope] = useState<string>('all');
   const [customPortionWeights, setCustomPortionWeights] = useState<CustomPortionWeightsMap>(
@@ -140,6 +149,25 @@ export default function Kitchen({
   const cookedDailyTotal = useMemo(() => cookedDailyRows.reduce((sum, row) => sum + row.total, 0), [cookedDailyRows]);
   const frozenDailyTotal = useMemo(() => frozenDailyRows.reduce((sum, row) => sum + row.total, 0), [frozenDailyRows]);
 
+  const assemblyReport = useMemo(
+    () =>
+      buildKitchenOrderAssemblyReport({
+        orders,
+        brands,
+        meals,
+        packages,
+        date: selectedDate,
+        companyFilter: assemblyCompanyFilter,
+        searchQuery: assemblySearchQuery,
+      }),
+    [assemblyCompanyFilter, assemblySearchQuery, brands, meals, orders, packages, selectedDate],
+  );
+
+  const companiesToPrintForAssembly = useMemo(() => {
+    if (assemblyPrintScope === 'all') return assemblyReport.companies;
+    return assemblyReport.companies.filter((c) => c.key === assemblyPrintScope);
+  }, [assemblyPrintScope, assemblyReport.companies]);
+
   useEffect(() => {
     if (!printMode) {
       return;
@@ -160,45 +188,97 @@ export default function Kitchen({
 
   return (
     <>
-    <div className={cn('space-y-5 print:space-y-3', printMode && 'print:hidden')}>
+    <div className={cn('space-y-5 print:space-y-3', (printMode || activeSubTab === 'assembly') && 'print:hidden')}>
       <AppLayoutHeaderPortal>
         <div className="flex flex-wrap items-center gap-2 print:hidden">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 rounded-lg gap-1.5 text-xs font-semibold"
-            onClick={() => {
-              setIngredientsPrintScope(selectedBrandId);
-              setPrintMode('ingredients');
-            }}
-            disabled={ingredientsReport.combined.items.length === 0}
-          >
-            <Scale className="h-3.5 w-3.5" />
-            <span>طباعة كشف المكونات</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 rounded-lg gap-1.5 text-xs font-semibold"
-            onClick={() => setPrintMode('stickers')}
-            disabled={stickers.length === 0}
-          >
-            <Tags className="h-3.5 w-3.5" />
-            <span>طباعة الاستيكرات</span>
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="h-9 rounded-lg gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={() => setPrintMode('report')}
-          >
-            <Printer className="h-3.5 w-3.5" />
-            <span>طباعة أمر المطبخ</span>
-          </Button>
+          {activeSubTab === 'assembly' ? (
+            <Button
+              type="button"
+              size="sm"
+              className="h-9 rounded-lg gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={assemblyReport.companies.length === 0}
+              onClick={() => {
+                setAssemblyPrintScope('all');
+                setPrintMode('assembly');
+              }}
+            >
+              <Printer className="h-3.5 w-3.5" />
+              <span>طباعة كل الكشوفات ({assemblyReport.companies.length})</span>
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-lg gap-1.5 text-xs font-semibold"
+                onClick={() => {
+                  setIngredientsPrintScope(selectedBrandId);
+                  setPrintMode('ingredients');
+                }}
+                disabled={ingredientsReport.combined.items.length === 0}
+              >
+                <Scale className="h-3.5 w-3.5" />
+                <span>طباعة كشف المكونات</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-lg gap-1.5 text-xs font-semibold"
+                onClick={() => setPrintMode('stickers')}
+                disabled={stickers.length === 0}
+              >
+                <Tags className="h-3.5 w-3.5" />
+                <span>طباعة الاستيكرات</span>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-9 rounded-lg gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => setPrintMode('report')}
+              >
+                <Printer className="h-3.5 w-3.5" />
+                <span>طباعة أمر المطبخ</span>
+              </Button>
+            </>
+          )}
         </div>
       </AppLayoutHeaderPortal>
+
+      {/* Kitchen Sub-Navigation Tabs */}
+      <Tabs
+        value={activeSubTab}
+        onValueChange={(val) => setActiveSubTab(val as KitchenSubTab)}
+        dir="rtl"
+        className="space-y-5"
+      >
+        <TabsList className="flex h-auto w-full sm:w-fit flex-wrap justify-start gap-1.5 rounded-2xl border border-slate-200/90 bg-white p-1.5 shadow-2xs print:hidden">
+          <TabsTrigger
+            value="prep"
+            className="rounded-xl px-4 py-2 text-xs font-bold gap-2 data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
+          >
+            <CookingPot className="h-4 w-4" />
+            <span>أمر التحضير وحاسبة المكونات</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="assembly"
+            className="rounded-xl px-4 py-2 text-xs font-bold gap-2 data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
+          >
+            <ClipboardCheck className="h-4 w-4" />
+            <span>كشف تجميع ومراجعة الطلبات</span>
+            {assemblyReport.totalCustomerOrders > 0 && (
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0 tabular-nums bg-slate-100 text-slate-800"
+              >
+                {assemblyReport.totalCustomerOrders}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="prep" className="space-y-5 mt-0">
 
       <div className="hidden print:block">
         <div className="flex items-center justify-between gap-3 border-b pb-3">
@@ -559,6 +639,30 @@ export default function Kitchen({
           ))}
         </div>
       )}
+        </TabsContent>
+
+        <TabsContent value="assembly" className="mt-0">
+          <KitchenOrderAssemblyTab
+            selectedDate={selectedDate}
+            onSelectedDateChange={setSelectedDate}
+            selectedCompanyFilter={assemblyCompanyFilter}
+            onSelectedCompanyFilterChange={setAssemblyCompanyFilter}
+            searchQuery={assemblySearchQuery}
+            onSearchQueryChange={setAssemblySearchQuery}
+            brands={brands}
+            report={assemblyReport}
+            loading={loading}
+            onPrintAll={() => {
+              setAssemblyPrintScope('all');
+              setPrintMode('assembly');
+            }}
+            onPrintSingleCompany={(companyKey) => {
+              setAssemblyPrintScope(companyKey);
+              setPrintMode('assembly');
+            }}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
     {printMode === 'report' && <KitchenReportPrintSheet summary={summary} dateLabel={formattedDate} brandLabel={selectedBrandName} />}
     {printMode === 'stickers' && <KitchenStickerPrintSheet stickers={stickers} />}
@@ -567,6 +671,13 @@ export default function Kitchen({
         report={ingredientsReport}
         activeScope={ingredientsPrintScope}
         dateLabel={formattedDate}
+      />
+    )}
+    {(printMode === 'assembly' || (!printMode && activeSubTab === 'assembly')) && (
+      <KitchenOrderAssemblyPrintSheet
+        companies={printMode === 'assembly' ? companiesToPrintForAssembly : assemblyReport.companies}
+        dateLabel={formattedDate}
+        weekdayLabel={weekdayLabel}
       />
     )}
     </>

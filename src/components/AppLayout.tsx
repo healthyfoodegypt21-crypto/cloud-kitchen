@@ -158,10 +158,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <AppLayoutHeaderActionsContext.Provider value={headerActionsSlot}>
-      <div dir="rtl" className="min-h-screen bg-slate-50/80 text-slate-900 antialiased flex">
+      <div dir="rtl" className="min-h-screen bg-slate-50/80 print:bg-white text-slate-900 antialiased flex print:block">
         {sidebarOpen && (
           <div
-            className="lg:hidden fixed inset-0 bg-slate-900/40 backdrop-blur-[1px] z-40"
+            className="lg:hidden fixed inset-0 bg-slate-900/40 backdrop-blur-[1px] z-40 print:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -169,7 +169,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Right-Docked Categorized Sidebar */}
         <aside
           className={cn(
-            'fixed lg:sticky top-0 right-0 z-50 w-64 shrink-0 bg-white border-l border-slate-200/80 flex flex-col justify-between h-screen select-none transition-transform duration-200',
+            'fixed lg:sticky top-0 right-0 z-50 w-64 shrink-0 bg-white border-l border-slate-200/80 flex flex-col justify-between h-screen select-none transition-transform duration-200 print:hidden',
             sidebarOpen ? 'translate-x-0' : 'translate-x-full',
             'lg:translate-x-0',
           )}
@@ -266,9 +266,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 print:block">
           {/* Unified Sticky Top Header Bar */}
-          <header className="sticky top-0 z-20 h-16 bg-white/85 backdrop-blur-md border-b border-slate-200/80 px-6 flex items-center justify-between gap-4">
+          <header className="sticky top-0 z-20 h-16 bg-white/85 backdrop-blur-md border-b border-slate-200/80 px-6 flex items-center justify-between gap-4 print:hidden">
             <div className="flex items-center gap-3 min-w-0">
               <button
                 type="button"
@@ -296,7 +296,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="flex-1 w-full max-w-[1440px] mx-auto p-6">{children}</main>
+          <main className="flex-1 w-full max-w-[1440px] mx-auto p-6 print:max-w-none print:p-0">{children}</main>
         </div>
       </div>
     </AppLayoutHeaderActionsContext.Provider>
