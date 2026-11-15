@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
 import PurchasesAssistant from '@/components/PurchasesAssistant';
 import SmartPurchaseImportDialog, { type SmartPurchaseSubmission } from '@/components/SmartPurchaseImportDialog';
 import ProcurementCenter from '@/pages/ProcurementCenter';
@@ -10,8 +9,6 @@ import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 
 export default function PurchasesRoute() {
   const { displayName } = useAuth();
-  // Procurement buys for the shared central store that serves every brand, so
-  // the page always works on the hub's stock brand — no brand picker.
   const [brandId, setBrandId] = useState('');
   const [hubName, setHubName] = useState('');
   const [hubError, setHubError] = useState('');
@@ -20,11 +17,75 @@ export default function PurchasesRoute() {
   const [categories, setCategories] = useState<Array<{ code: string; name: string }>>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [importSource, setImportSource] = useState<'message' | 'image'>('message');
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const startImport = (source: 'message' | 'image') => {
     setImportSource(source);
     setImportOpen(true);
   };
+
+  const loadCatalogForSmartImport = useCallback(async (targetBrandId: string) => {
+    if (!targetBrandId) {
+      setInventoryItems([]);
+      setSuppliers([]);
+      return;
+    }
+
+    const client = asSupabaseLooseClient(supabase);
+    const [itemsRes, supplierResult, categoryResult] = await Promise.all([
+      client
+        .from('items_master')
+        .select('id,name,item_code,category,purchase_unit,usage_unit,conversion_factor,last_purchase_price')
+        .eq('brand_id', targetBrandId)
+        .eq('status', 'active')
+        .order('name'),
+      client
+        .from('suppliers')
+        .select('id,name')
+        .eq('brand_id', targetBrandId)
+        .eq('status', 'active')
+        .order('name')
+        .limit(500),
+      client
+        .from('inventory_categories')
+        .select('code,name_ar')
+        .eq('is_active', true)
+        .order('sort_order'),
+    ]);
+
+    if (!itemsRes.error) {
+      setInventoryItems(
+        (Array.isArray(itemsRes.data) ? itemsRes.data.filter(isRecord) : []).map((item) => ({
+          id: String(item.id),
+          name: String(item.name ?? ''),
+          sku: String(item.item_code ?? ''),
+          category: String(item.category ?? 'other'),
+          purchaseUnit: String(item.purchase_unit ?? ''),
+          usageUnit: String(item.usage_unit ?? item.purchase_unit ?? ''),
+          conversionFactor: Number(item.conversion_factor ?? 1),
+          lastPurchasePrice: Number(item.last_purchase_price ?? 0),
+        })),
+      );
+    }
+
+    if (!supplierResult.error) {
+      setSuppliers(
+        (Array.isArray(supplierResult.data) ? supplierResult.data.filter(isRecord) : []).map((supplier) => ({
+          id: String(supplier.id),
+          name: String(supplier.name ?? ''),
+        })),
+      );
+    }
+
+    if (!categoryResult.error) {
+      setCategories(
+        (Array.isArray(categoryResult.data) ? categoryResult.data.filter(isRecord) : []).map((category) => ({
+          code: String(category.code ?? ''),
+          name: String(category.name_ar ?? category.code ?? ''),
+        })),
+      );
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -48,80 +109,8 @@ export default function PurchasesRoute() {
   }, []);
 
   useEffect(() => {
-    if (!brandId) {
-      setInventoryItems([]);
-      setSuppliers([]);
-      return;
-    }
-
-    let active = true;
-    setInventoryItems([]);
-    setSuppliers([]);
-    const loadItems = async () => {
-      const { data, error } = await asSupabaseLooseClient(supabase)
-        .from('items_master')
-        .select('id,name,item_code,category,purchase_unit,usage_unit,conversion_factor,last_purchase_price')
-        .eq('brand_id', brandId)
-        .eq('status', 'active')
-        .order('name');
-
-      if (error) {
-        if (active) {
-          toast.error(error.message || 'تعذر تحميل أصناف المخزون');
-        }
-        return;
-      }
-
-      if (active) {
-        setInventoryItems((Array.isArray(data) ? data.filter(isRecord) : []).map((item) => {
-          return {
-            id: String(item.id),
-            name: String(item.name ?? ''),
-            sku: String(item.item_code ?? ''),
-            category: String(item.category ?? 'other'),
-            purchaseUnit: String(item.purchase_unit ?? ''),
-            usageUnit: String(item.usage_unit ?? item.purchase_unit ?? ''),
-            conversionFactor: Number(item.conversion_factor ?? 1),
-            lastPurchasePrice: Number(item.last_purchase_price ?? 0),
-          };
-        }));
-      }
-      const supplierResult = await asSupabaseLooseClient(supabase)
-        .from('suppliers')
-        .select('id,name')
-        .eq('brand_id', brandId)
-        .eq('status', 'active')
-        .order('name')
-        .limit(500);
-      if (supplierResult.error) {
-        if (active) toast.error(supplierResult.error.message || 'تعذر تحميل دليل الموردين');
-        return;
-      }
-      if (active) {
-        setSuppliers((Array.isArray(supplierResult.data) ? supplierResult.data.filter(isRecord) : []).map((supplier) => ({
-          id: String(supplier.id),
-          name: String(supplier.name ?? ''),
-        })));
-      }
-
-      const categoryResult = await asSupabaseLooseClient(supabase)
-        .from('inventory_categories')
-        .select('code,name_ar')
-        .eq('is_active', true)
-        .order('sort_order');
-      if (active && !categoryResult.error) {
-        setCategories((Array.isArray(categoryResult.data) ? categoryResult.data.filter(isRecord) : []).map((category) => ({
-          code: String(category.code ?? ''),
-          name: String(category.name_ar ?? category.code ?? ''),
-        })));
-      }
-    };
-
-    void loadItems();
-    return () => {
-      active = false;
-    };
-  }, [brandId]);
+    void loadCatalogForSmartImport(brandId);
+  }, [brandId, loadCatalogForSmartImport, refreshTick]);
 
   const submitSmartPurchase = async (submission: SmartPurchaseSubmission) => {
     if (!brandId || submission.lines.length === 0 || !submission.purchaserName.trim()) {
@@ -232,6 +221,7 @@ export default function PurchasesRoute() {
       }
 
       toast.success('تم تسجيل الشراء وإشعار المخزن لاعتماد الاستلام وإضافة الكميات');
+      setRefreshTick((t) => t + 1);
       return true;
     } catch (error) {
       if (storagePath) await supabase.storage.from('supplier-invoices').remove([storagePath]);
@@ -250,7 +240,13 @@ export default function PurchasesRoute() {
             <p className="mt-2 text-sm text-muted-foreground">{hubError}</p>
           </div>
         ) : (
-          <ProcurementCenter brandId={brandId} hubName={hubName} purchaserName={displayName} />
+          <ProcurementCenter
+            brandId={brandId}
+            hubName={hubName}
+            purchaserName={displayName}
+            categories={categories}
+            externalRefreshTick={refreshTick}
+          />
         )}
       </div>
       <SmartPurchaseImportDialog

@@ -194,7 +194,7 @@ export function useFinance(brands: Brand[], orders: Order[]) {
           .limit(500),
         loose
           .from('inventory_purchase_requests')
-          .select('id, request_no, supplier_name, status, total_amount, tax_amount, paid_amount, payment_method, payment_status, invoice_date, invoice_storage_path, notes, created_at')
+          .select('id, request_no, supplier_name, status, total_amount, tax_amount, paid_amount, payment_method, payment_status, invoice_date, invoice_storage_path, requested_by, notes, created_at')
           .order('created_at', { ascending: false })
           .limit(200),
         loose
@@ -375,7 +375,7 @@ export function useFinance(brands: Brand[], orders: Order[]) {
             payment_status: req.payment_status === 'paid' ? 'paid' : req.payment_status === 'partial' ? 'partial' : 'pending',
             receipt_url: req.invoice_storage_path ? String(req.invoice_storage_path) : null,
             notes: String(req.notes ?? ''),
-            created_by: null,
+            created_by: typeof req.requested_by === 'string' ? req.requested_by : null,
             created_at: String(req.created_at ?? new Date().toISOString()),
             allocations: [],
           });
