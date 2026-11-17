@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDownToLine, Loader2 } from 'lucide-react';
+import { ArrowDownToLine, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { getUnitLabel } from '@/lib/procurementUnits';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
+import { formatEGPCurrency } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
@@ -15,6 +18,8 @@ type ReceiptLine = {
   id: string;
   itemName: string;
   unit: string;
+  usageUnit: string;
+  conversionFactor: number;
   quantity: number;
   receivedQuantity: number;
   rejectedQuantity: number;
@@ -29,7 +34,14 @@ type ReceiptRequest = {
   id: string;
   requestNo: string;
   supplierName: string;
+  purchaserName: string;
   invoiceNumber: string;
+  invoiceDate: string;
+  totalAmount: number;
+  paidAmount: number;
+  paymentMethod: string;
+  invoiceStoragePath: string;
+  notes: string;
   lines: ReceiptLine[];
 };
 
@@ -68,7 +80,7 @@ export default function PurchaseReceiptPanel({ brandId, canManage }: Props) {
     const client = asSupabaseLooseClient(supabase);
     const { data: requestData, error: requestError } = await client
       .from('inventory_purchase_requests')
-      .select('id,request_no,supplier_name,invoice_number')
+      .select('id,request_no,supplier_name,purchaser_name,invoice_number,invoice_date,total_amount,paid_amount,payment_method,invoice_storage_path,notes')
       .eq('brand_id', brandId)
       .eq('status', 'purchased_pending_receipt')
       .order('created_at', { ascending: true })
@@ -96,7 +108,7 @@ export default function PurchaseReceiptPanel({ brandId, canManage }: Props) {
     const itemIds = Array.from(new Set(lineRows.map((line) => String(line.item_id))));
     const { data: itemData, error: itemError } = await client
       .from('items_master')
-      .select('id,name,purchase_unit')
+      .select('id,name,purchase_unit,usage_unit,conversion_factor')
       .in('id', itemIds);
     const firstError = lineError || itemError;
     if (firstError) {
@@ -106,20 +118,19 @@ export default function PurchaseReceiptPanel({ brandId, canManage }: Props) {
     }
 
     const itemMap = new Map(records(itemData).map((item) => [String(item.id), item]));
-    const nextRequests = requestRows.map((request) => ({
-      id: String(request.id),
-      requestNo: String(request.request_no),
-      supplierName: String(request.supplier_name ?? ''),
-      invoiceNumber: String(request.invoice_number ?? ''),
-      lines: lineRows.filter((line) => String(line.purchase_request_id) === String(request.id)).map((line) => {
+    const nextRequests = requestRows.map((request) => {
+      const reqLines = lineRows.filter((line) => String(line.purchase_request_id) === String(request.id)).map((line) => {
+        const item = itemMap.get(String(line.item_id));
         const remaining = Math.max(
           numeric(line.quantity) - numeric(line.received_quantity) - numeric(line.rejected_quantity),
           0,
         );
         return {
           id: String(line.id),
-          itemName: String(itemMap.get(String(line.item_id))?.name ?? 'صنف'),
-          unit: String(itemMap.get(String(line.item_id))?.purchase_unit ?? ''),
+          itemName: String(item?.name ?? 'صنف'),
+          unit: String(item?.purchase_unit ?? ''),
+          usageUnit: String(item?.usage_unit ?? item?.purchase_unit ?? ''),
+          conversionFactor: numeric(item?.conversion_factor ?? 1) || 1,
           quantity: numeric(line.quantity),
           receivedQuantity: numeric(line.received_quantity),
           rejectedQuantity: numeric(line.rejected_quantity),
@@ -130,8 +141,23 @@ export default function PurchaseReceiptPanel({ brandId, canManage }: Props) {
           rejectionReason: String(line.rejection_reason ?? ''),
           remainingQuantity: remaining,
         };
-      }),
-    }));
+      });
+      const computedSubtotal = reqLines.reduce((s, l) => s + l.quantity * l.unitCost, 0);
+      return {
+        id: String(request.id),
+        requestNo: String(request.request_no),
+        supplierName: String(request.supplier_name ?? ''),
+        purchaserName: String(request.purchaser_name ?? ''),
+        invoiceNumber: String(request.invoice_number ?? ''),
+        invoiceDate: String(request.invoice_date ?? ''),
+        totalAmount: numeric(request.total_amount) || computedSubtotal,
+        paidAmount: numeric(request.paid_amount),
+        paymentMethod: String(request.payment_method ?? ''),
+        invoiceStoragePath: String(request.invoice_storage_path ?? ''),
+        notes: String(request.notes ?? ''),
+        lines: reqLines,
+      };
+    });
 
     setRequests(nextRequests);
     setDrafts((current) => Object.fromEntries(nextRequests.map((request) => [
@@ -233,6 +259,15 @@ export default function PurchaseReceiptPanel({ brandId, canManage }: Props) {
     await load();
   };
 
+  const openInvoiceAttachment = async (storagePath: string) => {
+    const { data, error } = await supabase.storage.from('supplier-invoices').createSignedUrl(storagePath, 120);
+    if (error || !data?.signedUrl) {
+      toast.error(error?.message || 'تعذر فتح صورة الفاتورة');
+      return;
+    }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+  };
+
   if (!canManage || (!loading && requests.length === 0)) {
     return null;
   }
@@ -241,29 +276,73 @@ export default function PurchaseReceiptPanel({ brandId, canManage }: Props) {
     <section className="space-y-3">
       <div>
         <h2 className="text-xl font-bold">استلام المشتريات ومراجعة الجودة</h2>
-        <p className="text-sm text-muted-foreground">سجل المقبول والمرفوض لكل بند؛ لا تُضاف إلا الكميات المقبولة إلى رصيد المخزون.</p>
+        <p className="text-sm text-muted-foreground">راجع الأصناف والكميات والأسعار المسجلة، ثم اعتمد المقبول والمرفوض لإضافة الكميات إلى رصيد المخزون.</p>
       </div>
       {loading ? <div className="grid min-h-24 place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : null}
       {requests.map((request) => (
-        <Card key={request.id}>
-          <CardHeader>
-            <CardTitle>{request.requestNo} · {request.supplierName || 'مورد غير محدد'}</CardTitle>
-            <CardDescription>{request.invoiceNumber ? `فاتورة ${request.invoiceNumber}` : 'بدون رقم فاتورة'}</CardDescription>
+        <Card key={request.id} className="border-sky-300/90">
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">
+                  {request.requestNo} · {request.supplierName || 'مشتريات نقدية / مورد غير محدد'}
+                </CardTitle>
+                <CardDescription className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                  {request.purchaserName && <span>القائم بالشراء: <strong>{request.purchaserName}</strong></span>}
+                  {request.invoiceNumber && <span>· فاتورة #{request.invoiceNumber}</span>}
+                  {request.invoiceDate && <span>· التاريخ: {request.invoiceDate}</span>}
+                </CardDescription>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="bg-emerald-600 text-white text-xs font-bold tabular-nums">
+                  إجمالي الفاتورة: {formatEGPCurrency(request.totalAmount)}
+                </Badge>
+                {request.invoiceStoragePath && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={() => void openInvoiceAttachment(request.invoiceStoragePath)}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    عرض الفاتورة
+                  </Button>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {request.lines.map((line) => {
               const draft = drafts[request.id]?.[line.id] ?? {};
               const remaining = Math.max(line.quantity - line.receivedQuantity - line.rejectedQuantity, 0);
+              const unitLbl = getUnitLabel(line.unit);
+              const usageLbl = getUnitLabel(line.usageUnit);
+              const lineTotal = Math.round(line.quantity * line.unitCost * 100) / 100;
               return (
-                <div key={line.id} className="grid gap-3 rounded-xl border p-3 md:grid-cols-2 xl:grid-cols-5">
-                  <div className="md:col-span-2 xl:col-span-5">
-                    <strong>{line.itemName}</strong>
-                    <p className="text-xs text-muted-foreground">
-                      تم شراء {line.quantity} {line.unit} · استُلم {line.receivedQuantity} · رُفض {line.rejectedQuantity} · المتبقي {remaining}
-                    </p>
+                <div key={line.id} className="grid gap-3 rounded-xl border bg-slate-50/50 p-3 md:grid-cols-2 xl:grid-cols-5">
+                  <div className="md:col-span-2 xl:col-span-5 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/70 pb-2">
+                    <div>
+                      <strong className="text-sm">{line.itemName}</strong>
+                      <p className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                        الكمية المشتراة: <strong>{line.quantity} {unitLbl}</strong>
+                        {line.conversionFactor !== 1 && line.usageUnit !== line.unit
+                          ? ` (= ${Math.round(line.quantity * line.conversionFactor * 1000) / 1000} ${usageLbl} بالمخزن)`
+                          : ''}
+                        {' '}· استُلم {line.receivedQuantity} · رُفض {line.rejectedQuantity} · المتبقي {remaining}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs tabular-nums">
+                      <span className="rounded-md border bg-white px-2.5 py-1 font-semibold text-slate-700">
+                        سعر الـ {unitLbl}: {formatEGPCurrency(line.unitCost)}
+                      </span>
+                      <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-bold text-emerald-900">
+                        إجمالي الصنف: {formatEGPCurrency(lineTotal)}
+                      </span>
+                    </div>
                   </div>
-                  <NumberField label={`المقبول (${line.unit})`} value={String(draft.receivedQuantity ?? '')} max={remaining} onChange={(value) => updateLine(request.id, line.id, { receivedQuantity: Number(value) })} />
-                  <NumberField label={`المرفوض (${line.unit})`} value={String(draft.rejectedQuantity ?? '0')} max={remaining} onChange={(value) => updateLine(request.id, line.id, { rejectedQuantity: Number(value) })} />
+                  <NumberField label={`المقبول (${unitLbl})`} value={String(draft.receivedQuantity ?? '')} max={remaining} onChange={(value) => updateLine(request.id, line.id, { receivedQuantity: Number(value) })} />
+                  <NumberField label={`المرفوض (${unitLbl})`} value={String(draft.rejectedQuantity ?? '0')} max={remaining} onChange={(value) => updateLine(request.id, line.id, { rejectedQuantity: Number(value) })} />
                   <div className="space-y-1">
                     <Label htmlFor={`receipt-batch-${line.id}`}>رقم الدفعة</Label>
                     <Input id={`receipt-batch-${line.id}`} value={String(draft.batchNo ?? '')} onChange={(event) => updateLine(request.id, line.id, { batchNo: event.target.value })} />

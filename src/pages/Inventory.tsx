@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, FileSpreadsheet, GitMerge, Loader2, PackagePlus, Pencil, Plus, Printer, Search, ShoppingCart, Trash2, WalletCards, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, FileSpreadsheet, FileText, GitMerge, Loader2, PackagePlus, Pencil, Plus, Printer, Search, ShoppingCart, Trash2, WalletCards, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -44,7 +44,7 @@ import WithdrawalQuickEntry, { type WithdrawalPlan } from '@/components/inventor
 import WithdrawalSheetPrintSheet from '@/components/inventory/WithdrawalSheetPrintSheet';
 import WithdrawalSheetDialog from '@/components/inventory/WithdrawalSheetDialog';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
-import type { OperationalInventoryItem } from '@/types/operationalInventory';
+import type { InventoryNotification, InventoryPurchaseRequest, OperationalInventoryItem } from '@/types/operationalInventory';
 
 type DialogMode = 'item' | 'editItem' | 'category' | 'movement' | 'purchase' | 'withdrawal' | 'count' | 'directPurchase' | null;
 type MovementAction = 'deposit' | 'waste';
@@ -99,9 +99,25 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     return () => window.removeEventListener('afterprint', resetPrint);
   }, []);
 
-  const { items, categories, movements, purchaseRequests, withdrawals, batches, countApprovals, locations, itemRequests, notifications, alerts, inventoryValue, loading, partialError, offline, offlineSnapshotAt, hasMoreMovements, loadMoreMovements, invoke, markNotificationRead } = useOperationalInventory(brandId, hub.brandIds);
+  const { items, categories, movements, purchaseRequests, withdrawals, batches, countApprovals, locations, itemRequests, notifications, alerts, inventoryValue, loading, partialError, offline, offlineSnapshotAt, hasMoreMovements, loadMoreMovements, invoke, markNotificationRead, markAllNotificationsRead } = useOperationalInventory(brandId, hub.brandIds);
   const canManage = !isDemoMode && hasPageAccess(role, pagePermissions, 'inventory');
   const selectedItem = items.find((item) => item.id === line.itemId);
+  const purchaseRequestById = useMemo(
+    () => new Map(purchaseRequests.map((req) => [req.id, req])),
+    [purchaseRequests],
+  );
+  const categoryNameByCode = useMemo(
+    () => new Map(categories.map((cat) => [cat.code, cat.name_ar])),
+    [categories],
+  );
+  const openInvoiceAttachment = async (storagePath: string) => {
+    const { data, error } = await supabase.storage.from('supplier-invoices').createSignedUrl(storagePath, 120);
+    if (error || !data?.signedUrl) {
+      toast.error(error?.message || 'تعذر فتح ملف الفاتورة');
+      return;
+    }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+  };
 
   // Guards every mutating action so a slow RPC can never be submitted twice.
   const runSubmit = async (action: () => Promise<void> | void) => {
@@ -645,7 +661,46 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       <SummaryCard title="صرف اليوم" value={formatEGPCurrency(todayWithdrawalValue)} detail={`${pendingReceipts.toLocaleString('en-US')} مشتريات تنتظر الاستلام`} />
     </div>
 
-    {unreadNotifications.length > 0 && <section><div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-bold">إشعارات مدير المخزن</h2><p className="text-sm text-muted-foreground">طلبات الشراء الجديدة تظهر هنا فور تسجيلها.</p></div><Badge variant="destructive">{unreadNotifications.length} جديد</Badge></div><div className="grid gap-3">{unreadNotifications.map((notification) => <Card key={notification.id} className="border-amber-300"><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"><div><strong>{notification.title}</strong><p className="mt-1 text-sm text-muted-foreground">{notification.message}</p><p className="mt-1 text-xs text-muted-foreground tabular-nums">{new Date(notification.createdAt).toLocaleString('en-US')}</p></div><Button variant="outline" onClick={() => void markNotificationRead(notification.id)}>تمت القراءة</Button></CardContent></Card>)}</div></section>}
+    <PurchaseReceiptPanel brandId={brandId} canManage={canManage} />
+
+    {unreadNotifications.length > 0 && (
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-xl font-bold">إشعارات مدير المخزن وتفاصيل المشتريات</h2>
+            <p className="text-sm text-muted-foreground">
+              تفاصيل الأصناف المستلمة والكميات والأسعار والمورد لكل شحنة مشتريات.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="destructive">{unreadNotifications.length} جديد</Badge>
+            {unreadNotifications.length > 1 && (
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => void markAllNotificationsRead()}>
+                تأكيد قراءة الكل
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="grid gap-3">
+          {unreadNotifications.map((notification) => {
+            const linkedRequest = notification.referenceId
+              ? purchaseRequestById.get(notification.referenceId)
+              : undefined;
+            return (
+              <WarehouseNotificationCard
+                key={notification.id}
+                notification={notification}
+                linkedRequest={linkedRequest}
+                categoryNameByCode={categoryNameByCode}
+                onMarkRead={() => void markNotificationRead(notification.id)}
+                onOpenInvoice={(path) => void openInvoiceAttachment(path)}
+                onJumpToReceipt={() => setActiveTab('activity')}
+              />
+            );
+          })}
+        </div>
+      </section>
+    )}
 
     {canManage && countApprovals.length > 0 && <section><div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-bold">جرد بانتظار اعتماد مستقل</h2><p className="text-sm text-muted-foreground">لا تتغير الأرصدة إلا بعد اعتماد مستخدم مختلف عن مُعدّ الجرد، ويُطلب إعادة العد إذا تحرك المخزون بعده.</p></div><Badge variant="secondary">{countApprovals.length}</Badge></div><div className="grid gap-3">{countApprovals.map((count) => <Card key={count.id} className="border-primary/20"><CardContent className="space-y-3 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><strong>{count.countNo}</strong><p className="text-sm text-muted-foreground">أُعد بواسطة {count.countedBy === user?.id ? 'أنت' : count.countedBy || 'مستخدم غير معروف'} — {new Date(count.countedAt).toLocaleString('en-US')}</p>{count.notes && <p className="text-sm">{count.notes}</p>}</div><div className="flex gap-2"><Button size="sm" onClick={() => void runSubmit(() => reviewCount(count.id, true))} disabled={submitting || count.countedBy === user?.id}><Check className="ml-1 h-4 w-4" />اعتماد</Button><Button size="sm" variant="outline" className="text-destructive" onClick={() => void runSubmit(() => reviewCount(count.id, false))} disabled={submitting || count.countedBy === user?.id}><X className="ml-1 h-4 w-4" />رفض</Button></div></div><div className="overflow-x-auto"><table className="w-full min-w-[36rem] text-sm"><thead><tr className="border-b text-right text-muted-foreground"><th className="p-2">الصنف</th><th className="p-2">الموقع</th><th className="p-2">الرصيد الدفتري</th><th className="p-2">الفعلي</th><th className="p-2">الفرق</th></tr></thead><tbody>{count.lines.map((entry) => <tr key={entry.id} className="border-b last:border-0"><td className="p-2">{entry.itemName}</td><td className="p-2">{entry.locationName}</td><td className="p-2">{entry.bookQuantity}</td><td className="p-2">{entry.physicalQuantity}</td><td className="p-2 font-semibold">{entry.variance > 0 ? '+' : ''}{entry.variance}</td></tr>)}</tbody></table></div></CardContent></Card>)}</div></section>}
 
@@ -710,6 +765,63 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     {itemRequests.length > 0 && <section><h2 className="mb-3 text-xl font-bold">أصناف جديدة بانتظار قبول مدير المخزن</h2><div className="grid gap-3">{itemRequests.map((request) => <Card key={request.id}><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"><div><strong>{request.itemName}{request.productBrand ? ` — ${request.productBrand}` : ''}</strong><p className="text-sm text-muted-foreground">{request.itemCode} • {request.unit} • حد أدنى {request.minStock}</p></div>{canManage && <div className="flex gap-2"><Button onClick={() => void runSubmit(() => invoke('inventory_review_item_request', { _request_id: request.id, _approve: true, _review_notes: '' }).then(() => undefined))} disabled={submitting}>قبول وإضافة الصنف</Button><Button variant="outline" onClick={() => void runSubmit(() => invoke('inventory_review_item_request', { _request_id: request.id, _approve: false, _review_notes: 'مرفوض من مدير المخزن' }).then(() => undefined))} disabled={submitting}>رفض</Button></div>}</CardContent></Card>)}</div></section>}
 
     <PurchaseReceiptPanel brandId={brandId} canManage={canManage} />
+
+    {purchaseRequests.filter((r) => r.status === 'approved' && r.lines.length > 0).length > 0 && (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">سجل المشتريات المستلمة والمودعة بالمخزن</CardTitle>
+          <CardDescription>بيان كامل بالأصناف والكميات والأسعار التي دخلت رصيد المخزن المركزي.</CardDescription>
+        </CardHeader>
+        <CardContent className="divide-y p-0">
+          {purchaseRequests
+            .filter((r) => r.status === 'approved' && r.lines.length > 0)
+            .slice(0, 15)
+            .map((req) => (
+              <div key={req.id} className="space-y-2.5 p-4 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong className="tabular-nums">{req.requestNo}</strong>
+                    <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800 text-xs">
+                      تم الإيداع بالمخزن
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      المورد: <strong>{req.supplierName || 'مشتريات نقدية'}</strong>
+                    </span>
+                    {req.purchaserName && (
+                      <span className="text-xs text-muted-foreground">
+                        · المشتري: <strong>{req.purchaserName}</strong>
+                      </span>
+                    )}
+                    {req.invoiceNumber && (
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        · فاتورة #{req.invoiceNumber}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-emerald-800 tabular-nums">
+                      الإجمالي: {formatEGPCurrency(req.totalAmount ?? 0)}
+                    </span>
+                    {req.invoiceStoragePath && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 gap-1 text-xs"
+                        onClick={() => void openInvoiceAttachment(req.invoiceStoragePath!)}
+                      >
+                        <FileText className="h-3 w-3" />
+                        الفاتورة
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <PurchaseRequestItemsTable request={req} categoryNameByCode={categoryNameByCode} />
+              </div>
+            ))}
+        </CardContent>
+      </Card>
+    )}
 
     <Card><CardHeader><CardTitle className="text-base">سحوبات المخزن</CardTitle><CardDescription>السحب للوجبات المشتركة يُخصم من الرصيد المركزي دون نسبته لعلامة بعينها.</CardDescription></CardHeader><CardContent className="divide-y p-0">{withdrawals.length === 0 ? <p className="p-5 text-sm text-muted-foreground">لا توجد مسحوبات مسجلة.</p> : withdrawals.slice(0, 15).map((withdrawal) => <div key={withdrawal.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"><div><strong>{withdrawal.withdrawalNo}</strong><span className="mx-2 text-muted-foreground">{withdrawal.isShared ? 'سحب مشترك' : brands.find((brand) => brand.id === withdrawal.brandId)?.name ?? 'علامة مرتبطة بالمخزن'}</span><p className="text-xs text-muted-foreground">{withdrawal.withdrawalDate} · {withdrawal.lines.length} أصناف</p></div><span className="font-medium tabular-nums">{formatEGPCurrency(withdrawal.totalValue)}</span></div>)}</CardContent></Card>
 
@@ -1005,3 +1117,202 @@ function LocationSelect({ locations, value, onChange }: { locations: { code: str
 function UnitField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return <div className="space-y-1"><Label>{label}</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={value} onChange={(event) => onChange(event.target.value)}>{Object.entries(INVENTORY_UNIT_LABELS).map(([unit, unitLabel]) => <option value={unit} key={unit}>{unitLabel} ({unit})</option>)}</select></div>;
 }
+
+function paymentMethodArabic(method: string | null | undefined): string {
+  if (method === 'bank_transfer') return 'تحويل بنكي / انستاباي';
+  if (method === 'credit') return 'آجل';
+  return 'نقدي';
+}
+
+function PurchaseRequestItemsTable({
+  request,
+  categoryNameByCode,
+}: {
+  request: InventoryPurchaseRequest;
+  categoryNameByCode: Map<string, string>;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200/80 bg-white">
+      <table className="w-full min-w-[540px] text-right text-xs">
+        <thead className="border-b bg-slate-50 text-slate-600">
+          <tr>
+            <th className="px-3 py-2 font-bold">الصنف المستلم</th>
+            <th className="px-3 py-2 font-bold">الفئة</th>
+            <th className="px-3 py-2 font-bold">الكمية والوحدة</th>
+            <th className="px-3 py-2 font-bold">سعر الوحدة</th>
+            <th className="px-3 py-2 font-bold">إجمالي الصنف</th>
+            <th className="px-3 py-2 font-bold">حالة الرصيد</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {request.lines.map((line) => {
+            const pUnitLbl = getUnitLabel(line.purchaseUnit || line.usageUnit || 'piece');
+            const uUnitLbl = getUnitLabel(line.usageUnit || line.purchaseUnit || 'piece');
+            const factor = line.conversionFactor && line.conversionFactor > 0 ? line.conversionFactor : 1;
+            const lineTotal = Math.round(line.quantity * line.unitCost * 100) / 100;
+            const stockAdded = Math.round((line.receivedQuantity || line.quantity) * factor * 1000) / 1000;
+            const catLabel = line.itemCategory
+              ? categoryNameByCode.get(line.itemCategory) ?? line.itemCategory
+              : '—';
+            return (
+              <tr key={line.id} className="hover:bg-slate-50/60">
+                <td className="px-3 py-2 font-bold text-slate-900">{line.itemName}</td>
+                <td className="px-3 py-2 text-slate-600">{catLabel}</td>
+                <td className="px-3 py-2 font-semibold tabular-nums">
+                  {line.quantity} {pUnitLbl}
+                  {factor !== 1 && uUnitLbl !== pUnitLbl && (
+                    <span className="mr-1 text-[11px] font-normal text-slate-500">
+                      (= {Math.round(line.quantity * factor * 1000) / 1000} {uUnitLbl})
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2 tabular-nums font-medium">{formatEGPCurrency(line.unitCost)}</td>
+                <td className="px-3 py-2 tabular-nums font-extrabold text-slate-900">
+                  {formatEGPCurrency(lineTotal)}
+                </td>
+                <td className="px-3 py-2">
+                  {request.status === 'approved' || line.receivedQuantity > 0 ? (
+                    <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-800 tabular-nums">
+                      أُضيف +{stockAdded} {uUnitLbl}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-800">
+                      بانتظار الاستلام
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function WarehouseNotificationCard({
+  notification,
+  linkedRequest,
+  categoryNameByCode,
+  onMarkRead,
+  onOpenInvoice,
+  onJumpToReceipt,
+}: {
+  notification: InventoryNotification;
+  linkedRequest?: InventoryPurchaseRequest;
+  categoryNameByCode: Map<string, string>;
+  onMarkRead: () => void;
+  onOpenInvoice: (path: string) => void;
+  onJumpToReceipt: () => void;
+}) {
+  const isPendingReceipt = linkedRequest?.status === 'purchased_pending_receipt';
+  const remainingDue = linkedRequest
+    ? Math.max(0, Math.round(((linkedRequest.totalAmount ?? 0) - (linkedRequest.paidAmount ?? 0)) * 100) / 100)
+    : 0;
+
+  return (
+    <Card className={isPendingReceipt ? 'border-sky-300 bg-sky-50/20' : 'border-amber-300 bg-amber-50/15'}>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <strong className="text-base text-slate-900">{notification.title}</strong>
+              {linkedRequest && (
+                <Badge
+                  variant="outline"
+                  className={
+                    linkedRequest.status === 'approved'
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-800 text-xs font-bold'
+                      : linkedRequest.status === 'purchased_pending_receipt'
+                        ? 'border-sky-300 bg-sky-50 text-sky-800 text-xs font-bold'
+                        : 'border-amber-300 bg-amber-50 text-amber-800 text-xs font-bold'
+                  }
+                >
+                  {linkedRequest.status === 'approved'
+                    ? 'تم الإيداع بالرصيد المتاح'
+                    : linkedRequest.status === 'purchased_pending_receipt'
+                      ? 'بانتظار استلام المخزن'
+                      : 'طلب شراء'}
+                </Badge>
+              )}
+              {linkedRequest && (linkedRequest.totalAmount ?? 0) > 0 && (
+                <Badge className="bg-emerald-600 text-white text-xs font-extrabold tabular-nums">
+                  إجمالي المشتريات: {formatEGPCurrency(linkedRequest.totalAmount ?? 0)}
+                </Badge>
+              )}
+            </div>
+
+            {linkedRequest ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
+                <span className="tabular-nums">
+                  رقم العملية: <strong>{linkedRequest.requestNo}</strong>
+                </span>
+                <span>
+                  المورد: <strong>{linkedRequest.supplierName || 'مشتريات نقدية مباشرة'}</strong>
+                </span>
+                {linkedRequest.purchaserName && (
+                  <span>
+                    اشترى بواسطة: <strong>{linkedRequest.purchaserName}</strong>
+                  </span>
+                )}
+                {linkedRequest.paymentMethod && (
+                  <span>
+                    السداد: <strong>{paymentMethodArabic(linkedRequest.paymentMethod)}</strong>
+                    {remainingDue > 0 ? ` (متبقي آجل: ${formatEGPCurrency(remainingDue)})` : ''}
+                  </span>
+                )}
+                {linkedRequest.invoiceNumber && (
+                  <span className="tabular-nums">
+                    فاتورة: <strong>#{linkedRequest.invoiceNumber}</strong>
+                  </span>
+                )}
+                {linkedRequest.invoiceDate && (
+                  <span className="tabular-nums">تاريخ الفاتورة: {linkedRequest.invoiceDate}</span>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">{notification.message}</p>
+            )}
+
+            <p className="text-xs text-muted-foreground tabular-nums">
+              توقيت الإشعار: {new Date(notification.createdAt).toLocaleString('en-US')}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {linkedRequest?.invoiceStoragePath && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs"
+                onClick={() => onOpenInvoice(linkedRequest.invoiceStoragePath!)}
+              >
+                <FileText className="h-3.5 w-3.5" />
+                عرض صورة الفاتورة
+              </Button>
+            )}
+            {isPendingReceipt && (
+              <Button
+                type="button"
+                size="sm"
+                className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold"
+                onClick={onJumpToReceipt}
+              >
+                مراجعة واستلام الآن
+              </Button>
+            )}
+            <Button variant="outline" size="sm" className="text-xs font-semibold" onClick={onMarkRead}>
+              تمت المراجعة والقراءة
+            </Button>
+          </div>
+        </div>
+
+        {linkedRequest && linkedRequest.lines.length > 0 && (
+          <PurchaseRequestItemsTable request={linkedRequest} categoryNameByCode={categoryNameByCode} />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+

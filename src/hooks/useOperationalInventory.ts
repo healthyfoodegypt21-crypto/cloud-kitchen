@@ -159,11 +159,11 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
 
     const [movementsRes, requestsRes, withdrawalsRes, batchesRes, itemRequestsRes, notificationsRes, countRes] = await Promise.all([
       client.from('inventory_movements').select('id, item_id, movement_type, quantity, unit_cost, location_name, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(movementsLimit + 1),
-      client.from('inventory_purchase_requests').select('id, request_no, supplier_name, status, notes, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(requestsLimit + 1),
+      client.from('inventory_purchase_requests').select('id, request_no, supplier_name, purchaser_name, status, notes, created_at, purchased_at, reviewed_at, invoice_number, invoice_date, due_date, subtotal, tax_amount, discount_amount, total_amount, paid_amount, payment_method, payment_status, invoice_storage_path').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(requestsLimit + 1),
       client.from('inventory_daily_withdrawals').select('id, brand_id, is_shared, withdrawal_no, withdrawal_date, status, notes').in('brand_id', withdrawalBrandIds).order('withdrawal_date', { ascending: false }).limit(100),
       client.from('inventory_batches').select('id,warehouse_id,item_id,batch_no,expiry_date,quantity_on_hand,unit_cost,reserved_qty,status').eq('brand_id', brandId).gt('quantity_on_hand', 0).order('expiry_date', { ascending: true, nullsFirst: false }).limit(MAX_BATCH_ROWS),
       client.from('inventory_item_requests').select('id, item_name, product_brand, item_code, unit, min_stock, notes, status').eq('brand_id', brandId).eq('status', 'pending_store_approval').limit(100),
-      client.from('inventory_notifications').select('id, notification_type, title, message, reference_id, is_read, created_at').eq('brand_id', brandId).order('created_at', { ascending: false }).limit(20),
+      client.from('inventory_notifications').select('id, notification_type, title, message, reference_id, is_read, created_at').eq('brand_id', brandId).order('is_read', { ascending: true }).order('created_at', { ascending: false }).limit(40),
       client.from('inventory_counts').select('id,count_no,counted_by,created_at,book_qty,physical_qty,notes').eq('brand_id', brandId).eq('status', 'submitted').order('created_at', { ascending: true }).limit(100),
     ]);
 
@@ -237,9 +237,10 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
     if (!requestsRes.error) setHasMoreRequests(allRequestRows.length > requestsLimit);
     const withdrawalRows = withdrawalsRes.error ? [] : asRecords(withdrawalsRes.data);
     const submittedCountRows = countRes.error ? [] : asRecords(countRes.data);
+    const itemLookup = new Map(mappedItems.map((it) => [it.id, it]));
     const [requestLinesRes, withdrawalLinesRes, countLinesRes] = await Promise.all([
       requestRows.length
-        ? client.from('inventory_purchase_request_lines').select('id,purchase_request_id,item_id,quantity,unit_cost,location_name,notes,batch_no,expiry_date').in('purchase_request_id', requestRows.map((request) => String(request.id)))
+        ? client.from('inventory_purchase_request_lines').select('id,purchase_request_id,item_id,quantity,received_quantity,rejected_quantity,rejection_reason,unit_cost,location_name,notes,batch_no,expiry_date').in('purchase_request_id', requestRows.map((request) => String(request.id)))
         : Promise.resolve({ data: [], error: null }),
       withdrawalRows.length
         ? client.from('inventory_daily_withdrawal_lines').select('id,withdrawal_id,item_id,quantity,unit_cost,line_value,location_name,reason').in('withdrawal_id', withdrawalRows.map((withdrawal) => String(withdrawal.id)))
@@ -257,14 +258,61 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
 
     if (!requestsRes.error && !requestLinesRes.error) {
       const requestLinesByRequest = groupByParent(asRecords(requestLinesRes.data), 'purchase_request_id');
-      setPurchaseRequests(requestRows.map((request) => ({
-        id: String(request.id), requestNo: String(request.request_no), supplierName: String(request.supplier_name),
-        status: request.status as InventoryPurchaseRequest['status'], notes: String(request.notes ?? ''), createdAt: String(request.created_at),
-        lines: (requestLinesByRequest.get(String(request.id)) ?? []).map((line) => ({
-          id: String(line.id), itemId: String(line.item_id), itemName: itemNames.get(String(line.item_id)) ?? 'صنف', quantity: numeric(line.quantity),
-          unitCost: numeric(line.unit_cost), locationName: String(line.location_name), notes: String(line.notes ?? ''), batchNo: String(line.batch_no ?? ''), expiryDate: line.expiry_date ? String(line.expiry_date) : null,
-        })),
-      })));
+      setPurchaseRequests(requestRows.map((request) => {
+        const lines = (requestLinesByRequest.get(String(request.id)) ?? []).map((line) => {
+          const itemId = String(line.item_id);
+          const catalogItem = itemLookup.get(itemId);
+          return {
+            id: String(line.id),
+            itemId,
+            itemName: itemNames.get(itemId) ?? 'صنف',
+            itemCategory: catalogItem?.category ?? '',
+            purchaseUnit: catalogItem?.purchaseUnit ?? '',
+            usageUnit: catalogItem?.unit ?? '',
+            conversionFactor: catalogItem?.conversionFactor ?? 1,
+            quantity: numeric(line.quantity),
+            receivedQuantity: numeric(line.received_quantity),
+            rejectedQuantity: numeric(line.rejected_quantity),
+            rejectionReason: String(line.rejection_reason ?? ''),
+            unitCost: numeric(line.unit_cost),
+            locationName: String(line.location_name),
+            notes: String(line.notes ?? ''),
+            batchNo: String(line.batch_no ?? ''),
+            expiryDate: line.expiry_date ? String(line.expiry_date) : null,
+          };
+        });
+        const computedSubtotal = lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+        const subtotalAmount = numeric(request.subtotal) || computedSubtotal;
+        const taxAmount = numeric(request.tax_amount);
+        const discountAmount = numeric(request.discount_amount);
+        const totalAmount =
+          numeric(request.total_amount) ||
+          Math.max(0, Math.round((subtotalAmount + taxAmount - discountAmount) * 100) / 100);
+
+        return {
+          id: String(request.id),
+          requestNo: String(request.request_no),
+          supplierName: String(request.supplier_name ?? ''),
+          purchaserName: String(request.purchaser_name ?? ''),
+          invoiceNumber: String(request.invoice_number ?? ''),
+          invoiceDate: request.invoice_date ? String(request.invoice_date) : null,
+          dueDate: request.due_date ? String(request.due_date) : null,
+          subtotalAmount,
+          taxAmount,
+          discountAmount,
+          totalAmount,
+          paidAmount: numeric(request.paid_amount),
+          paymentMethod: request.payment_method ? String(request.payment_method) : null,
+          paymentStatus: request.payment_status ? String(request.payment_status) : null,
+          invoiceStoragePath: String(request.invoice_storage_path ?? ''),
+          purchasedAt: request.purchased_at ? String(request.purchased_at) : null,
+          reviewedAt: request.reviewed_at ? String(request.reviewed_at) : null,
+          status: request.status as InventoryPurchaseRequest['status'],
+          notes: String(request.notes ?? ''),
+          createdAt: String(request.created_at),
+          lines,
+        };
+      }));
     }
 
     if (!withdrawalsRes.error && !withdrawalLinesRes.error) {
@@ -378,6 +426,13 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
     if (error) { toast.error(error.message || 'تعذر تحديث الإشعار'); return; }
     setNotifications((current) => current.map((notification) => notification.id === notificationId ? { ...notification, isRead: true } : notification));
   }, [brandId]);
+  const markAllNotificationsRead = useCallback(async () => {
+    const unreadIds = notifications.filter((n) => !n.isRead).map((n) => n.id);
+    if (unreadIds.length === 0) return;
+    const { error } = await asSupabaseLooseClient(supabase).from('inventory_notifications').update({ is_read: true }).in('id', unreadIds).eq('brand_id', brandId);
+    if (error) { toast.error(error.message || 'تعذر تحديث الإشعارات'); return; }
+    setNotifications((current) => current.map((notification) => ({ ...notification, isRead: true })));
+  }, [brandId, notifications]);
   const loadMoreMovements = useCallback(() => setMovementsLimit((current) => current + MOVEMENTS_PAGE_SIZE), []);
   const loadMoreRequests = useCallback(() => setRequestsLimit((current) => current + REQUESTS_PAGE_SIZE), []);
   const alerts = useMemo<InventoryAlert[]>(() => {
@@ -401,5 +456,5 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
     ];
   }, [batches, items, purchaseRequests]);
 
-  return { items, categories, movements, purchaseRequests, withdrawals, batches, countApprovals, locations, itemRequests, notifications, alerts, inventoryValue, loading, partialError, offline, offlineSnapshotAt, hasMoreMovements, hasMoreRequests, loadMoreMovements, loadMoreRequests, refresh, invoke, markNotificationRead };
+  return { items, categories, movements, purchaseRequests, withdrawals, batches, countApprovals, locations, itemRequests, notifications, alerts, inventoryValue, loading, partialError, offline, offlineSnapshotAt, hasMoreMovements, hasMoreRequests, loadMoreMovements, loadMoreRequests, refresh, invoke, markNotificationRead, markAllNotificationsRead };
 }
