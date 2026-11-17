@@ -12,7 +12,26 @@ export type InventoryCategory =
   | 'finished_product'
   | 'other';
 
-export type InventoryUnit = 'kg' | 'g' | 'l' | 'ml' | 'piece' | 'box' | 'tray' | 'carton' | 'bag' | 'bottle' | 'can' | 'set' | 'dozen';
+export type InventoryUnit =
+  | 'kg'
+  | 'g'
+  | 'l'
+  | 'ml'
+  | 'plate'
+  | 'carton'
+  | 'jerrycan'
+  | 'bucket'
+  | 'jar'
+  | 'bottle'
+  | 'can'
+  | 'box'
+  | 'bag'
+  | 'packet'
+  | 'bundle'
+  | 'tray'
+  | 'piece'
+  | 'dozen'
+  | 'set';
 
 export type InventoryStatus = 'healthy' | 'low' | 'critical' | 'out';
 
@@ -306,15 +325,21 @@ export const INVENTORY_UNIT_LABELS: Record<InventoryUnit, string> = {
   g: 'جرام',
   l: 'لتر',
   ml: 'مل',
-  piece: 'قطعة',
-  box: 'علبة',
-  tray: 'صينية',
+  plate: 'طبق',
   carton: 'كرتونة',
-  bag: 'كيس',
+  jerrycan: 'جيركن',
+  bucket: 'جردل',
+  jar: 'برطمان',
   bottle: 'زجاجة',
   can: 'علبة',
-  set: 'طقم',
+  box: 'صندوق',
+  bag: 'كيس / شيكارة',
+  packet: 'باكيت',
+  bundle: 'حزمة / ربطة',
+  tray: 'صينية',
+  piece: 'قطعة',
   dozen: 'دستة',
+  set: 'طقم',
 };
 
 export const INVENTORY_STATUS_LABELS: Record<InventoryStatus, string> = {
@@ -368,4 +393,24 @@ export const INVENTORY_CATEGORY_ORDER: InventoryCategory[] = [
   'other',
 ];
 
-export const INVENTORY_UNIT_ORDER: InventoryUnit[] = ['kg', 'g', 'l', 'ml', 'piece', 'box', 'tray', 'carton', 'bag', 'bottle', 'can', 'set', 'dozen'];
+export const INVENTORY_UNIT_ORDER: InventoryUnit[] = [
+  'kg',
+  'g',
+  'l',
+  'ml',
+  'plate',
+  'carton',
+  'jerrycan',
+  'bucket',
+  'jar',
+  'bottle',
+  'can',
+  'box',
+  'bag',
+  'packet',
+  'bundle',
+  'tray',
+  'piece',
+  'dozen',
+  'set',
+];

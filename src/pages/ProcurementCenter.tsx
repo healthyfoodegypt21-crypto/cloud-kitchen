@@ -98,6 +98,8 @@ type CatalogItem = {
   purchaseUnit: string;
   usageUnit: string;
   conversionFactor: number;
+  packSizeValue?: number | null;
+  packSizeUnit?: string | null;
   minStock: number;
   onHand: number;
   lastPrice: number;
@@ -290,7 +292,7 @@ export default function ProcurementCenter({
         .limit(500),
       client
         .from('items_master')
-        .select('id,name,item_code,purchase_unit,usage_unit,conversion_factor,min_stock,last_purchase_price,avg_cost')
+        .select('id,name,item_code,purchase_unit,usage_unit,conversion_factor,pack_size_value,pack_size_unit,min_stock,last_purchase_price,avg_cost')
         .eq('brand_id', brandId)
         .eq('status', 'active')
         .order('name')
@@ -352,6 +354,8 @@ export default function ProcurementCenter({
       purchaseUnit: String(row.purchase_unit ?? ''),
       usageUnit: String(row.usage_unit ?? row.purchase_unit ?? ''),
       conversionFactor: number(row.conversion_factor ?? 1),
+      packSizeValue: row.pack_size_value ? number(row.pack_size_value) : null,
+      packSizeUnit: row.pack_size_unit ? String(row.pack_size_unit) : null,
       minStock: number(row.min_stock),
       onHand: balanceMap.get(String(row.id)) ?? 0,
       lastPrice: number(row.last_purchase_price),
@@ -953,6 +957,8 @@ export default function ProcurementCenter({
             targetItemId = alreadyId;
           } else {
             const unit = line.newItemUnit ?? 'kg';
+            const usageUnit = line.newItemUsageUnit ?? unit;
+            const factor = line.newItemConversionFactor && line.newItemConversionFactor > 0 ? line.newItemConversionFactor : 1;
             const { data: newId, error: createErr } = await asSupabaseLooseClient(supabase).rpc(
               'inventory_create_item_v2',
               {
@@ -967,13 +973,15 @@ export default function ProcurementCenter({
                     ? normCat(line.newItemCategory)
                     : inferSmartItemCategory(cleanedName, categories),
                 _purchase_unit: unit,
-                _usage_unit: unit,
-                _conversion_factor: 1,
-                _min_stock: Math.round(line.quantity * 0.2 * 1000) / 1000,
+                _usage_unit: usageUnit,
+                _conversion_factor: factor,
+                _min_stock: Math.round(line.quantity * factor * 0.2 * 1000) / 1000,
                 _location_name: 'main',
                 _opening_quantity: 0,
-                _opening_unit_cost: line.unitCost,
+                _opening_unit_cost: Math.round((line.unitCost / factor) * 100) / 100,
                 _notes: 'أُنشئ مباشرة من فاتورة شراء مباشر',
+                _pack_size_value: line.newItemPackSizeValue ?? null,
+                _pack_size_unit: line.newItemPackSizeUnit ?? null,
               },
             );
             if (createErr || !newId) {

@@ -44,7 +44,7 @@ export default function PurchasesRoute() {
   const [brandId, setBrandId] = useState('');
   const [hubName, setHubName] = useState('');
   const [hubError, setHubError] = useState('');
-  const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; sku: string; category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>>([]);
+  const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; sku: string; category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; packSizeValue?: number | null; packSizeUnit?: string | null; lastPurchasePrice: number }>>([]);
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
   const [categories, setCategories] = useState<Array<{ code: string; name: string }>>([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -67,7 +67,7 @@ export default function PurchasesRoute() {
     const [itemsRes, supplierResult, categoryResult] = await Promise.all([
       client
         .from('items_master')
-        .select('id,name,item_code,category,purchase_unit,usage_unit,conversion_factor,last_purchase_price')
+        .select('id,name,item_code,category,purchase_unit,usage_unit,conversion_factor,pack_size_value,pack_size_unit,last_purchase_price')
         .eq('brand_id', targetBrandId)
         .eq('status', 'active')
         .order('name'),
@@ -95,6 +95,8 @@ export default function PurchasesRoute() {
           purchaseUnit: String(item.purchase_unit ?? ''),
           usageUnit: String(item.usage_unit ?? item.purchase_unit ?? ''),
           conversionFactor: Number(item.conversion_factor ?? 1),
+          packSizeValue: item.pack_size_value ? Number(item.pack_size_value) : null,
+          packSizeUnit: item.pack_size_unit ? String(item.pack_size_unit) : null,
           lastPurchasePrice: Number(item.last_purchase_price ?? 0),
         })),
       );

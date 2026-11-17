@@ -18,6 +18,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOperationalInventory } from '@/hooks/useOperationalInventory';
 import { supabase } from '@/integrations/supabase/client';
 import { hasPageAccess } from '@/lib/permissions';
+import {
+  autoConversionFactorBetweenUnits,
+  convertInvoiceLineToPurchaseUnit,
+  convertWithdrawalToUsageUnit,
+  formatEquivalentStockHint,
+  formatItemUnitSummary,
+  getCompatibleUnitsForItem,
+  getUnitLabel,
+  isContainerUnit,
+  normalizePurchaseUnit,
+  type PackMetricUnit,
+} from '@/lib/procurementUnits';
 import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 import { cleanExtractedItemName, matchCatalogItem, matchesSmartItemQuery } from '@/lib/smartPurchaseImport';
 import { formatEGPCurrency } from '@/lib/utils';
@@ -37,9 +49,9 @@ import type { OperationalInventoryItem } from '@/types/operationalInventory';
 type DialogMode = 'item' | 'editItem' | 'category' | 'movement' | 'purchase' | 'withdrawal' | 'count' | 'directPurchase' | null;
 type MovementAction = 'deposit' | 'waste';
 
-type DraftLine = { itemId: string; quantity: string; unitCost?: string; locationName: string; reason: string; batchNo: string; expiryDate: string };
-type ItemDraft = { name: string; code: string; category: string; purchaseUnit: string; usageUnit: string; conversionFactor: string; minStock: string; openingQuantity: string; openingCost: string; locationName: string; notes: string };
-const emptyItemDraft: ItemDraft = { name: '', code: '', category: '', purchaseUnit: 'kg', usageUnit: 'kg', conversionFactor: '1', minStock: '0', openingQuantity: '0', openingCost: '0', locationName: 'main', notes: '' };
+type DraftLine = { itemId: string; quantity: string; inputUnit?: string; unitCost?: string; locationName: string; reason: string; batchNo: string; expiryDate: string };
+type ItemDraft = { name: string; code: string; category: string; purchaseUnit: string; usageUnit: string; conversionFactor: string; packSizeValue: string; packSizeUnit: PackMetricUnit; minStock: string; openingQuantity: string; openingCost: string; locationName: string; notes: string };
+const emptyItemDraft: ItemDraft = { name: '', code: '', category: '', purchaseUnit: 'kg', usageUnit: 'kg', conversionFactor: '1', packSizeValue: '', packSizeUnit: 'g', minStock: '0', openingQuantity: '0', openingCost: '0', locationName: 'main', notes: '' };
 
 function number(value: string) { return Number(value || 0); }
 function itemCode(name: string) { return `${name.trim().replace(/\s+/g, '-').slice(0, 10).toUpperCase()}-${Date.now().toString().slice(-5)}`; }
@@ -149,11 +161,15 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       );
       return;
     }
+    const packVal = number(itemDraft.packSizeValue);
+    const hasPack = isContainerUnit(itemDraft.usageUnit) && Number.isFinite(packVal) && packVal > 0;
     const result = await invoke('inventory_create_item_v2', {
       _brand_id: brandId, _item_code: itemDraft.code || itemCode(cleanedName), _name: cleanedName, _category: itemDraft.category,
       _purchase_unit: itemDraft.purchaseUnit, _usage_unit: itemDraft.usageUnit, _conversion_factor: conversionFactor,
       _min_stock: number(itemDraft.minStock), _location_name: itemDraft.locationName,
       _opening_quantity: number(itemDraft.openingQuantity), _opening_unit_cost: number(itemDraft.openingCost), _notes: itemDraft.notes,
+      _pack_size_value: hasPack ? packVal : null,
+      _pack_size_unit: hasPack ? itemDraft.packSizeUnit : null,
     });
     if (result) { toast.success('تم إنشاء الصنف ورصيده الافتتاحي'); reset(); }
   };
@@ -162,7 +178,10 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     setEditingItem(item);
     setItemDraft({
       name: item.name, code: item.code, category: item.category, purchaseUnit: item.purchaseUnit,
-      usageUnit: item.unit, conversionFactor: String(item.conversionFactor), minStock: String(item.minStock),
+      usageUnit: item.unit, conversionFactor: String(item.conversionFactor),
+      packSizeValue: item.packSizeValue ? String(item.packSizeValue) : '',
+      packSizeUnit: (item.packSizeUnit as PackMetricUnit) || 'g',
+      minStock: String(item.minStock),
       openingQuantity: '0', openingCost: '0', locationName: item.locationName, notes: item.notes,
     });
     setMode('editItem');
@@ -177,13 +196,17 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       toast.error('تحقق من الاسم والفئة والوحدات ومعامل التحويل والحد الأدنى');
       return;
     }
+    const packVal = number(itemDraft.packSizeValue);
+    const hasPack = isContainerUnit(itemDraft.usageUnit) && Number.isFinite(packVal) && packVal > 0;
     const result = await invoke('inventory_update_item', {
       _brand_id: brandId, _item_id: editingItem.id, _item_code: itemDraft.code || editingItem.code,
       _name: itemDraft.name, _category: itemDraft.category, _purchase_unit: itemDraft.purchaseUnit,
       _usage_unit: itemDraft.usageUnit, _conversion_factor: conversionFactor,
       _min_stock: number(itemDraft.minStock), _notes: itemDraft.notes,
+      _pack_size_value: hasPack ? packVal : null,
+      _pack_size_unit: hasPack ? itemDraft.packSizeUnit : null,
     });
-    if (result) { toast.success('تم تحديث بيانات الصنف'); reset(); }
+    if (result) { toast.success('تم تحديث بيانات الصنف والوحدات'); reset(); }
   };
 
   const toggleItemStatus = async (item: OperationalInventoryItem) => {
@@ -236,16 +259,35 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   };
 
   const postMovement = async () => {
-    if (!line.itemId || !Number.isFinite(number(line.quantity)) || number(line.quantity) <= 0
+    if (!selectedItem || !line.itemId || !Number.isFinite(number(line.quantity)) || number(line.quantity) <= 0
       || (movementAction === 'deposit' && (!Number.isFinite(number(line.unitCost ?? '')) || number(line.unitCost ?? '') < 0))) {
       toast.error('اختر الصنف وأدخل كمية وتكلفة صحيحتين');
       return;
     }
     if (!requireValidLocations([line.locationName])) return;
+    const spec = {
+      purchaseUnit: selectedItem.purchaseUnit,
+      usageUnit: selectedItem.unit,
+      conversionFactor: selectedItem.conversionFactor,
+      packSizeValue: selectedItem.packSizeValue,
+      packSizeUnit: selectedItem.packSizeUnit,
+    };
+    const convertedQty = convertWithdrawalToUsageUnit(number(line.quantity), line.inputUnit, spec);
+    if (!convertedQty || convertedQty <= 0) {
+      toast.error('الوحدة المختارة غير متوافقة مع الصنف');
+      return;
+    }
+    const opt = getCompatibleUnitsForItem(spec).find((o) => o.unit === normalizePurchaseUnit(line.inputUnit));
+    const usageUnitCost =
+      movementAction === 'deposit'
+        ? opt && opt.usageFactor > 0
+          ? Math.round((number(line.unitCost || String(selectedItem.averageCost * opt.usageFactor)) / opt.usageFactor) * 100) / 100
+          : number(line.unitCost || String(selectedItem.averageCost ?? 0))
+        : null;
     const mapping = { deposit: 'purchase_receipt', waste: 'waste' } as const;
     const result = await invoke('inventory_record_manual_movement', {
-      _brand_id: brandId, _item_id: line.itemId, _movement_type: mapping[movementAction], _quantity: number(line.quantity),
-      _unit_cost: movementAction === 'deposit' ? number(line.unitCost || String(selectedItem?.averageCost ?? 0)) : null,
+      _brand_id: brandId, _item_id: line.itemId, _movement_type: mapping[movementAction], _quantity: convertedQty,
+      _unit_cost: usageUnitCost,
       _location_name: line.locationName, _notes: line.reason, _batch_no: line.batchNo, _expiry_date: line.expiryDate || null,
     });
     if (result) {
@@ -261,7 +303,33 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     if (submissionLines.length === 0 || !purchaserName.trim()
       || submissionLines.some((entry) => !Number.isFinite(number(entry.quantity)) || number(entry.quantity) <= 0 || !Number.isFinite(number(entry.unitCost ?? '0')) || number(entry.unitCost ?? '0') < 0)) { toast.error('أدخل اسم المشتري وكمية وسعرًا صحيحين لكل بند'); return; }
     if (!requireValidLocations(submissionLines.map((entry) => entry.locationName))) return;
-    const result = await invoke('inventory_record_store_purchase', { _brand_id: brandId, _supplier_name: supplierName, _purchaser_name: purchaserName, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), unit_cost: number(entry.unitCost || '0'), location_name: entry.locationName, notes: entry.reason, batch_no: entry.batchNo, expiry_date: entry.expiryDate || null })), _notes: notes });
+    const mappedLines = submissionLines.map((entry) => {
+      const item = items.find((i) => i.id === entry.itemId);
+      const conv = item
+        ? convertInvoiceLineToPurchaseUnit(
+            number(entry.quantity),
+            number(entry.unitCost || '0'),
+            entry.inputUnit,
+            {
+              purchaseUnit: item.purchaseUnit,
+              usageUnit: item.unit,
+              conversionFactor: item.conversionFactor,
+              packSizeValue: item.packSizeValue,
+              packSizeUnit: item.packSizeUnit,
+            },
+          )
+        : null;
+      return {
+        item_id: entry.itemId,
+        quantity: conv ? conv.quantity : number(entry.quantity),
+        unit_cost: conv ? conv.unitPrice : number(entry.unitCost || '0'),
+        location_name: entry.locationName,
+        notes: entry.reason,
+        batch_no: entry.batchNo,
+        expiry_date: entry.expiryDate || null,
+      };
+    });
+    const result = await invoke('inventory_record_store_purchase', { _brand_id: brandId, _supplier_name: supplierName, _purchaser_name: purchaserName, _lines: mappedLines, _notes: notes });
     if (result) { toast.success('تم تسجيل الشراء المباشر وإضافة الكمية فوراً إلى الرصيد المتاح بالمخزن'); reset(); }
   };
 
@@ -461,22 +529,47 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
           <div className="grid gap-3">
             <div className="space-y-1">
               <Label className="text-xs font-semibold">الصنف</Label>
-              <select className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, unitCost: String(item?.lastPurchasePrice || (item ? item.averageCost * item.conversionFactor : 0)), locationName: item?.locationName || locations[0]?.code || 'main' })); }}>
+              <select className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, inputUnit: item?.purchaseUnit || 'kg', unitCost: String(item?.lastPurchasePrice || (item ? item.averageCost * item.conversionFactor : 0)), locationName: item?.locationName || locations[0]?.code || 'main' })); }}>
                 <option value="">اختر الصنف</option>
-                {items.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name} — {item.purchaseUnit}</option>)}
+                {items.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name} — {getUnitLabel(item.purchaseUnit)}</option>)}
               </select>
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-semibold">اسم من قام بالشراء *</Label>
               <Input value={purchaserName} onChange={(event) => setPurchaserName(event.target.value)} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-2.5">
               <div className="space-y-1">
-                <Label className="text-xs font-semibold">الكمية بوحدة الشراء</Label>
+                <Label className="text-xs font-semibold">الكمية</Label>
                 <Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs font-semibold">سعر وحدة الشراء</Label>
+                <Label className="text-xs font-semibold">الوحدة</Label>
+                <select
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold"
+                  value={line.inputUnit || selectedItem?.purchaseUnit || 'kg'}
+                  disabled={!selectedItem}
+                  onChange={(e) => setLine((current) => ({ ...current, inputUnit: e.target.value }))}
+                >
+                  {selectedItem ? (
+                    getCompatibleUnitsForItem({
+                      purchaseUnit: selectedItem.purchaseUnit,
+                      usageUnit: selectedItem.unit,
+                      conversionFactor: selectedItem.conversionFactor,
+                      packSizeValue: selectedItem.packSizeValue,
+                      packSizeUnit: selectedItem.packSizeUnit,
+                    }).map((opt) => (
+                      <option key={opt.unit} value={opt.unit}>
+                        {opt.label}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="kg">كجم</option>
+                  )}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">سعر الـ {getUnitLabel(line.inputUnit || selectedItem?.purchaseUnit)}</Label>
                 <Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} />
               </div>
             </div>
@@ -570,10 +663,30 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
         <thead className="bg-muted/50 text-right text-muted-foreground"><tr><th className="p-3 font-medium">الصنف</th><th className="p-3 font-medium">المتاح / الرصيد</th><th className="p-3 font-medium">حد الطلب</th><th className="p-3 font-medium">متوسط التكلفة</th><th className="p-3 font-medium">الحالة</th><th className="p-3 font-medium">الإجراءات</th></tr></thead>
         <tbody className="divide-y">{visibleItems.map((item) => {
           const low = item.status === 'active' && item.minStock > 0 && item.availableQuantity <= item.minStock;
+          const unitSpec = {
+            purchaseUnit: item.purchaseUnit,
+            usageUnit: item.unit,
+            conversionFactor: item.conversionFactor,
+            packSizeValue: item.packSizeValue,
+            packSizeUnit: item.packSizeUnit,
+          };
+          const eqHint = formatEquivalentStockHint(item.availableQuantity, unitSpec);
+          const unitSpecSummary = formatItemUnitSummary(unitSpec);
           return <tr key={item.id} className="transition-colors hover:bg-muted/30">
-            <td className="p-3"><div className="font-semibold">{item.name}</div><div className="text-xs text-muted-foreground">{item.code} · {categories.find((entry) => entry.code === item.category)?.name_ar ?? item.category}</div></td>
-            <td className="p-3"><div className="font-semibold tabular-nums">{item.availableQuantity} {item.unit}</div><div className="text-xs text-muted-foreground">الإجمالي {item.onHand} · محجوز {item.reservedQuantity}</div></td>
-            <td className="p-3 tabular-nums">{item.minStock} {item.unit}</td><td className="p-3 tabular-nums">{formatEGPCurrency(item.averageCost)}</td>
+            <td className="p-3">
+              <div className="font-semibold">{item.name}</div>
+              <div className="text-xs text-muted-foreground">
+                {item.code} · {categories.find((entry) => entry.code === item.category)?.name_ar ?? item.category}
+                {unitSpecSummary ? ` · ${unitSpecSummary}` : ''}
+              </div>
+            </td>
+            <td className="p-3">
+              <div className="font-semibold tabular-nums">{item.availableQuantity} {getUnitLabel(item.unit)}</div>
+              <div className="text-xs text-muted-foreground tabular-nums">
+                {eqHint ? `يعادل ${eqHint} · ` : ''}محجوز {item.reservedQuantity}
+              </div>
+            </td>
+            <td className="p-3 tabular-nums">{item.minStock} {getUnitLabel(item.unit)}</td><td className="p-3 tabular-nums">{formatEGPCurrency(item.averageCost)} <span className="text-xs text-muted-foreground">/ {getUnitLabel(item.unit)}</span></td>
             <td className="p-3"><Badge variant={item.status === 'inactive' ? 'outline' : low ? 'destructive' : 'secondary'}>{item.status === 'inactive' ? 'مؤرشف' : low ? 'إعادة طلب' : 'متاح'}</Badge></td>
             <td className="p-3"><div className="flex items-center gap-1">{canManage && <>
               <Button size="icon" variant="ghost" aria-label={`تعديل ${item.name}`} title="تعديل" onClick={() => startEditItem(item)}><Pencil className="h-4 w-4" /></Button>
@@ -725,11 +838,45 @@ function SummaryCard({ title, value, detail, emphasis = false }: { title: string
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <div className="space-y-1"><Label>{label}</Label><Input value={value} onChange={(event) => onChange(event.target.value)} /></div>; }
 function LineEditor({ items, locations, line, setLine, showCost = false, quantityLabel = 'الكمية' }: { items: OperationalInventoryItem[]; locations: { code: string; name: string }[]; line: DraftLine; setLine: React.Dispatch<React.SetStateAction<DraftLine>>; showCost?: boolean; quantityLabel?: string }) {
   const selectedItem = items.find((item) => item.id === line.itemId);
+  const unitOptions = selectedItem
+    ? getCompatibleUnitsForItem({
+        purchaseUnit: selectedItem.purchaseUnit,
+        usageUnit: selectedItem.unit,
+        conversionFactor: selectedItem.conversionFactor,
+        packSizeValue: selectedItem.packSizeValue,
+        packSizeUnit: selectedItem.packSizeUnit,
+      })
+    : [];
+  const activeUnit = line.inputUnit || selectedItem?.unit || 'kg';
   return <div className="grid gap-3 sm:grid-cols-2">
-    <div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, locationName: item?.locationName ?? locations[0]?.code ?? 'main', unitCost: String(item?.averageCost ?? '') })); }}><option value="">اختر الصنف</option>{items.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name} — المتاح {item.availableQuantity} {item.unit}</option>)}</select></div>
-    <div className="space-y-1"><Label>{selectedItem ? `${quantityLabel} بوحدة ${selectedItem.unit}` : quantityLabel}</Label><Input type="number" min="0" step="0.001" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} /></div>
+    <div className="space-y-1"><Label>الصنف</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.itemId} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); setLine((current) => ({ ...current, itemId: event.target.value, inputUnit: item?.unit ?? 'kg', locationName: item?.locationName ?? locations[0]?.code ?? 'main', unitCost: String(item?.averageCost ?? '') })); }}><option value="">اختر الصنف</option>{items.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name} — المتاح {item.availableQuantity} {getUnitLabel(item.unit)}</option>)}</select></div>
+    <div className="space-y-1">
+      <Label>{quantityLabel} والوحدة</Label>
+      <div className="flex gap-1.5">
+        <Input type="number" min="0" step="0.001" className="min-w-0 flex-1" value={line.quantity} onChange={(event) => setLine((current) => ({ ...current, quantity: event.target.value }))} />
+        {quantityLabel === 'الكمية' && (
+          <select
+            aria-label="وحدة الحركة"
+            className="h-10 w-32 shrink-0 rounded-md border bg-background px-2 text-xs font-semibold"
+            value={activeUnit}
+            disabled={!selectedItem}
+            onChange={(e) => setLine((current) => ({ ...current, inputUnit: e.target.value }))}
+          >
+            {unitOptions.length > 0 ? (
+              unitOptions.map((opt) => (
+                <option key={opt.unit} value={opt.unit}>
+                  {opt.label}
+                </option>
+              ))
+            ) : (
+              <option value={activeUnit}>{getUnitLabel(activeUnit)}</option>
+            )}
+          </select>
+        )}
+      </div>
+    </div>
     {showCost && <>
-      <div className="space-y-1"><Label>تكلفة وحدة الاستخدام</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div>
+      <div className="space-y-1"><Label>تكلفة الـ {getUnitLabel(activeUnit)}</Label><Input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLine((current) => ({ ...current, unitCost: event.target.value }))} /></div>
       <div className="space-y-1"><Label>رقم الدفعة</Label><Input value={line.batchNo} placeholder="اختياري" onChange={(event) => setLine((current) => ({ ...current, batchNo: event.target.value }))} /></div>
       <div className="space-y-1"><Label>تاريخ الصلاحية</Label><Input type="date" value={line.expiryDate} onChange={(event) => setLine((current) => ({ ...current, expiryDate: event.target.value }))} /></div>
     </>}
@@ -764,11 +911,25 @@ function ItemForm({ draft, setDraft, existingItems = [], editingItemId, categori
   const updateUnit = (key: 'purchaseUnit' | 'usageUnit', value: string) => setDraft((current) => {
     const purchaseUnit = key === 'purchaseUnit' ? value : current.purchaseUnit;
     const usageUnit = key === 'usageUnit' ? value : current.usageUnit;
+    const autoFactor = autoConversionFactorBetweenUnits(purchaseUnit, usageUnit);
     return {
       ...current,
       [key]: value,
-      conversionFactor: purchaseUnit === usageUnit ? '1' : current.purchaseUnit === current.usageUnit ? '' : current.conversionFactor,
+      conversionFactor:
+        autoFactor !== null
+          ? String(autoFactor)
+          : current.purchaseUnit === current.usageUnit
+            ? ''
+            : current.conversionFactor,
     };
+  });
+
+  const liveUnitSummary = formatItemUnitSummary({
+    purchaseUnit: draft.purchaseUnit,
+    usageUnit: draft.usageUnit,
+    conversionFactor: number(draft.conversionFactor) || 1,
+    packSizeValue: isContainerUnit(draft.usageUnit) && number(draft.packSizeValue) > 0 ? number(draft.packSizeValue) : null,
+    packSizeUnit: isContainerUnit(draft.usageUnit) && number(draft.packSizeValue) > 0 ? draft.packSizeUnit : null,
   });
 
   return <div className="grid gap-3 sm:grid-cols-2">
@@ -776,16 +937,60 @@ function ItemForm({ draft, setDraft, existingItems = [], editingItemId, categori
     <Field label="كود الصنف (اختياري)" value={draft.code} onChange={(value) => update('code', value)} />
     {duplicateCandidate && (
       <div className="sm:col-span-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
-        تنبيه ذكي: يوجد صنف مسجل بالفعل باسم «{duplicateCandidate.name}» (المتاح: {duplicateCandidate.availableQuantity} {duplicateCandidate.unit}) — تَفادَ تسجيل اسمين لنفس الصنف.
+        تنبيه ذكي: يوجد صنف مسجل بالفعل باسم «{duplicateCandidate.name}» (المتاح: {duplicateCandidate.availableQuantity} {getUnitLabel(duplicateCandidate.unit)}) — تَفادَ تسجيل اسمين لنفس الصنف.
       </div>
     )}
     <div className="space-y-1"><Label>الفئة (تلقائي)</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={draft.category} onChange={(event) => { setCategoryManuallySet(true); update('category', event.target.value); }}><option value="">اختر الفئة</option>{categories.map((category) => <option key={category.code} value={category.code}>{category.name_ar}</option>)}</select></div>
-    <UnitField label="وحدة الشراء" value={draft.purchaseUnit} onChange={(value) => updateUnit('purchaseUnit', value)} />
-    <UnitField label="وحدة الاستخدام بالمخزون" value={draft.usageUnit} onChange={(value) => updateUnit('usageUnit', value)} />
-    <div className="space-y-1"><Label>كمية الاستخدام في وحدة الشراء</Label><Input type="number" min="0.001" step="0.001" value={draft.conversionFactor} onChange={(event) => update('conversionFactor', event.target.value)} /></div>
-    <Field label={`حد التنبيه بوحدة ${draft.usageUnit}`} value={draft.minStock} onChange={(value) => update('minStock', value)} />
+    <UnitField label="وحدة الشراء الأساسية (مثلاً كرتونة / جيركن / كجم)" value={draft.purchaseUnit} onChange={(value) => updateUnit('purchaseUnit', value)} />
+    <UnitField label="وحدة التخزين والسحب بالمخزن (مثلاً طبق / كجم / لتر)" value={draft.usageUnit} onChange={(value) => updateUnit('usageUnit', value)} />
+    <div className="space-y-1">
+      <Label>
+        {draft.purchaseUnit !== draft.usageUnit
+          ? `كم «${getUnitLabel(draft.usageUnit)}» داخل الـ «${getUnitLabel(draft.purchaseUnit)}» الواحدة؟`
+          : 'معامل التحويل'}
+      </Label>
+      <Input type="number" min="0.001" step="0.001" placeholder="مثال: الكرتونة = 10 أطباق" value={draft.conversionFactor} onChange={(event) => update('conversionFactor', event.target.value)} />
+    </div>
+    {isContainerUnit(draft.usageUnit) && (
+      <div className="space-y-1 sm:col-span-2 rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-3">
+        <Label className="text-xs font-bold text-emerald-950">
+          صافي الوزن أو السعة للـ «{getUnitLabel(draft.usageUnit)}» الواحد (مثلاً: طبق 200 جرام، أو جيركن 4.24 كجم / 5 لتر)
+        </Label>
+        <div className="mt-1.5 flex gap-2">
+          <Input
+            type="number"
+            min="0.001"
+            step="0.001"
+            placeholder="مثال: 200 أو 4.24 أو 5"
+            className="bg-white"
+            value={draft.packSizeValue}
+            onChange={(event) => update('packSizeValue', event.target.value)}
+          />
+          <select
+            aria-label="وحدة وزن أو سعة العبوة"
+            className="h-10 w-32 rounded-md border bg-white px-2.5 text-sm font-semibold"
+            value={draft.packSizeUnit}
+            onChange={(event) => update('packSizeUnit', event.target.value as PackMetricUnit)}
+          >
+            <option value="g">جرام (g)</option>
+            <option value="kg">كجم (kg)</option>
+            <option value="ml">مل (ml)</option>
+            <option value="l">لتر (l)</option>
+          </select>
+        </div>
+        <p className="mt-1 text-[11px] text-emerald-800">
+          يتيح لك التبديل الذكي للشراء والسحب بالـ {getUnitLabel(draft.usageUnit)} أو {getUnitLabel(draft.purchaseUnit)} أو بالجرام/الكيلو/اللتر تلقائياً.
+        </p>
+      </div>
+    )}
+    {liveUnitSummary && (
+      <div className="sm:col-span-2 rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs font-semibold text-sky-900 tabular-nums">
+        معادلة التحويل النشطة: {liveUnitSummary}
+      </div>
+    )}
+    <Field label={`حد التنبيه بوحدة ${getUnitLabel(draft.usageUnit)}`} value={draft.minStock} onChange={(value) => update('minStock', value)} />
     {allowOpeningStock && <div className="space-y-1"><Label>موقع الرصيد الافتتاحي</Label><LocationSelect locations={locations} value={draft.locationName} onChange={(value) => update('locationName', value)} /></div>}
-    {allowOpeningStock && <Field label={`الرصيد الافتتاحي بوحدة ${draft.usageUnit}`} value={draft.openingQuantity} onChange={(value) => update('openingQuantity', value)} />}
+    {allowOpeningStock && <Field label={`الرصيد الافتتاحي بوحدة ${getUnitLabel(draft.usageUnit)}`} value={draft.openingQuantity} onChange={(value) => update('openingQuantity', value)} />}
     {allowOpeningStock && <Field label="متوسط تكلفة وحدة الاستخدام" value={draft.openingCost} onChange={(value) => update('openingCost', value)} />}
     <div className="space-y-1 sm:col-span-2"><Label>ملاحظات</Label><Textarea value={draft.notes} onChange={(event) => update('notes', event.target.value)} /></div>
     <Button className="sm:col-span-2" onClick={onSave} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الصنف</Button>

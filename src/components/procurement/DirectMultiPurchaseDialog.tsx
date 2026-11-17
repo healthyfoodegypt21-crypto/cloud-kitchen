@@ -26,6 +26,15 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
 import { formatCleanUnitLabel } from '@/lib/procurementEngine';
+import {
+  autoConversionFactorBetweenUnits,
+  convertInvoiceLineToPurchaseUnit,
+  getCompatibleUnitsForItem,
+  getUnitLabel,
+  isContainerUnit,
+  normalizePurchaseUnit,
+  type PackMetricUnit,
+} from '@/lib/procurementUnits';
 import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 import {
   cleanExtractedItemName,
@@ -42,6 +51,8 @@ export interface DirectPurchaseCatalogItem {
   purchaseUnit: string;
   usageUnit: string;
   conversionFactor: number;
+  packSizeValue?: number | null;
+  packSizeUnit?: string | null;
   lastPrice: number;
   averageCost: number;
 }
@@ -51,6 +62,10 @@ export interface DirectPurchaseLinePayload {
   newItemName?: string;
   newItemCategory?: string;
   newItemUnit?: InventoryUnit;
+  newItemUsageUnit?: InventoryUnit;
+  newItemConversionFactor?: number;
+  newItemPackSizeValue?: number | null;
+  newItemPackSizeUnit?: PackMetricUnit | null;
   quantity: number;
   unitCost: number;
   batchNo: string;
@@ -79,10 +94,15 @@ interface LineDraft {
   mode: 'existing' | 'new';
   searchQuery: string;
   itemId: string;
+  selectedUnit: InventoryUnit;
   newItemName: string;
   newItemCategory: string;
   categoryManuallySet?: boolean;
   newItemUnit: InventoryUnit;
+  newItemUsageUnit: InventoryUnit;
+  newItemConversionFactor: string;
+  newItemPackSizeValue: string;
+  newItemPackSizeUnit: PackMetricUnit;
   quantity: string;
   unitCost: string;
   batchNo: string;
@@ -104,9 +124,14 @@ const makeRow = (): LineDraft => ({
   mode: 'existing',
   searchQuery: '',
   itemId: '',
+  selectedUnit: 'kg',
   newItemName: '',
   newItemCategory: 'other',
   newItemUnit: 'kg',
+  newItemUsageUnit: 'kg',
+  newItemConversionFactor: '1',
+  newItemPackSizeValue: '',
+  newItemPackSizeUnit: 'g',
   quantity: '1',
   unitCost: '',
   batchNo: '',
@@ -181,10 +206,33 @@ export default function DirectMultiPurchaseDialog({
     const item = itemMap.get(itemId);
     const factor = item && item.conversionFactor > 0 ? item.conversionFactor : 1;
     const defaultCost = item ? item.lastPrice || Math.round(item.averageCost * factor * 100) / 100 : 0;
+    const defaultUnit = item ? normalizePurchaseUnit(item.purchaseUnit) ?? 'kg' : 'kg';
     updateRow(rowId, {
       itemId,
+      selectedUnit: defaultUnit,
       unitCost: defaultCost > 0 ? String(defaultCost) : '',
     });
+  };
+
+  const handleChangeSelectedUnit = (rowId: string, nextUnit: InventoryUnit) => {
+    setLines((prev) =>
+      prev.map((r) => {
+        if (r.rowId !== rowId) return r;
+        const item = itemMap.get(r.itemId);
+        if (!item) return { ...r, selectedUnit: nextUnit };
+        const opts = getCompatibleUnitsForItem(item);
+        const prevOpt = opts.find((o) => o.unit === r.selectedUnit);
+        const nextOpt = opts.find((o) => o.unit === nextUnit);
+        let nextCost = r.unitCost;
+        const currentNum = Number(r.unitCost);
+        if (Number.isFinite(currentNum) && currentNum > 0 && prevOpt && nextOpt && prevOpt.purchaseFactor > 0) {
+          const pricePerPurchaseUnit = currentNum / prevOpt.purchaseFactor;
+          const scaled = Math.round(pricePerPurchaseUnit * nextOpt.purchaseFactor * 10000) / 10000;
+          nextCost = String(scaled);
+        }
+        return { ...r, selectedUnit: nextUnit, unitCost: nextCost };
+      }),
+    );
   };
 
   const resetForm = () => {
@@ -256,21 +304,45 @@ export default function DirectMultiPurchaseDialog({
         notes: notes.trim(),
         invoiceFile,
         autoReceive,
-        lines: lines.map((row) => ({
-          itemId: row.mode === 'existing' ? row.itemId : '',
-          newItemName: row.mode === 'new' ? cleanExtractedItemName(row.newItemName) : undefined,
-          newItemCategory:
-            row.mode === 'new'
-              ? row.newItemCategory && row.newItemCategory !== 'other'
+        lines: lines.map((row) => {
+          if (row.mode === 'existing') {
+            const item = itemMap.get(row.itemId);
+            const converted = item
+              ? convertInvoiceLineToPurchaseUnit(
+                  Number(row.quantity),
+                  Number(row.unitCost),
+                  row.selectedUnit,
+                  item,
+                )
+              : null;
+            return {
+              itemId: row.itemId,
+              quantity: converted ? converted.quantity : Number(row.quantity),
+              unitCost: converted ? converted.unitPrice : Number(row.unitCost),
+              batchNo: row.batchNo.trim(),
+              expiryDate: row.expiryDate,
+            };
+          }
+          const factorVal = Number(row.newItemConversionFactor) || 1;
+          const packVal = Number(row.newItemPackSizeValue);
+          return {
+            itemId: '',
+            newItemName: cleanExtractedItemName(row.newItemName),
+            newItemCategory:
+              row.newItemCategory && row.newItemCategory !== 'other'
                 ? row.newItemCategory
-                : inferSmartItemCategory(row.newItemName, categories)
-              : undefined,
-          newItemUnit: row.mode === 'new' ? row.newItemUnit : undefined,
-          quantity: Number(row.quantity),
-          unitCost: Number(row.unitCost),
-          batchNo: row.batchNo.trim(),
-          expiryDate: row.expiryDate,
-        })),
+                : inferSmartItemCategory(row.newItemName, categories),
+            newItemUnit: row.newItemUnit,
+            newItemUsageUnit: row.newItemUsageUnit || row.newItemUnit,
+            newItemConversionFactor: row.newItemUnit === row.newItemUsageUnit ? 1 : factorVal > 0 ? factorVal : 1,
+            newItemPackSizeValue: Number.isFinite(packVal) && packVal > 0 ? packVal : null,
+            newItemPackSizeUnit: Number.isFinite(packVal) && packVal > 0 ? row.newItemPackSizeUnit : null,
+            quantity: Number(row.quantity),
+            unitCost: Number(row.unitCost),
+            batchNo: row.batchNo.trim(),
+            expiryDate: row.expiryDate,
+          };
+        }),
       });
       if (ok) {
         resetForm();
@@ -444,156 +516,287 @@ export default function DirectMultiPurchaseDialog({
                   </div>
 
                   {row.mode === 'existing' ? (
-                    <div className="grid gap-2.5 md:grid-cols-[1.5fr_0.7fr_0.8fr_0.8fr]">
-                      <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold">الصنف (ابحث واختر)</Label>
-                        <div className="space-y-1.5">
-                          <div className="relative">
-                            <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                            <Input
-                              className="h-8 pr-8 text-xs"
-                              placeholder="ابحث بالاسم أو الكود..."
-                              value={row.searchQuery}
-                              onChange={(e) => updateRow(row.rowId, { searchQuery: e.target.value })}
-                            />
+                    <div className="space-y-2">
+                      <div className="grid gap-2.5 md:grid-cols-[1.4fr_0.65fr_0.75fr_0.75fr_0.75fr]">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">الصنف (ابحث واختر)</Label>
+                          <div className="space-y-1.5">
+                            <div className="relative">
+                              <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                              <Input
+                                className="h-8 pr-8 text-xs"
+                                placeholder="ابحث بالاسم أو الكود..."
+                                value={row.searchQuery}
+                                onChange={(e) => updateRow(row.rowId, { searchQuery: e.target.value })}
+                              />
+                            </div>
+                            <select
+                              className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold"
+                              value={row.itemId}
+                              onChange={(e) => handleSelectItem(row.rowId, e.target.value)}
+                            >
+                              <option value="">اختر الصنف ({filteredOptions.length})</option>
+                              {filteredOptions.map((it) => {
+                                const u = formatCleanUnitLabel(it.purchaseUnit);
+                                return (
+                                  <option key={it.id} value={it.id}>
+                                    {it.name} — ({u.unitShort})
+                                  </option>
+                                );
+                              })}
+                            </select>
                           </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">الكمية</Label>
+                          <Input
+                            type="number"
+                            min="0.001"
+                            step="0.001"
+                            className="h-9 text-xs font-bold tabular-nums"
+                            value={row.quantity}
+                            onChange={(e) => updateRow(row.rowId, { quantity: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">الوحدة (تبديل ذكي)</Label>
                           <select
-                            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold"
-                            value={row.itemId}
-                            onChange={(e) => handleSelectItem(row.rowId, e.target.value)}
+                            aria-label="وحدة الشراء في السطر"
+                            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold"
+                            value={row.selectedUnit}
+                            disabled={!selectedItem}
+                            onChange={(e) =>
+                              handleChangeSelectedUnit(row.rowId, e.target.value as InventoryUnit)
+                            }
                           >
-                            <option value="">اختر الصنف ({filteredOptions.length})</option>
-                            {filteredOptions.map((it) => {
-                              const u = formatCleanUnitLabel(it.purchaseUnit);
-                              return (
-                                <option key={it.id} value={it.id}>
-                                  {it.name} — ({u.unitShort})
-                                </option>
-                              );
-                            })}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold">
-                          الكمية ({unitInfo.unitShort})
-                        </Label>
-                        <Input
-                          type="number"
-                          min="0.001"
-                          step="0.001"
-                          className="h-9 text-xs font-bold tabular-nums"
-                          value={row.quantity}
-                          onChange={(e) => updateRow(row.rowId, { quantity: e.target.value })}
-                        />
-                        {unitInfo.packHint && (
-                          <p className="text-[10px] text-slate-400">العبوة: {unitInfo.packHint}</p>
-                        )}
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold">سعر الوحدة (ج.م)</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="h-9 text-xs font-bold tabular-nums"
-                          placeholder="0.00"
-                          value={row.unitCost}
-                          onChange={(e) => updateRow(row.rowId, { unitCost: e.target.value })}
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold">إجمالي السطر</Label>
-                        <div className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-extrabold text-slate-900 tabular-nums">
-                          {formatEGPCurrency(lineTotal)}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid gap-2.5 md:grid-cols-[1.2fr_0.8fr_0.7fr_0.6fr_0.7fr]">
-                      <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold flex items-center gap-1">
-                          <Sparkles className="h-3 w-3 text-emerald-600" /> اسم الصنف الجديد *
-                        </Label>
-                        <Input
-                          className="h-9 text-xs"
-                          placeholder="مثال: كابوتشا / صوص ديمي جلاس"
-                          value={row.newItemName}
-                          onChange={(e) => {
-                            const nextName = e.target.value;
-                            const autoCat = inferSmartItemCategory(nextName, categories);
-                            updateRow(row.rowId, {
-                              newItemName: nextName,
-                              ...(row.categoryManuallySet ? {} : { newItemCategory: autoCat }),
-                            });
-                          }}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold">الفئة (تلقائي)</Label>
-                        <select
-                          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
-                          value={row.newItemCategory}
-                          onChange={(e) =>
-                            updateRow(row.rowId, {
-                              newItemCategory: e.target.value,
-                              categoryManuallySet: true,
-                            })
-                          }
-                        >
-                          {categories.length > 0
-                            ? categories.map((c) => (
-                                <option key={c.code} value={c.code}>
-                                  {c.name}
+                            {selectedItem ? (
+                              getCompatibleUnitsForItem(selectedItem).map((opt) => (
+                                <option key={opt.unit} value={opt.unit}>
+                                  {opt.label}
                                 </option>
                               ))
-                            : Object.entries(INVENTORY_CATEGORY_LABELS).map(([code, label]) => (
-                                <option key={code} value={code}>
-                                  {label}
-                                </option>
-                              ))}
-                        </select>
+                            ) : (
+                              <option value={row.selectedUnit}>{unitInfo.unitShort}</option>
+                            )}
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">
+                            سعر الـ {selectedItem ? getUnitLabel(row.selectedUnit) : 'وحدة'} (ج.م)
+                          </Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="h-9 text-xs font-bold tabular-nums"
+                            placeholder="0.00"
+                            value={row.unitCost}
+                            onChange={(e) => updateRow(row.rowId, { unitCost: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">إجمالي السطر</Label>
+                          <div className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-extrabold text-slate-900 tabular-nums">
+                            {formatEGPCurrency(lineTotal)}
+                          </div>
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold">وحدة الشراء</Label>
-                        <select
-                          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
-                          value={row.newItemUnit}
-                          onChange={(e) =>
-                            updateRow(row.rowId, { newItemUnit: e.target.value as InventoryUnit })
-                          }
-                        >
-                          {Object.entries(INVENTORY_UNIT_LABELS).map(([u, label]) => (
-                            <option key={u} value={u}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
+                      {selectedItem && Number(row.quantity) > 0 && (() => {
+                        const conv = convertInvoiceLineToPurchaseUnit(
+                          Number(row.quantity),
+                          Number(row.unitCost || 0),
+                          row.selectedUnit,
+                          selectedItem,
+                        );
+                        if (!conv || conv.usageQuantity === undefined) return null;
+                        return (
+                          <p className="text-[11px] font-medium text-emerald-800 bg-emerald-50/60 border border-emerald-200/70 rounded-lg px-2.5 py-1 tabular-nums">
+                            سيُضاف لرصيد المخزن: <strong>{conv.usageQuantity.toLocaleString('en-US', { maximumFractionDigits: 4 })} {getUnitLabel(selectedItem.usageUnit)}</strong>
+                            {normalizePurchaseUnit(selectedItem.purchaseUnit) !== row.selectedUnit && (
+                              <span> (يعادل {conv.quantity.toLocaleString('en-US', { maximumFractionDigits: 4 })} {getUnitLabel(selectedItem.purchaseUnit)})</span>
+                            )}
+                          </p>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      <div className="grid gap-2.5 md:grid-cols-[1.2fr_0.8fr_0.7fr_0.6fr_0.7fr]">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold flex items-center gap-1">
+                            <Sparkles className="h-3 w-3 text-emerald-600" /> اسم الصنف الجديد *
+                          </Label>
+                          <Input
+                            className="h-9 text-xs"
+                            placeholder="مثال: كابوتشا / صوص ديمي جلاس"
+                            value={row.newItemName}
+                            onChange={(e) => {
+                              const nextName = e.target.value;
+                              const autoCat = inferSmartItemCategory(nextName, categories);
+                              updateRow(row.rowId, {
+                                newItemName: nextName,
+                                ...(row.categoryManuallySet ? {} : { newItemCategory: autoCat }),
+                              });
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">الفئة (تلقائي)</Label>
+                          <select
+                            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                            value={row.newItemCategory}
+                            onChange={(e) =>
+                              updateRow(row.rowId, {
+                                newItemCategory: e.target.value,
+                                categoryManuallySet: true,
+                              })
+                            }
+                          >
+                            {categories.length > 0
+                              ? categories.map((c) => (
+                                  <option key={c.code} value={c.code}>
+                                    {c.name}
+                                  </option>
+                                ))
+                              : Object.entries(INVENTORY_CATEGORY_LABELS).map(([code, label]) => (
+                                  <option key={code} value={code}>
+                                    {label}
+                                  </option>
+                                ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">وحدة الشراء</Label>
+                          <select
+                            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                            value={row.newItemUnit}
+                            onChange={(e) => {
+                              const nextPurchase = e.target.value as InventoryUnit;
+                              const nextUsage =
+                                row.newItemUsageUnit === row.newItemUnit
+                                  ? nextPurchase
+                                  : row.newItemUsageUnit;
+                              const autoFactor = autoConversionFactorBetweenUnits(nextPurchase, nextUsage);
+                              updateRow(row.rowId, {
+                                newItemUnit: nextPurchase,
+                                newItemUsageUnit: nextUsage,
+                                newItemConversionFactor:
+                                  autoFactor !== null ? String(autoFactor) : row.newItemConversionFactor,
+                              });
+                            }}
+                          >
+                            {Object.entries(INVENTORY_UNIT_LABELS).map(([u, label]) => (
+                              <option key={u} value={u}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">الكمية</Label>
+                          <Input
+                            type="number"
+                            min="0.001"
+                            step="0.001"
+                            className="h-9 text-xs tabular-nums"
+                            value={row.quantity}
+                            onChange={(e) => updateRow(row.rowId, { quantity: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">سعر الوحدة</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="h-9 text-xs tabular-nums"
+                            value={row.unitCost}
+                            onChange={(e) => updateRow(row.rowId, { unitCost: e.target.value })}
+                          />
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold">الكمية</Label>
-                        <Input
-                          type="number"
-                          min="0.001"
-                          step="0.001"
-                          className="h-9 text-xs tabular-nums"
-                          value={row.quantity}
-                          onChange={(e) => updateRow(row.rowId, { quantity: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold">سعر الوحدة</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="h-9 text-xs tabular-nums"
-                          value={row.unitCost}
-                          onChange={(e) => updateRow(row.rowId, { unitCost: e.target.value })}
-                        />
+
+                      <div className="grid gap-2.5 rounded-lg border border-slate-200/70 bg-slate-50/70 p-2.5 sm:grid-cols-3">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold">وحدة السحب بالمخزن</Label>
+                          <select
+                            className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs"
+                            value={row.newItemUsageUnit}
+                            onChange={(e) => {
+                              const nextUsage = e.target.value as InventoryUnit;
+                              const autoFactor = autoConversionFactorBetweenUnits(row.newItemUnit, nextUsage);
+                              updateRow(row.rowId, {
+                                newItemUsageUnit: nextUsage,
+                                newItemConversionFactor:
+                                  autoFactor !== null ? String(autoFactor) : row.newItemConversionFactor === '1' ? '' : row.newItemConversionFactor,
+                              });
+                            }}
+                          >
+                            {Object.entries(INVENTORY_UNIT_LABELS).map(([u, label]) => (
+                              <option key={u} value={u}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {row.newItemUnit !== row.newItemUsageUnit && (
+                          <div className="space-y-1">
+                            <Label className="text-[11px] font-semibold">
+                              عدد ({getUnitLabel(row.newItemUsageUnit)}) في الـ ({getUnitLabel(row.newItemUnit)})
+                            </Label>
+                            <Input
+                              type="number"
+                              min="0.001"
+                              step="0.001"
+                              placeholder="مثال: 10"
+                              className="h-8 text-xs tabular-nums bg-white"
+                              value={row.newItemConversionFactor}
+                              onChange={(e) =>
+                                updateRow(row.rowId, { newItemConversionFactor: e.target.value })
+                              }
+                            />
+                          </div>
+                        )}
+
+                        {isContainerUnit(row.newItemUsageUnit) && (
+                          <div className="space-y-1">
+                            <Label className="text-[11px] font-semibold">
+                              وزن/سعة الـ {getUnitLabel(row.newItemUsageUnit)} الواحد (اختياري)
+                            </Label>
+                            <div className="flex gap-1.5">
+                              <Input
+                                type="number"
+                                min="0.001"
+                                step="0.001"
+                                placeholder="مثال: 200 أو 4.24"
+                                className="h-8 flex-1 text-xs tabular-nums bg-white"
+                                value={row.newItemPackSizeValue}
+                                onChange={(e) =>
+                                  updateRow(row.rowId, { newItemPackSizeValue: e.target.value })
+                                }
+                              />
+                              <select
+                                className="h-8 w-20 rounded-md border border-slate-200 bg-white px-1.5 text-xs font-semibold"
+                                value={row.newItemPackSizeUnit}
+                                onChange={(e) =>
+                                  updateRow(row.rowId, {
+                                    newItemPackSizeUnit: e.target.value as PackMetricUnit,
+                                  })
+                                }
+                              >
+                                <option value="g">جرام</option>
+                                <option value="kg">كجم</option>
+                                <option value="ml">مل</option>
+                                <option value="l">لتر</option>
+                              </select>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

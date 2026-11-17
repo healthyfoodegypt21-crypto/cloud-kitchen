@@ -1,5 +1,13 @@
 import type { InventoryUnit } from '@/types/inventory';
+import {
+  getCompatibleUnitsForItem,
+  normalizePurchaseUnit,
+  PURCHASE_UNIT_ALTERNATIVES as SHARED_UNIT_ALTERNATIVES,
+  type PackMetricUnit,
+} from '@/lib/procurementUnits';
 import { compactWhitespace } from '@/lib/utils';
+
+export { normalizePurchaseUnit };
 
 export type SmartPurchaseCatalogItem = {
   id: string;
@@ -7,6 +15,9 @@ export type SmartPurchaseCatalogItem = {
   sku?: string;
   purchaseUnit?: string;
   usageUnit?: string;
+  conversionFactor?: number;
+  packSizeValue?: number | null;
+  packSizeUnit?: PackMetricUnit | string | null;
 };
 
 export type SmartPurchaseLine = {
@@ -32,23 +43,7 @@ export type SmartPurchaseParseResult = {
   ignoredLines: string[];
 };
 
-const UNIT_PATTERNS: Array<[RegExp, InventoryUnit]> = [
-  [/^(?:كجم|كيلو(?:جرام)?|كيلوجرام|ك|kg|kilo(?:grams?)?)$/i, 'kg'],
-  [/^(?:جرام|غرام|جم|غ|g|gm|grams?)$/i, 'g'],
-  [/^(?:مليلتر|ملل?|ml|milliliters?)$/i, 'ml'],
-  [/^(?:لتر|ليتر|ل|l|ltr|liters?|litres?)$/i, 'l'],
-  [/^(?:قطعة|قطعه|قطع|حبة|حبه|حبات|واحدة|واحده|واحد|رأس|راس|ربطة|ربطه|حزمة|حزمه|شريط|فرخ|قرص|رغيف|piece|pieces|pcs?|unit)$/i, 'piece'],
-  [/^(?:كرتونة|كرتونه|كرتون|كراتين|cartons?|ctn)$/i, 'carton'],
-  [/^(?:صندوق|صناديق|بوكس|قفص|أقفاص|اقفاص|سبت|برنيكة|برنيكه|boxes|box|crate)$/i, 'box'],
-  [/^(?:صينية|صينيه|صواني|طبق|أطباق|اطباق|trays?)$/i, 'tray'],
-  [/^(?:كيس|أكياس|اكياس|شيكارة|شيكاره|شكارة|شكاره|شوال|أجولة|اجوله|باكت|باكيت|لفة|لفه|bags?|sack|pack|packet)$/i, 'bag'],
-  [/^(?:زجاجة|زجاجه|ازازة|ازازه|إزازة|جركن|جراكن|عبوة|عبوه|برطمان|bottles?|jar|jerrycan)$/i, 'bottle'],
-  [/^(?:علبة|علبه|علب|كان|صفيحة|صفيحه|صفائح|بستلة|بستله|cans?|tin|tub)$/i, 'can'],
-  [/^(?:طقم|أطقم|اطقم|sets?)$/i, 'set'],
-  [/^(?:دستة|دسته|درزن|dozens?)$/i, 'dozen'],
-];
-const UNIT_ALTERNATIVES =
-  'كيلوجرام|كيلو(?:جرام)?|كجم|kilo(?:grams?)?|kg|جرام|غرام|grams?|gm|جم|g|مليلتر|milliliters?|ملل?|ml|ليتر|liters?|litres?|ltr|لتر|ل|l|قطعة|قطعه|قطع|حبات|حبة|حبه|واحدة|واحده|ربطة|ربطه|حزمة|حزمه|pieces?|pcs?|كرتونة|كرتونه|كرتون|كراتين|cartons?|ctn|صندوق|بوكس|قفص|برنيكة|برنيكه|boxes|box|صينية|صينيه|صواني|أطباق|اطباق|طبق|trays?|أكياس|اكياس|كيس|شيكارة|شيكاره|شكارة|شكاره|شوال|باكت|باكيت|bags?|sack|pack|زجاجة|زجاجه|ازازة|ازازه|إزازة|جركن|عبوة|عبوه|برطمان|bottles?|jar|علبة|علبه|علب|صفيحة|صفيحه|بستلة|بستله|كان|cans?|tin|طقم|sets?|دستة|دسته|درزن|dozens?';
+const UNIT_ALTERNATIVES = SHARED_UNIT_ALTERNATIVES;
 
 function normalizeDigits(value: string) {
   return value
@@ -91,20 +86,19 @@ function normalizeName(value: string) {
     .replace(/\s+/g, ' ');
 }
 
-export function normalizePurchaseUnit(value: string | undefined): InventoryUnit | null {
-  if (!value) {
-    return null;
-  }
-
-  return UNIT_PATTERNS.find(([pattern]) => pattern.test(value))?.[1] ?? null;
-}
-
 export function unitMatchesInventory(sourceUnit: InventoryUnit | null, item: SmartPurchaseCatalogItem | null): boolean {
   if (!sourceUnit || !item) {
     return true;
   }
 
-  return sourceUnit === normalizePurchaseUnit(item.purchaseUnit) || sourceUnit === normalizePurchaseUnit(item.usageUnit);
+  const compatible = getCompatibleUnitsForItem({
+    purchaseUnit: item.purchaseUnit ?? item.usageUnit ?? 'piece',
+    usageUnit: item.usageUnit ?? item.purchaseUnit ?? 'piece',
+    conversionFactor: item.conversionFactor ?? 1,
+    packSizeValue: item.packSizeValue ?? null,
+    packSizeUnit: item.packSizeUnit ?? null,
+  });
+  return compatible.some((opt) => opt.unit === sourceUnit);
 }
 
 const ARABIC_SYNONYM_MAP: Record<string, string> = {
@@ -402,7 +396,7 @@ const FRACTION_SUFFIX = '(?:\\s*و?\\s*(نص|نصف|ربع|تلت|ثلث))?';
 const CURRENCY_SUFFIX = '(?:\\s*(?:جنيه(?:ات)?|جنية|جنيهات|ج\\.م\\.?|جم|egp|le|ج))?';
 
 const PER_UNIT_NOUNS =
-  'واحده|واحد|واحدة|حبه|حبة|طبق|كيلو|كيلوجرام|كجم|جرام|جم|قطعة|قطعه|لتر|علبة|علبه|كيس|شيكارة|شيكاره|شكارة|شكاره|شوال|كرتونة|كرتونه|كرتون|صفيحة|صفيحه|بستلة|بستله|زجاجة|زجاجه|ازازة|ازازه|جركن|ربطة|ربطه|حزمة|حزمه|صندوق|بوكس|دستة|دسته';
+  'واحده|واحد|واحدة|حبه|حبة|طبق|اطباق|أطباق|كيلو|كيلوجرام|كجم|جرام|جم|قطعة|قطعه|لتر|مل|علبة|علبه|كيس|باكت|باكيت|شيكارة|شيكاره|شكارة|شكاره|شوال|كرتونة|كرتونه|كرتون|صفيحة|صفيحه|جردل|بستلة|بستله|زجاجة|زجاجه|ازازة|ازازه|برطمان|جيركن|جركن|ربطة|ربطه|حزمة|حزمه|صندوق|بوكس|دستة|دسته';
 
 // Matches BOTH "سعر الكيلو 30" AND "الكيلو ب 30" / "للكيلو 30" / "العلبة ب 15"
 const unitPricePattern = new RegExp(
@@ -416,7 +410,7 @@ const totalPricePattern = new RegExp(
 const standaloneTotalPattern = new RegExp(`(?:^|\\s)بـ?\\s*(${NUMBER_TOKEN})${CURRENCY_SUFFIX}${FRACTION_SUFFIX}`, 'iu');
 
 const UNIT_WORDS_LIST =
-  'واحده|واحد|واحدة|حبه|حبة|طبق|اطباق|أطباق|قطعة|قطعه|قطع|حبات|كيلو|كيلوجرام|كجم|جرام|جم|غرام|لتر|ليتر|علبة|علبه|علب|كيس|أكياس|اكياس|شيكارة|شيكاره|شكارة|شكاره|كرتونة|كرتونه|كرتون|كراتين|صندوق|بوكس|شوال|دستة|دسته|صينية|صينيه|زجاجة|زجاجه|ازازة|ازازه|جركن|ربطة|ربطه|حزمة|حزمه|صفيحة|صفيحه|بستلة|بستله|kg|g|gm|ml|l|pcs?|piece|bag|carton|box|can|bottle|tray';
+  'واحده|واحد|واحدة|حبه|حبة|طبق|اطباق|أطباق|قطعة|قطعه|قطع|حبات|كيلو|كيلوجرام|كجم|جرام|جم|غرام|لتر|ليتر|مل|ملليلتر|علبة|علبه|علب|كيس|أكياس|اكياس|باكت|باكيت|ظرف|شيكارة|شيكاره|شكارة|شكاره|كرتونة|كرتونه|كرتون|كراتين|صندوق|بوكس|شوال|دستة|دسته|صينية|صينيه|زجاجة|زجاجه|ازازة|ازازه|برطمان|برطمانات|جيركن|جركن|جراكن|جردل|جرادل|ربطة|ربطه|ربط|حزمة|حزمه|حزم|صفيحة|صفيحه|بستلة|بستله|kg|g|gm|ml|l|pcs?|piece|plate|plates|jerrycan|bucket|jar|packet|bundle|bag|carton|box|can|bottle|tray';
 
 const leadingFractionUnitPattern = new RegExp(
   `(?:^|\\s)(نص|نصف|ربع|تلت|ثلث)\\s+(${UNIT_WORDS_LIST})(?=\\s|$)`,
@@ -431,10 +425,10 @@ const quantityWithUnitAndFractionPattern = new RegExp(
   'iu',
 );
 const implicitOneUnitAtStartPattern = new RegExp(
-  `^\\s*(كيلو|كيلوجرام|كرتونة|كرتونه|كرتون|شيكارة|شيكاره|شكارة|شكاره|شوال|صفيحة|صفيحه|بستلة|بستله|جركن|دستة|دسته|صندوق|بوكس|علبة|علبه|زجاجة|زجاجه|ازازة|ازازه|ربطة|ربطه|حزمة|حزمه)\\s+`,
+  `^\\s*(كيلو|كيلوجرام|طبق|كرتونة|كرتونه|كرتون|شيكارة|شيكاره|شكارة|شكاره|شوال|صفيحة|صفيحه|جردل|بستلة|بستله|جيركن|جركن|برطمان|دستة|دسته|صندوق|بوكس|علبة|علبه|زجاجة|زجاجه|ازازة|ازازه|ربطة|ربطه|حزمة|حزمه|باكت|باكيت)\\s+`,
   'iu',
 );
-const containsCountPattern = new RegExp(`فيها\\s*(${NUMBER_TOKEN})\\s*(?:اطباق|أطباق|طبق|حبات|حبه|قطع|قطعة)?`, 'u');
+const containsCountPattern = new RegExp(`فيها\\s*(${NUMBER_TOKEN})\\s*(اطباق|أطباق|طبق|حبات|حبه|قطع|قطعة)?`, 'u');
 const leadingNumberPattern = new RegExp(`^\\s*(${NUMBER_TOKEN})\\s+`, 'u');
 const standaloneNumberPattern = new RegExp(`(${NUMBER_TOKEN})`, 'u');
 const supplierPattern = /(?:^|\s)(?:من\s+عند|من|عند)\s+([^\d]+?)(?=\s+(?:بسعر|سعرها|سعره|سعر|تمن|ثمن|فيها|يعني|بـ?\s*\d|الكيلو|الواحده|الواحدة)|\s*$)/u;
@@ -454,7 +448,9 @@ function parseQuantityToken(token: string) {
 }
 
 function unitFromToken(token: string): InventoryUnit | null {
-  if (/^(?:واحده|واحد|واحدة|حبه|حبة|طبق|اطباق|أطباق|قطعة|قطعه|قطع|حبات|ربطة|ربطه|حزمة|حزمه)$/iu.test(token)) return 'piece';
+  if (/^(?:طبق|اطباق|أطباق|plates?|punnets?)$/iu.test(token)) return 'plate';
+  if (/^(?:ربطة|ربطه|ربط|حزمة|حزمه|حزم|bundles?)$/iu.test(token)) return 'bundle';
+  if (/^(?:واحده|واحد|واحدة|حبه|حبة|قطعة|قطعه|قطع|حبات)$/iu.test(token)) return 'piece';
   return normalizePurchaseUnit(token);
 }
 
@@ -717,7 +713,7 @@ function parseFreeformPurchaseLine(line: string, index: number): { line: Omit<Sm
     const containsMatch = rest.match(containsCountPattern);
     if (containsMatch) {
       quantity = parseQuantityToken(containsMatch[1]);
-      sourceUnit = 'piece';
+      sourceUnit = containsMatch[2] ? unitFromToken(containsMatch[2]) ?? 'piece' : 'piece';
       rest = rest.replace(containsMatch[0], ' ');
     }
   }

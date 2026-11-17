@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import type { InventoryCategoryRecord, InventoryLocation, OperationalInventoryItem } from '@/types/operationalInventory';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
-import { suggestPurchaseQuantity } from '@/lib/procurementUnits';
+import { autoConversionFactorBetweenUnits, getUnitLabel, suggestPurchaseQuantity } from '@/lib/procurementUnits';
 import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 import { cleanExtractedItemName, matchCatalogItem } from '@/lib/smartPurchaseImport';
 
@@ -65,10 +65,11 @@ export default function PurchaseOrderBuilder({ items, categories, locations, ini
   const updateNewItemUnit = (key: 'purchaseUnit' | 'usageUnit', value: string) => setNewItem(current => {
     const purchaseUnit = key === 'purchaseUnit' ? value : current.purchaseUnit;
     const usageUnit = key === 'usageUnit' ? value : current.usageUnit;
+    const autoFactor = autoConversionFactorBetweenUnits(purchaseUnit, usageUnit);
     return {
       ...current,
       [key]: value,
-      conversionFactor: purchaseUnit === usageUnit ? '1' : current.purchaseUnit === current.usageUnit ? '' : current.conversionFactor,
+      conversionFactor: autoFactor !== null ? String(autoFactor) : current.purchaseUnit === current.usageUnit ? '' : current.conversionFactor,
     };
   });
   const addExistingItem = () => {
@@ -124,7 +125,7 @@ export default function PurchaseOrderBuilder({ items, categories, locations, ini
     <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">تمت إضافة {lines.filter(line => line.notes.includes('اقتراح تلقائي')).length} أصناف تلقائيًا لأنها وصلت للحد الأدنى. عدّل الكمية أو احذف أي صنف قبل الإرسال.</div>
     <div className="space-y-3">
       <h3 className="font-semibold">أصناف أمر الشراء</h3>
-      {lines.map(line => <div className="rounded-xl border p-3" key={line.itemId}><div className="mb-3 flex items-center justify-between gap-2"><div><strong>{line.itemName}</strong><span className="mr-2 text-sm text-muted-foreground">({line.unit})</span></div><Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => setLines(current => current.filter(item => item.itemId !== line.itemId))}><Trash2 className="ml-1 h-4 w-4" />حذف</Button></div><div className="grid gap-3 sm:grid-cols-2"><NumberField label="الكمية المطلوبة" value={line.quantity} onChange={value => updateLine(line.itemId, { quantity: value })} /><NumberField label="سعر الوحدة المتوقع" value={line.unitCost} onChange={value => updateLine(line.itemId, { unitCost: value })} step="0.01" /><div className="space-y-1"><Label>موقع الاستلام</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.locationName} onChange={event => updateLine(line.itemId, { locationName: event.target.value })}>{locations.map(location => <option key={location.code} value={location.code}>{location.name}</option>)}</select></div></div></div>)}
+      {lines.map(line => <div className="rounded-xl border p-3" key={line.itemId}><div className="mb-3 flex items-center justify-between gap-2"><div><strong>{line.itemName}</strong><span className="mr-2 text-sm text-muted-foreground">({getUnitLabel(line.unit)})</span></div><Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => setLines(current => current.filter(item => item.itemId !== line.itemId))}><Trash2 className="ml-1 h-4 w-4" />حذف</Button></div><div className="grid gap-3 sm:grid-cols-2"><NumberField label="الكمية المطلوبة" value={line.quantity} onChange={value => updateLine(line.itemId, { quantity: value })} /><NumberField label="سعر الوحدة المتوقع" value={line.unitCost} onChange={value => updateLine(line.itemId, { unitCost: value })} step="0.01" /><div className="space-y-1"><Label>موقع الاستلام</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={line.locationName} onChange={event => updateLine(line.itemId, { locationName: event.target.value })}>{locations.map(location => <option key={location.code} value={location.code}>{location.name}</option>)}</select></div></div></div>)}
       {lines.length === 0 && <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">لا توجد أصناف في الأمر. أضف صنفًا من المخزون أو صنفًا جديدًا.</p>}
     </div>
     <div className="rounded-xl bg-muted/50 p-4"><Label>إضافة صنف موجود في المخزون</Label><div className="mt-2 flex gap-2"><select className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3" value={existingItemId} onChange={event => setExistingItemId(event.target.value)}><option value="">اختر الصنف</option>{items.filter(item => item.status === 'active' && !selectedIds.has(item.id)).map(item => <option key={item.id} value={item.id}>{item.name} — المتاح {item.availableQuantity} {item.unit} — وحدة الشراء {item.purchaseUnit}</option>)}</select><Button type="button" variant="outline" disabled={!existingItemId} onClick={addExistingItem}><Plus className="ml-1 h-4 w-4" />إضافة</Button></div></div>

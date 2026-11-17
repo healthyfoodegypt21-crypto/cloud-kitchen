@@ -9,7 +9,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AiVisionStatusControl from '@/components/AiVisionStatusControl';
 import { extractImageFromClipboardEvent, smartReadImage } from '@/lib/ocrImage';
+import {
+  convertWithdrawalToUsageUnit,
+  getCompatibleUnitsForItem,
+  getUnitLabel,
+  normalizePurchaseUnit,
+  type ProcurementUnitItem,
+} from '@/lib/procurementUnits';
 import { parseWithdrawalSheetText, type WithdrawalImportLine } from '@/lib/withdrawalImport';
+import type { InventoryUnit } from '@/types/inventory';
 import type { InventoryLocation, OperationalInventoryItem } from '@/types/operationalInventory';
 
 export type WithdrawalPlan = {
@@ -23,6 +31,22 @@ export type WithdrawalPlan = {
 type DiscrepancyAction = 'waste' | 'count' | 'ignore';
 
 type ReviewLine = WithdrawalImportLine & { discrepancyAction: DiscrepancyAction };
+
+function toUnitSpec(item: OperationalInventoryItem): ProcurementUnitItem {
+  return {
+    purchaseUnit: item.purchaseUnit,
+    usageUnit: item.unit,
+    conversionFactor: item.conversionFactor,
+    packSizeValue: item.packSizeValue ?? null,
+    packSizeUnit: item.packSizeUnit ?? null,
+  };
+}
+
+function resolveUsageQuantity(line: WithdrawalImportLine, item: OperationalInventoryItem | undefined): number {
+  if (!item) return line.quantity;
+  const converted = convertWithdrawalToUsageUnit(line.quantity, line.sourceUnit, toUnitSpec(item));
+  return converted ?? line.quantity;
+}
 
 type LineStatus = 'unmatched' | 'opening' | 'auto' | 'match' | 'shortage' | 'surplus';
 
@@ -143,7 +167,21 @@ export default function WithdrawalQuickEntry({
     setLines((current) => current.map((line) => {
       if (line.id !== id) return line;
       const next = { ...line, ...patch };
-      if (patch.itemId !== undefined || patch.remainingQuantity !== undefined || patch.quantity !== undefined) {
+      if (patch.itemId !== undefined && patch.sourceUnit === undefined) {
+        const picked = itemById.get(patch.itemId);
+        if (picked) {
+          const opts = getCompatibleUnitsForItem(toUnitSpec(picked));
+          if (!next.sourceUnit || !opts.some((o) => o.unit === next.sourceUnit)) {
+            next.sourceUnit = normalizePurchaseUnit(picked.unit);
+          }
+        }
+      }
+      if (
+        patch.itemId !== undefined ||
+        patch.remainingQuantity !== undefined ||
+        patch.quantity !== undefined ||
+        patch.sourceUnit !== undefined
+      ) {
         next.discrepancyAction = defaultActionFor(next, itemById.get(next.itemId));
       }
       return next;
@@ -177,12 +215,21 @@ export default function WithdrawalQuickEntry({
 
   const canSubmit = lines.length > 0
     && summary.unmatched === 0
-    && lines.every((line) => Number.isFinite(line.quantity) && line.quantity > 0
-      && (line.remainingQuantity === null || (Number.isFinite(line.remainingQuantity) && line.remainingQuantity >= 0)));
+    && lines.every((line) => {
+      const item = itemById.get(line.itemId);
+      if (!item) return false;
+      const usageQty = convertWithdrawalToUsageUnit(line.quantity, line.sourceUnit, toUnitSpec(item));
+      return (
+        usageQty !== null &&
+        usageQty > 0 &&
+        (line.remainingQuantity === null ||
+          (Number.isFinite(line.remainingQuantity) && line.remainingQuantity >= 0))
+      );
+    });
 
   const submit = async () => {
     if (!canSubmit) {
-      toast.error('اربط كل سطر بصنف وأدخل كميات صحيحة قبل التسجيل');
+      toast.error('اربط كل سطر بصنف وأدخل كميات ووحدات متوافقة قبل التسجيل');
       return;
     }
 
@@ -190,22 +237,23 @@ export default function WithdrawalQuickEntry({
     for (const line of lines) {
       const item = itemById.get(line.itemId);
       if (!item) continue;
+      const usageQty = resolveUsageQuantity(line, item);
       const status = lineStatus(line, item);
       const reason = line.sourceName && line.sourceName !== item.name ? `ورقة المسحوبات: ${line.sourceName}` : 'تشغيل المطبخ';
 
       if (status === 'opening' && line.remainingQuantity !== null) {
         plan.openings.push({
           itemId: line.itemId,
-          quantity: line.remainingQuantity + line.quantity,
+          quantity: line.remainingQuantity + usageQty,
           locationName: defaultLocation,
           reason: 'رصيد أول المدة من ورقة المسحوبات',
         });
       }
 
-      plan.withdrawals.push({ itemId: line.itemId, quantity: line.quantity, locationName: defaultLocation, reason });
+      plan.withdrawals.push({ itemId: line.itemId, quantity: usageQty, locationName: defaultLocation, reason });
 
       if ((status === 'shortage' || status === 'surplus') && line.remainingQuantity !== null) {
-        const systemRemaining = item.availableQuantity - line.quantity;
+        const systemRemaining = item.availableQuantity - usageQty;
         const diff = line.remainingQuantity - systemRemaining;
         if (line.discrepancyAction === 'waste' && diff < 0) {
           plan.waste.push({
@@ -359,10 +407,18 @@ export default function WithdrawalQuickEntry({
           <div className="space-y-3">
             {lines.map((line) => {
               const item = itemById.get(line.itemId);
-              const status = lineStatus(line, item);
-              const systemRemaining = item ? item.availableQuantity - line.quantity : null;
+              const unitOptions = item ? getCompatibleUnitsForItem(toUnitSpec(item)) : [];
+              const activeUnit =
+                (line.sourceUnit && unitOptions.some((o) => o.unit === line.sourceUnit)
+                  ? line.sourceUnit
+                  : normalizePurchaseUnit(item?.unit)) ?? 'piece';
+              const usageQty = resolveUsageQuantity({ ...line, sourceUnit: activeUnit }, item);
+              const status = lineStatus({ ...line, sourceUnit: activeUnit }, item);
+              const systemRemaining = item ? item.availableQuantity - usageQty : null;
+              const isConvertedUnit =
+                item && normalizePurchaseUnit(item.unit) !== activeUnit && line.quantity > 0;
               return (
-                <div key={line.id} className="grid gap-3 rounded-xl border p-3 md:grid-cols-[minmax(0,1.5fr),0.6fr,0.7fr,auto] md:items-end">
+                <div key={line.id} className="grid gap-3 rounded-xl border p-3 md:grid-cols-[minmax(0,1.4fr),0.55fr,0.65fr,0.65fr,auto] md:items-end">
                   <div className="space-y-1">
                     <Label>الصنف {line.sourceName ? <span className="text-xs text-muted-foreground">({line.sourceName})</span> : null}</Label>
                     <select
@@ -372,7 +428,7 @@ export default function WithdrawalQuickEntry({
                     >
                       <option value="">اختر الصنف المطابق</option>
                       {activeItems.map((candidate) => (
-                        <option key={candidate.id} value={candidate.id}>{candidate.name} — المتاح {candidate.availableQuantity} {candidate.unit}</option>
+                        <option key={candidate.id} value={candidate.id}>{candidate.name} — المتاح {candidate.availableQuantity} {getUnitLabel(candidate.unit)}</option>
                       ))}
                     </select>
                     {line.itemId && line.matchConfidence < 1 && (
@@ -380,11 +436,33 @@ export default function WithdrawalQuickEntry({
                     )}
                   </div>
                   <div className="space-y-1">
-                    <Label>الكمية المسحوبة {item ? `(${item.unit})` : ''}</Label>
+                    <Label>الكمية المسحوبة</Label>
                     <Input type="number" min="0.001" step="0.001" value={line.quantity || ''} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) })} />
                   </div>
                   <div className="space-y-1">
-                    <Label>المتبقي الفعلي <span className="text-xs text-muted-foreground">(اختياري)</span></Label>
+                    <Label>وحدة السحب</Label>
+                    <select
+                      aria-label="وحدة السحب"
+                      className="h-10 w-full rounded-md border bg-background px-2 text-xs font-semibold"
+                      value={activeUnit}
+                      disabled={!item}
+                      onChange={(event) =>
+                        updateLine(line.id, { sourceUnit: event.target.value as InventoryUnit })
+                      }
+                    >
+                      {unitOptions.length > 0 ? (
+                        unitOptions.map((opt) => (
+                          <option key={opt.unit} value={opt.unit}>
+                            {opt.label}
+                          </option>
+                        ))
+                      ) : (
+                        <option value={activeUnit}>{getUnitLabel(activeUnit)}</option>
+                      )}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>المتبقي ({item ? getUnitLabel(item.unit) : 'اختياري'})</Label>
                     <Input
                       type="number"
                       min="0"
@@ -397,12 +475,17 @@ export default function WithdrawalQuickEntry({
                   <Button type="button" variant="ghost" size="icon" aria-label="حذف السطر" onClick={() => setLines((current) => current.filter((entry) => entry.id !== line.id))}>
                     <X className="h-4 w-4" />
                   </Button>
-                  <div className="flex flex-wrap items-center gap-2 md:col-span-4">
+                  <div className="flex flex-wrap items-center gap-2 md:col-span-5">
                     <Badge variant="outline" className={STATUS_STYLES[status]}>{STATUS_LABELS[status]}</Badge>
+                    {isConvertedUnit && item && (
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 tabular-nums">
+                        يعادل خصم {usageQty.toLocaleString('en-US', { maximumFractionDigits: 4 })} {getUnitLabel(item.unit)} من الرصيد
+                      </span>
+                    )}
                     {(status === 'shortage' || status === 'surplus') && systemRemaining !== null && line.remainingQuantity !== null && (
                       <>
                         <span className="text-xs text-muted-foreground tabular-nums">
-                          النظام يحسب {systemRemaining.toLocaleString('en-US', { maximumFractionDigits: 3 })} {item?.unit} — الفرق {Math.abs(line.remainingQuantity - systemRemaining).toLocaleString('en-US', { maximumFractionDigits: 3 })}
+                          النظام يحسب {systemRemaining.toLocaleString('en-US', { maximumFractionDigits: 3 })} {getUnitLabel(item?.unit)} — الفرق {Math.abs(line.remainingQuantity - systemRemaining).toLocaleString('en-US', { maximumFractionDigits: 3 })}
                         </span>
                         <select
                           className="h-8 rounded-md border bg-background px-2 text-xs"
@@ -416,7 +499,7 @@ export default function WithdrawalQuickEntry({
                       </>
                     )}
                     {status === 'opening' && line.remainingQuantity !== null && (
-                      <span className="text-xs text-muted-foreground tabular-nums">سيُسجل رصيد أول المدة {(line.remainingQuantity + line.quantity).toLocaleString('en-US', { maximumFractionDigits: 3 })} {item?.unit} ثم يُخصم السحب</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">سيُسجل رصيد أول المدة {(line.remainingQuantity + usageQty).toLocaleString('en-US', { maximumFractionDigits: 3 })} {getUnitLabel(item?.unit)} ثم يُخصم السحب</span>
                     )}
                   </div>
                 </div>
@@ -454,7 +537,8 @@ function lineStatus(line: WithdrawalImportLine, item: OperationalInventoryItem |
   if (!item) return 'unmatched';
   if (line.remainingQuantity === null) return 'auto';
   if (item.balances.length === 0) return 'opening';
-  const systemRemaining = item.availableQuantity - line.quantity;
+  const usageQty = resolveUsageQuantity(line, item);
+  const systemRemaining = item.availableQuantity - usageQty;
   const diff = line.remainingQuantity - systemRemaining;
   if (Math.abs(diff) <= 0.001) return 'match';
   return diff < 0 ? 'shortage' : 'surplus';

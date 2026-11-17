@@ -18,6 +18,8 @@ export type OperationalInventoryItem = {
   unit: string;
   purchaseUnit: string;
   conversionFactor: number;
+  packSizeValue?: number | null;
+  packSizeUnit?: 'g' | 'kg' | 'ml' | 'l' | null;
   minStock: number;
   lastPurchasePrice: number;
   averageCost: number;

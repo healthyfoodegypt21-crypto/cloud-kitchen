@@ -94,7 +94,7 @@ describe('smart purchase message parsing', () => {
       inventoryItems,
     );
 
-    expect(result.lines[0]).toMatchObject({ sourceName: 'كزبرة مشموم', quantity: 10, unitPrice: 2.5, sourceUnit: 'piece' });
+    expect(result.lines[0]).toMatchObject({ sourceName: 'كزبرة مشموم', quantity: 10, unitPrice: 2.5, sourceUnit: 'plate' });
     expect(result.supplierName).toBe('حسن الكزبرون');
   });
 

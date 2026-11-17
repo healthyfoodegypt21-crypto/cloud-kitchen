@@ -116,7 +116,7 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
     // Critical datasets decide whether the screen can render at all; secondary
     // datasets fail soft so one broken table never blanks the whole inventory.
     const [itemsRes, balancesRes, categoriesRes, warehousesRes] = await Promise.all([
-      client.from('items_master').select('id, brand_id, item_code, name, category, purchase_unit, usage_unit, conversion_factor, min_stock, last_purchase_price, avg_cost, status, notes').eq('brand_id', brandId).order('name'),
+      client.from('items_master').select('id, brand_id, item_code, name, category, purchase_unit, usage_unit, conversion_factor, pack_size_value, pack_size_unit, min_stock, last_purchase_price, avg_cost, status, notes').eq('brand_id', brandId).order('name'),
       client.from('inventory_balances').select('id,item_id,on_hand,reserved_qty,location_name').eq('brand_id', brandId),
       client.from('inventory_categories').select('id, code, name_ar, name_en, sort_order, is_active').eq('is_active', true).order('sort_order'),
       client.from('warehouses').select('id,warehouse_code,name,status').eq('brand_id', brandId).eq('status', 'active').order('name'),
@@ -192,13 +192,17 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
       balancesByItem.set(itemId, itemBalances);
     });
 
-    setItems(rawItems.map((item) => {
+    const mappedItems: OperationalInventoryItem[] = rawItems.map((item) => {
       const itemBalances = balancesByItem.get(String(item.id)) ?? [];
       const defaultBalance = itemBalances.find((entry) => entry.locationName.toLowerCase() === 'main') ?? itemBalances[0];
+      const rawPackVal = item.pack_size_value !== null && item.pack_size_value !== undefined ? numeric(item.pack_size_value) : null;
+      const rawPackUnit = item.pack_size_unit ? (String(item.pack_size_unit) as OperationalInventoryItem['packSizeUnit']) : null;
       return {
         id: String(item.id), brandId: String(item.brand_id), code: String(item.item_code), name: String(item.name),
         category: String(item.category), unit: String(item.usage_unit ?? item.purchase_unit),
         purchaseUnit: String(item.purchase_unit), conversionFactor: numeric(item.conversion_factor ?? 1),
+        packSizeValue: rawPackVal && rawPackVal > 0 ? rawPackVal : null,
+        packSizeUnit: rawPackUnit,
         minStock: numeric(item.min_stock),
         lastPurchasePrice: numeric(item.last_purchase_price), averageCost: numeric(item.avg_cost),
         onHand: itemBalances.reduce((sum, balance) => sum + balance.onHand, 0),
@@ -211,7 +215,8 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
         })),
         status: item.status === 'inactive' ? 'inactive' : 'active', notes: String(item.notes ?? ''),
       };
-    }));
+    });
+    setItems(mappedItems);
     setCategories(asRecords(categoriesRes.data).map((category) => ({
       id: String(category.id), code: String(category.code), name_ar: String(category.name_ar), name_en: String(category.name_en),
       sort_order: numeric(category.sort_order), is_active: Boolean(category.is_active),
@@ -316,23 +321,7 @@ export function useOperationalInventory(brandId: string, linkedBrandIds: string[
     }
     writeSnapshot(brandId, {
       savedAt: new Date().toISOString(),
-      items: rawItems.map((item) => {
-        const itemBalances = balancesByItem.get(String(item.id)) ?? [];
-        const defaultBalance = itemBalances.find((entry) => entry.locationName.toLowerCase() === 'main') ?? itemBalances[0];
-        return {
-          id: String(item.id), brandId: String(item.brand_id), code: String(item.item_code), name: String(item.name),
-          category: String(item.category), unit: String(item.usage_unit ?? item.purchase_unit),
-          purchaseUnit: String(item.purchase_unit), conversionFactor: numeric(item.conversion_factor ?? 1),
-          minStock: numeric(item.min_stock),
-          lastPurchasePrice: numeric(item.last_purchase_price), averageCost: numeric(item.avg_cost),
-          onHand: itemBalances.reduce((sum, balance) => sum + balance.onHand, 0),
-          reservedQuantity: itemBalances.reduce((sum, balance) => sum + balance.reservedQuantity, 0),
-          availableQuantity: itemBalances.reduce((sum, balance) => sum + Math.max(balance.onHand - balance.reservedQuantity, 0), 0),
-          locationName: defaultBalance?.locationName ?? 'main',
-          balances: itemBalances.map((balance) => ({ ...balance, availableQuantity: Math.max(balance.onHand - balance.reservedQuantity, 0) })),
-          status: item.status === 'inactive' ? 'inactive' : 'active', notes: String(item.notes ?? ''),
-        };
-      }),
+      items: mappedItems,
       categories: asRecords(categoriesRes.data).map((category) => ({
         id: String(category.id), code: String(category.code), name_ar: String(category.name_ar), name_en: String(category.name_en),
         sort_order: numeric(category.sort_order), is_active: Boolean(category.is_active),

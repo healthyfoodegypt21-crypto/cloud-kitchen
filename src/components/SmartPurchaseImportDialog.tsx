@@ -19,7 +19,11 @@ import {
   type SmartPurchaseCatalogItem,
   type SmartPurchaseLine,
 } from '@/lib/smartPurchaseImport';
-import { convertInvoiceLineToPurchaseUnit } from '@/lib/procurementUnits';
+import {
+  convertInvoiceLineToPurchaseUnit,
+  getCompatibleUnitsForItem,
+  getUnitLabel,
+} from '@/lib/procurementUnits';
 import { extractImageFromClipboardEvent, smartReadImage } from '@/lib/ocrImage';
 import AiVisionStatusControl from '@/components/AiVisionStatusControl';
 import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
@@ -43,7 +47,7 @@ export type SmartPurchaseSubmission = {
 
 type Props = {
   open: boolean;
-  inventoryItems: Array<SmartPurchaseCatalogItem & { category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; lastPurchasePrice: number }>;
+  inventoryItems: Array<SmartPurchaseCatalogItem & { category: string; purchaseUnit: string; usageUnit: string; conversionFactor: number; packSizeValue?: number | null; packSizeUnit?: string | null; lastPurchasePrice: number }>;
   suppliers: Array<{ id: string; name: string }>;
   categories: Array<{ code: string; name: string }>;
   defaultPurchaserName: string;
@@ -525,8 +529,39 @@ export default function SmartPurchaseImportDialog({
                       )}
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor={`smart-qty-${line.id}`}>الكمية {line.sourceUnit ? `(${INVENTORY_UNIT_LABELS[line.sourceUnit] ?? line.sourceUnit})` : '(وحدة الشراء)'}</Label>
-                      <Input id={`smart-qty-${line.id}`} type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) })} />
+                      <Label htmlFor={`smart-qty-${line.id}`}>الكمية والوحدة</Label>
+                      <div className="flex gap-1.5">
+                        <Input id={`smart-qty-${line.id}`} type="number" min="0.001" step="0.001" className="min-w-0 flex-1" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) })} />
+                        <select
+                          aria-label={`وحدة ${line.sourceName}`}
+                          className="h-10 w-24 shrink-0 rounded-md border bg-background px-1.5 text-xs font-semibold"
+                          value={line.sourceUnit ?? (item ? (getCompatibleUnitsForItem(item)[0]?.unit ?? '') : '')}
+                          onChange={(event) => {
+                            const nextU = (event.target.value || null) as InventoryUnit | null;
+                            updateLine(line.id, {
+                              sourceUnit: nextU,
+                              confirmedUnit: unitMatchesInventory(nextU, item ?? null),
+                            });
+                          }}
+                        >
+                          {item ? (
+                            getCompatibleUnitsForItem(item).map((opt) => (
+                              <option key={opt.unit} value={opt.unit}>
+                                {opt.shortLabel}
+                              </option>
+                            ))
+                          ) : (
+                            <>
+                              <option value="">تلقائي</option>
+                              {Object.entries(INVENTORY_UNIT_LABELS).map(([u, lbl]) => (
+                                <option key={u} value={u}>
+                                  {lbl}
+                                </option>
+                              ))}
+                            </>
+                          )}
+                        </select>
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor={`smart-price-${line.id}`}>سعر الوحدة</Label>
@@ -544,11 +579,11 @@ export default function SmartPurchaseImportDialog({
                     {item && converted ? (
                       <div className="space-y-2 md:col-span-6">
                         <p className="text-xs text-muted-foreground tabular-nums">
-                          ستُسجل {converted.quantity.toLocaleString('en-US', { maximumFractionDigits: 3 })} {item.purchaseUnit}
-                          {line.sourceUnit && line.sourceUnit !== item.purchaseUnit
-                            ? ` (محوّلة تلقائيًا من ${line.sourceUnit} إلى وحدة الشراء بمعامل ${item.conversionFactor})`
-                            : ' بوحدة الشراء'}
-                          {' '}بسعر {converted.unitPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })} ج.م. للوحدة
+                          ستُسجل {converted.quantity.toLocaleString('en-US', { maximumFractionDigits: 4 })} {getUnitLabel(item.purchaseUnit)}
+                          {converted.usageQuantity !== undefined && item.usageUnit !== item.purchaseUnit
+                            ? ` (= ${converted.usageQuantity.toLocaleString('en-US', { maximumFractionDigits: 3 })} ${getUnitLabel(item.usageUnit)} بالمخزون)`
+                            : ''}
+                          {' '}بسعر {converted.unitPrice.toLocaleString('en-US', { maximumFractionDigits: 2 })} ج.م. للـ {getUnitLabel(item.purchaseUnit)}
                           {' '}— إجمالي السطر {(converted.quantity * converted.unitPrice).toLocaleString('en-US', { maximumFractionDigits: 2 })} ج.م.
                         </p>
                         <ProcurementPriceAlert
