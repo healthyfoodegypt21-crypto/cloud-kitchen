@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, FileSpreadsheet, Loader2, PackagePlus, Pencil, Plus, Printer, Search, ShoppingCart, Trash2, WalletCards, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpFromLine, Check, ClipboardCheck, FileSpreadsheet, GitMerge, Loader2, PackagePlus, Pencil, Plus, Printer, Search, ShoppingCart, Trash2, WalletCards, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +18,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOperationalInventory } from '@/hooks/useOperationalInventory';
 import { supabase } from '@/integrations/supabase/client';
 import { hasPageAccess } from '@/lib/permissions';
+import { cleanExtractedItemName, matchCatalogItem, matchesSmartItemQuery } from '@/lib/smartPurchaseImport';
 import { formatEGPCurrency } from '@/lib/utils';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import PurchaseOrderBuilder, { type PurchaseOrderLine } from '@/components/PurchaseOrderBuilder';
@@ -69,6 +70,8 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   const [submitting, setSubmitting] = useState(false);
   const [printSheet, setPrintSheet] = useState(false);
   const [sheetDialogOpen, setSheetDialogOpen] = useState(false);
+  const [mergeSourceItem, setMergeSourceItem] = useState<OperationalInventoryItem | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState('');
   const [withdrawalInitialMethod, setWithdrawalInitialMethod] = useState<'manual' | 'text' | 'image'>('manual');
 
   useEffect(() => {
@@ -109,7 +112,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
 
   const visibleItems = useMemo(() => items.filter((item) =>
     (category === 'all' || item.category === category)
-      && (!query.trim() || `${item.name} ${item.code}`.toLowerCase().includes(query.trim().toLowerCase())),
+      && (!query.trim() || matchesSmartItemQuery(query, item)),
   ), [category, items, query]);
   const lowStockCount = items.filter((item) => item.status === 'active' && item.minStock > 0 && item.availableQuantity <= item.minStock).length;
   const todayWithdrawalValue = withdrawals.filter((entry) => entry.withdrawalDate === new Date().toISOString().slice(0, 10)).reduce((sum, entry) => sum + entry.totalValue, 0);
@@ -123,8 +126,9 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
   };
 
   const createItem = async () => {
+    const cleanedName = cleanExtractedItemName(itemDraft.name);
     const conversionFactor = number(itemDraft.conversionFactor);
-    if (!itemDraft.name.trim() || !itemDraft.category || !itemDraft.purchaseUnit || !itemDraft.usageUnit
+    if (!cleanedName || !itemDraft.category || !itemDraft.purchaseUnit || !itemDraft.usageUnit
       || !Number.isFinite(conversionFactor) || conversionFactor <= 0
       || !Number.isFinite(number(itemDraft.minStock)) || number(itemDraft.minStock) < 0
       || !Number.isFinite(number(itemDraft.openingQuantity)) || number(itemDraft.openingQuantity) < 0
@@ -133,8 +137,19 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       toast.error('أدخل الاسم والفئة ووحدتي الشراء والاستخدام ومعامل تحويل صحيحًا');
       return;
     }
+    const existingMatch = matchCatalogItem(
+      cleanedName,
+      items.map((it) => ({ id: it.id, name: it.name, sku: it.code })),
+    );
+    if (existingMatch.id && existingMatch.confidence >= 0.85) {
+      const existing = items.find((it) => it.id === existingMatch.id);
+      toast.error(
+        `هذا الصنف مسجل بالفعل باسم «${existing?.name ?? cleanedName}» — استخدم حركة مخزون أو تعديل الصنف بدلاً من تكراره.`,
+      );
+      return;
+    }
     const result = await invoke('inventory_create_item_v2', {
-      _brand_id: brandId, _item_code: itemDraft.code || itemCode(itemDraft.name), _name: itemDraft.name, _category: itemDraft.category,
+      _brand_id: brandId, _item_code: itemDraft.code || itemCode(cleanedName), _name: cleanedName, _category: itemDraft.category,
       _purchase_unit: itemDraft.purchaseUnit, _usage_unit: itemDraft.usageUnit, _conversion_factor: conversionFactor,
       _min_stock: number(itemDraft.minStock), _location_name: itemDraft.locationName,
       _opening_quantity: number(itemDraft.openingQuantity), _opening_unit_cost: number(itemDraft.openingCost), _notes: itemDraft.notes,
@@ -187,6 +202,36 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     if (!window.confirm(`حذف الصنف "${item.name}"؟ لا يمكن حذف صنف مرتبط بحركات أو مستندات سابقة.`)) return;
     const result = await invoke('inventory_delete_item', { _brand_id: brandId, _item_id: item.id });
     if (result) toast.success('تم حذف الصنف');
+  };
+
+  const openMergeDialog = (sourceItem: OperationalInventoryItem) => {
+    const candidates = items.filter((it) => it.id !== sourceItem.id && it.status === 'active');
+    const suggested = matchCatalogItem(
+      sourceItem.name,
+      candidates.map((it) => ({ id: it.id, name: it.name, sku: it.code })),
+    );
+    setMergeSourceItem(sourceItem);
+    setMergeTargetId(suggested.id || '');
+  };
+
+  const confirmMergeItem = async () => {
+    if (!mergeSourceItem || !mergeTargetId) {
+      toast.error('اختر الصنف الأساسي المراد الدمج فيه');
+      return;
+    }
+    const target = items.find((it) => it.id === mergeTargetId);
+    const result = await invoke('inventory_merge_duplicate_item', {
+      _brand_id: brandId,
+      _source_item_id: mergeSourceItem.id,
+      _target_item_id: mergeTargetId,
+    });
+    if (result) {
+      toast.success(
+        `تم دمج «${mergeSourceItem.name}» داخل «${target?.name ?? 'الصنف الأساسي'}» وتوحيد الرصيد والسجل بنجاح`,
+      );
+      setMergeSourceItem(null);
+      setMergeTargetId('');
+    }
   };
 
   const postMovement = async () => {
@@ -534,6 +579,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
               <Button size="icon" variant="ghost" aria-label={`سحب ${item.name} من المخزن`} title="سحب من المخزن" onClick={() => { setLine({ itemId: item.id, quantity: '', unitCost: '', locationName: item.locationName, reason: '', batchNo: '', expiryDate: '' }); setMode('withdrawal'); }}><ArrowUpFromLine className="h-4 w-4" /></Button>
               <Button size="icon" variant="ghost" aria-label={`طلب ${item.name}`} title="طلب شراء" onClick={() => startPurchaseRequest(item)}><ShoppingCart className="h-4 w-4" /></Button>
               <Button size="icon" variant="ghost" aria-label={`جرد ${item.name}`} title="بدء جرد" onClick={() => { const balance = item.balances.find((entry) => entry.locationName === item.locationName); setLine({ itemId: item.id, quantity: String(balance?.onHand ?? item.onHand), unitCost: '', locationName: item.locationName, reason: '', batchNo: '', expiryDate: '' }); setMode('count'); }}><ClipboardCheck className="h-4 w-4" /></Button>
+              <Button size="icon" variant="ghost" aria-label={`دمج ${item.name} مع صنف آخر`} title="دمج صنف مكرر مع صنف أساسي" disabled={submitting} onClick={() => openMergeDialog(item)}><GitMerge className="h-4 w-4 text-sky-600" /></Button>
               <Button size="icon" variant="ghost" aria-label={`${item.status === 'active' ? 'أرشفة' : 'تفعيل'} ${item.name}`} title={item.status === 'active' ? 'أرشفة' : 'تفعيل'} disabled={submitting} onClick={() => void runSubmit(() => toggleItemStatus(item))}><span className="text-xs">{item.status === 'active' ? 'أر' : 'فع'}</span></Button>
               <Button size="icon" variant="ghost" className="text-destructive" aria-label={`حذف ${item.name}`} title="حذف" disabled={submitting} onClick={() => void runSubmit(() => deleteItem(item))}><Trash2 className="h-4 w-4" /></Button>
             </>}</div></td>
@@ -575,7 +621,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
     </Tabs>
 
     <Dialog open={mode !== null && mode !== 'directPurchase'} onOpenChange={(open) => !open && reset()}><DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto"><DialogHeader><DialogTitle>{mode === 'item' ? 'إضافة صنف جديد' : mode === 'editItem' ? 'تعديل بيانات الصنف' : mode === 'category' ? 'إضافة فئة' : mode === 'purchase' ? 'طلب شراء للمخزن المركزي' : mode === 'withdrawal' ? 'سحب من المخزن' : mode === 'count' ? 'إرسال جرد للمراجعة' : movementAction === 'deposit' ? 'إيداع في المخزون' : 'تسجيل هالك'}</DialogTitle><DialogDescription>{mode === 'purchase' ? 'لا يتغير الرصيد حتى يتم الاستلام الفعلي.' : mode === 'count' ? 'سيُحفظ الجرد للمراجعة ولا يتغير الرصيد قبل اعتماده من مستخدم آخر.' : mode === 'withdrawal' ? 'يُخصم السحب من المخزن المركزي دون تحديد علامة، لأنه قد يُستخدم في وجبات مشتركة.' : 'هذا المخزن يخدم العلامات المرتبطة به دون فصل الأرصدة.'}</DialogDescription></DialogHeader>
-      {(mode === 'item' || mode === 'editItem') && <ItemForm draft={itemDraft} setDraft={setItemDraft} categories={categories} locations={locations} allowOpeningStock={mode === 'item'} onSave={() => void runSubmit(mode === 'item' ? createItem : updateItem)} submitting={submitting} />}
+      {(mode === 'item' || mode === 'editItem') && <ItemForm draft={itemDraft} setDraft={setItemDraft} existingItems={items} editingItemId={editingItem?.id} categories={categories} locations={locations} allowOpeningStock={mode === 'item'} onSave={() => void runSubmit(mode === 'item' ? createItem : updateItem)} submitting={submitting} />}
       {mode === 'category' && <div className="space-y-3"><Field label="اسم الفئة بالعربية" value={categoryDraft.nameAr} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameAr: value }))} /><Field label="الكود (إنجليزي بلا مسافات)" value={categoryDraft.code} onChange={(value) => setCategoryDraft((current) => ({ ...current, code: value }))} /><Field label="الاسم بالإنجليزية" value={categoryDraft.nameEn} onChange={(value) => setCategoryDraft((current) => ({ ...current, nameEn: value }))} /><Button className="w-full" onClick={() => void runSubmit(createCategory)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الفئة</Button></div>}
       {mode === 'movement' && <div className="space-y-3"><div className="space-y-1"><Label htmlFor="movement-action">نوع الحركة</Label><select id="movement-action" className="h-10 w-full rounded-md border bg-background px-3" value={movementAction} onChange={(event) => { if (event.target.value === 'deposit' || event.target.value === 'waste') setMovementAction(event.target.value); }}><option value="deposit">إضافة رصيد</option><option value="waste">تسجيل هالك</option></select></div><LineEditor items={items} locations={locations} line={line} setLine={setLine} showCost={movementAction === 'deposit'} /><Button className="w-full" onClick={() => void runSubmit(postMovement)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}{movementAction === 'deposit' ? 'تأكيد الإيداع' : 'تأكيد الهالك'}</Button></div>}
       {mode === 'count' && <div className="space-y-3"><LineEditor items={items} locations={locations} line={line} setLine={setLine} quantityLabel="الرصيد الفعلي بعد الجرد" /><Button className="w-full" onClick={() => void runSubmit(postCount)} disabled={submitting}>{submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="ml-2 h-4 w-4" />}إرسال للمراجعة</Button></div>}
@@ -590,6 +636,46 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       items={items}
       categories={categories}
     />
+    <Dialog open={mergeSourceItem !== null} onOpenChange={(open) => { if (!open) { setMergeSourceItem(null); setMergeTargetId(''); } }}>
+      <DialogContent className="max-w-md" dir="rtl">
+        <DialogHeader>
+          <DialogTitle>دمج صنف مكرر في صنف أساسي</DialogTitle>
+          <DialogDescription>
+            سيتم نقل رصيد ودفعات وفواتير وحركات «{mergeSourceItem?.name}» بالكامل إلى الصنف الأساسي مع حساب متوسط التكلفة المرجح وحذف الاسم المكرر.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 py-2">
+          <Label>اختر الصنف الأساسي الذي سيبقى في المخزون</Label>
+          <select
+            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+            value={mergeTargetId}
+            onChange={(e) => setMergeTargetId(e.target.value)}
+          >
+            <option value="">— اختر الصنف الأساسي —</option>
+            {items
+              .filter((it) => it.id !== mergeSourceItem?.id && it.status === 'active')
+              .map((it) => (
+                <option key={it.id} value={it.id}>
+                  {it.name} — (المتاح: {it.availableQuantity} {it.unit})
+                </option>
+              ))}
+          </select>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => { setMergeSourceItem(null); setMergeTargetId(''); }} disabled={submitting}>
+            إلغاء
+          </Button>
+          <Button
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => void runSubmit(confirmMergeItem)}
+            disabled={submitting || !mergeTargetId}
+          >
+            {submitting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <GitMerge className="ml-2 h-4 w-4" />}
+            تأكيد الدمج وتوحيد الرصيد
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={countReviewModal !== null} onOpenChange={(open) => !open && setCountReviewModal(null)}>
       <DialogContent className="max-w-md">
         <DialogHeader>
@@ -650,8 +736,17 @@ function LineEditor({ items, locations, line, setLine, showCost = false, quantit
     <div className="space-y-1 sm:col-span-2"><Label>السبب / الملاحظات</Label><Input value={line.reason} onChange={(event) => setLine((current) => ({ ...current, reason: event.target.value }))} /></div>
   </div>;
 }
-function ItemForm({ draft, setDraft, categories, locations, allowOpeningStock, onSave, submitting = false }: { draft: ItemDraft; setDraft: React.Dispatch<React.SetStateAction<ItemDraft>>; categories: { code: string; name_ar: string }[]; locations: { code: string; name: string }[]; allowOpeningStock: boolean; onSave: () => void; submitting?: boolean }) {
+function ItemForm({ draft, setDraft, existingItems = [], editingItemId, categories, locations, allowOpeningStock, onSave, submitting = false }: { draft: ItemDraft; setDraft: React.Dispatch<React.SetStateAction<ItemDraft>>; existingItems?: OperationalInventoryItem[]; editingItemId?: string; categories: { code: string; name_ar: string }[]; locations: { code: string; name: string }[]; allowOpeningStock: boolean; onSave: () => void; submitting?: boolean }) {
   const update = (key: keyof ItemDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+  const duplicateCandidate = useMemo(() => {
+    if ( draft.name.trim().length < 2) return null;
+    const pool = existingItems
+      .filter((it) => it.id !== editingItemId)
+      .map((it) => ({ id: it.id, name: it.name, sku: it.code }));
+    const res = matchCatalogItem(draft.name, pool);
+    if (!res.id || res.confidence < 0.75) return null;
+    return existingItems.find((it) => it.id === res.id) ?? null;
+  }, [draft.name, editingItemId, existingItems]);
   const updateUnit = (key: 'purchaseUnit' | 'usageUnit', value: string) => setDraft((current) => {
     const purchaseUnit = key === 'purchaseUnit' ? value : current.purchaseUnit;
     const usageUnit = key === 'usageUnit' ? value : current.usageUnit;
@@ -665,6 +760,11 @@ function ItemForm({ draft, setDraft, categories, locations, allowOpeningStock, o
   return <div className="grid gap-3 sm:grid-cols-2">
     <Field label="اسم الصنف" value={draft.name} onChange={(value) => update('name', value)} />
     <Field label="كود الصنف (اختياري)" value={draft.code} onChange={(value) => update('code', value)} />
+    {duplicateCandidate && (
+      <div className="sm:col-span-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
+        تنبيه ذكي: يوجد صنف مسجل بالفعل باسم «{duplicateCandidate.name}» (المتاح: {duplicateCandidate.availableQuantity} {duplicateCandidate.unit}) — تَفادَ تسجيل اسمين لنفس الصنف.
+      </div>
+    )}
     <div className="space-y-1"><Label>الفئة</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={draft.category} onChange={(event) => update('category', event.target.value)}><option value="">اختر الفئة</option>{categories.map((category) => <option key={category.code} value={category.code}>{category.name_ar}</option>)}</select></div>
     <UnitField label="وحدة الشراء" value={draft.purchaseUnit} onChange={(value) => updateUnit('purchaseUnit', value)} />
     <UnitField label="وحدة الاستخدام بالمخزون" value={draft.usageUnit} onChange={(value) => updateUnit('usageUnit', value)} />

@@ -73,8 +73,17 @@ function normalizeName(value: string) {
   return value
     .normalize('NFKC')
     .toLowerCase()
+    .replace(/\u0640/g, '')
     .replace(/[\u064B-\u065F\u0670]/g, '')
-    .replace(/[أإآ]/g, 'ا')
+    // Strip definite article "ال" when not followed by root words like ألبان / ألوان
+    .replace(/(^|\s)ال(?=[\u0600-\u06FF]{2,})/gu, (match, prefix, offset, full) => {
+      const rest = full.slice(offset + prefix.length);
+      if (/^ال(?:بان|وان|ماس|ياف)(?:\s|$)/u.test(rest)) return match;
+      return prefix;
+    })
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
     .replace(/ى/g, 'ي')
     .replace(/ة/g, 'ه')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
@@ -101,25 +110,73 @@ export function unitMatchesInventory(sourceUnit: InventoryUnit | null, item: Sma
 const ARABIC_SYNONYM_MAP: Record<string, string> = {
   فراخ: 'دجاج',
   فرخه: 'دجاج',
+  دجاجه: 'دجاج',
   تشيكن: 'دجاج',
+  chicken: 'دجاج',
   رز: 'ارز',
   بطاطا: 'بطاطس',
+  potato: 'بطاطس',
+  potatoes: 'بطاطس',
   قوطه: 'طماطم',
   بندوره: 'طماطم',
+  tomato: 'طماطم',
+  tomatoes: 'طماطم',
   لحمه: 'لحم',
+  لحوم: 'لحم',
   بيف: 'لحم',
+  beef: 'لحم',
   ستيك: 'استيك',
   سلمون: 'سالمون',
+  salmon: 'سالمون',
   كليماري: 'كالماري',
   معكرونه: 'مكرونه',
   باستا: 'مكرونه',
+  pasta: 'مكرونه',
   لبن: 'حليب',
+  جبنه: 'جبن',
+  اجبان: 'جبن',
+  كابوتشي: 'كابوتشا',
+  كابوتشه: 'كابوتشا',
+  ماشروم: 'مشروم',
+  mushroom: 'مشروم',
+  mushrooms: 'مشروم',
+  توم: 'ثوم',
+  جنزبيل: 'زنجبيل',
+  كسبره: 'كزبره',
+  مقدونس: 'بقدونس',
+  عيش: 'خبز',
+  موعين: 'مواعين',
+  اوراك: 'وراك',
+  ورك: 'وراك',
+  صدر: 'صدور',
+  فيتا: 'فيتا',
+  فيتاه: 'فيتا',
 };
 
+const STOPWORD_TOKENS = new Set([
+  'ال', 'و', 'او', 'ب', 'ل', 'من', 'في', 'علي', 'عن', 'مع',
+  'اليوم', 'انهارده', 'النهارده', 'امبارح', 'واحد', 'واحده',
+]);
+
+const PACKAGING_WRAPPER_TOKENS = new Set([
+  'كيلو', 'كيلوجرام', 'كجم', 'جرام', 'جم', 'لتر', 'ليتر', 'مل',
+  'قطعه', 'قطع', 'حبه', 'حبات', 'حزمه', 'حزم', 'ربطه', 'ربط',
+  'كيس', 'اكياس', 'شيكاره', 'شكاره', 'شكات', 'شوال', 'اجوله',
+  'علبه', 'علب', 'كرتونه', 'كرتون', 'كراتين', 'صندوق', 'بوكس',
+  'قفص', 'اقفاص', 'سبت', 'برنيكه', 'طبق', 'اطباق', 'زجاجه', 'ازازه',
+  'جركن', 'جراكن', 'صفيحه', 'بستله', 'وزن', 'فرط',
+]);
+
 function normalizeArabicToken(token: string): string {
-  // Strip definite article "ال" on Arabic words with >= 4 letters (e.g. "الطماطم" -> "طماطم")
-  const stripped = /^ال[\u0600-\u06FF]{2,}$/u.test(token) ? token.slice(2) : token;
+  const stripped =
+    /^ال[\u0600-\u06FF]{2,}$/u.test(token) && !/^ال(?:بان|وان|ماس|ياف)$/u.test(token)
+      ? token.slice(2)
+      : token;
   return ARABIC_SYNONYM_MAP[stripped] ?? stripped;
+}
+
+function collapseRepeatedChars(value: string): string {
+  return value.replace(/(.)\1+/gu, '$1');
 }
 
 function tokenSet(value: string) {
@@ -127,8 +184,45 @@ function tokenSet(value: string) {
     normalizeName(value)
       .split(' ')
       .filter(Boolean)
-      .map(normalizeArabicToken),
+      .map(normalizeArabicToken)
+      .filter((tok) => tok && !STOPWORD_TOKENS.has(tok)),
   );
+}
+
+function coreTokenSet(value: string): Set<string> {
+  const full = [...tokenSet(value)];
+  const core = full.filter((tok) => !PACKAGING_WRAPPER_TOKENS.has(tok));
+  return new Set(core.length > 0 ? core : full);
+}
+
+export function cleanExtractedItemName(raw: string): string {
+  const words = compactWhitespace(raw)
+    .replace(/^[:：\-–—•*]+|[:：\-–—•*]+$/gu, '')
+    .split(/\s+/u)
+    .filter(Boolean);
+
+  const deduped: string[] = [];
+  for (const word of words) {
+    const prev = deduped[deduped.length - 1];
+    if (prev && normalizeName(prev) === normalizeName(word)) {
+      continue;
+    }
+    deduped.push(word);
+  }
+
+  const DANGLING_EDGE = /^(?:ال|الـ|ب|بـ|و|ف|ل|من|في|على|علي|عن|اليوم|انهارده|انهاردة|النهارده|النهاردة|امبارح)$/iu;
+  while (deduped.length > 1 && DANGLING_EDGE.test(deduped[0])) {
+    deduped.shift();
+  }
+  while (deduped.length > 1 && DANGLING_EDGE.test(deduped[deduped.length - 1])) {
+    deduped.pop();
+  }
+
+  return deduped.join(' ').trim();
+}
+
+export function canonicalItemKey(name: string): string {
+  return [...tokenSet(name)].sort().join(' ');
 }
 
 function editDistanceAtMostOne(left: string, right: string) {
@@ -164,6 +258,7 @@ function editDistanceAtMostOne(left: string, right: string) {
 
 function tokensMatch(source: string, candidate: string) {
   if (source === candidate) return true;
+  if (collapseRepeatedChars(source) === collapseRepeatedChars(candidate) && source.length >= 3) return true;
   if (source.length >= 3 && candidate.startsWith(source)) return true;
   if (candidate.length >= 3 && source.startsWith(candidate)) return true;
   return source.length >= 4 && candidate.length >= 4 && editDistanceAtMostOne(source, candidate);
@@ -186,23 +281,48 @@ function similarityScore(source: string, candidate: string) {
     candidateTokens.some((candidateToken) => tokensMatch(sourceToken, candidateToken)),
   ).length;
   if (candidateCovered < candidateTokens.length || sourceCovered < sourceTokens.length) {
+    const cSrc = [...coreTokenSet(source)];
+    const cCand = [...coreTokenSet(candidate)];
+    if (cSrc.length > 0 && cCand.length > 0) {
+      const cCandCov = cCand.filter((ct) => cSrc.some((st) => tokensMatch(st, ct))).length;
+      const cSrcCov = cSrc.filter((st) => cCand.some((ct) => tokensMatch(st, ct))).length;
+      if (cCandCov === cCand.length && cSrcCov === cSrc.length) {
+        const cExact = cCand.filter((ct) => cSrc.includes(ct)).length;
+        const cScore = 0.5 + (cExact / Math.max(cSrc.length, cCand.length)) * 0.5;
+        return Math.min(0.92, cScore * 0.92);
+      }
+    }
     return 0;
   }
 
   const exactPairs = candidateTokens.filter((candidateToken) => sourceTokens.includes(candidateToken)).length;
   const precision = exactPairs / Math.max(sourceTokens.length, candidateTokens.length);
-  return 0.5 + precision * 0.5;
+  const fullScore = 0.5 + precision * 0.5;
+  if (fullScore >= 0.95) return fullScore;
+  const cSrc = [...coreTokenSet(source)];
+  const cCand = [...coreTokenSet(candidate)];
+  if (cSrc.length > 0 && cCand.length > 0) {
+    const cCandCov = cCand.filter((ct) => cSrc.some((st) => tokensMatch(st, ct))).length;
+    const cSrcCov = cSrc.filter((st) => cCand.some((ct) => tokensMatch(st, ct))).length;
+    if (cCandCov === cCand.length && cSrcCov === cSrc.length) {
+      const cExact = cCand.filter((ct) => cSrc.includes(ct)).length;
+      const cScore = 0.5 + (cExact / Math.max(cSrc.length, cCand.length)) * 0.5;
+      return Math.max(fullScore, Math.min(0.92, cScore * 0.92));
+    }
+  }
+  return fullScore;
 }
 
 const FUZZY_MATCH_THRESHOLD = 0.5;
 
 export function matchCatalogItem(name: string, items: SmartPurchaseCatalogItem[]) {
-  const normalizedName = normalizeName(name);
-  const normalizedTokenJoined = [...tokenSet(name)].join(' ');
+  const cleaned = cleanExtractedItemName(name);
+  const normalizedName = normalizeName(cleaned);
+  const sortedTokens = canonicalItemKey(cleaned);
   const exact = items.find((candidate) => (
     normalizeName(candidate.name) === normalizedName
-    || [...tokenSet(candidate.name)].join(' ') === normalizedTokenJoined
-    || normalizeName(candidate.sku ?? '') === normalizedName
+    || (sortedTokens.length > 0 && canonicalItemKey(candidate.name) === sortedTokens)
+    || (normalizedName.length > 0 && normalizeName(candidate.sku ?? '') === normalizedName)
   ));
   if (exact) {
     return { id: exact.id, confidence: 1 };
@@ -212,14 +332,37 @@ export function matchCatalogItem(name: string, items: SmartPurchaseCatalogItem[]
     .map((candidate) => ({
       candidate,
       score: Math.max(
-        similarityScore(name, candidate.name),
-        candidate.sku ? similarityScore(name, candidate.sku) : 0,
+        similarityScore(cleaned, candidate.name),
+        candidate.sku ? similarityScore(cleaned, candidate.sku) : 0,
       ),
     }))
     .filter((entry) => entry.score >= FUZZY_MATCH_THRESHOLD)
     .sort((left, right) => right.score - left.score)[0];
 
   return best ? { id: best.candidate.id, confidence: best.score } : { id: '', confidence: 0 };
+}
+
+export function matchesSmartItemQuery(
+  query: string,
+  item: { name: string; code?: string; sku?: string },
+): boolean {
+  const qRaw = query.trim().toLowerCase();
+  if (!qRaw) return true;
+  const codeStr = (item.code ?? item.sku ?? '').toLowerCase();
+  if (item.name.toLowerCase().includes(qRaw) || codeStr.includes(qRaw)) {
+    return true;
+  }
+  const qNorm = normalizeName(query);
+  const nameNorm = normalizeName(item.name);
+  if (qNorm && (nameNorm.includes(qNorm) || normalizeName(codeStr).includes(qNorm))) {
+    return true;
+  }
+  const qTokens = [...tokenSet(query)];
+  if (qTokens.length === 0) return true;
+  const itemTokens = [...tokenSet(item.name)];
+  return qTokens.every((qt) =>
+    itemTokens.some((it) => it.includes(qt) || qt.includes(it) || tokensMatch(qt, it)),
+  );
 }
 
 export const PURCHASE_UNIT_ALTERNATIVES = UNIT_ALTERNATIVES;
@@ -297,10 +440,11 @@ const standaloneNumberPattern = new RegExp(`(${NUMBER_TOKEN})`, 'u');
 const supplierPattern = /(?:^|\s)(?:من\s+عند|من|عند)\s+([^\d]+?)(?=\s+(?:بسعر|سعرها|سعره|سعر|تمن|ثمن|فيها|يعني|بـ?\s*\d|الكيلو|الواحده|الواحدة)|\s*$)/u;
 
 const NAME_FILLER_TOKENS = new Set([
-  'يعني', 'تقريبا', 'تقريباً', 'ليهم', 'كلهم', 'النهارده', 'النهاردة', 'امبارح',
+  'يعني', 'تقريبا', 'تقريباً', 'ليهم', 'كلهم', 'النهارده', 'النهاردة', 'انهارده', 'انهاردة', 'اليوم', 'امبارح',
   'جنيه', 'جنية', 'جنيهات', 'جم', 'ج', 'ج.م', 'بس', 'كده', 'كدا', 'طبعا',
   'سعر', 'بسعر', 'تمن', 'تمنها', 'تمنه', 'ثمن', 'ثمنها', 'ثمنه',
   'فيها', 'بيكون', 'كان', 'تكون', 'هو', 'و', 'ونص', 'نص', 'نصف', 'ربع', 'من', 'عند', 'حساب', 'الحساب',
+  'ال', 'الـ', 'الواحده', 'الواحدة', 'الحبه', 'الحبة', 'الكيلو', 'القطعه', 'القطعة',
 ]);
 
 function parseQuantityToken(token: string) {
@@ -592,8 +736,11 @@ function parseFreeformPurchaseLine(line: string, index: number): { line: Omit<Sm
     }
   }
 
-  const name = compactWhitespace(
-    rest.split(/\s+/u)
+  const name = cleanExtractedItemName(
+    rest
+      // Strip definite quantity back-references like "ال 12" in "12 كابوتشا ال 12 ب 100"
+      .replace(/(?:^|\s)ال\s*\d+(?:[.,]\d+)?(?=\s|$)/gu, ' ')
+      .split(/\s+/u)
       .filter(token => token && !NAME_FILLER_TOKENS.has(token) && !/^\d/u.test(token))
       .join(' '),
   );
@@ -729,7 +876,7 @@ export function parseSmartPurchaseMessage(text: string, items: SmartPurchaseCata
     const match = strippedLine.match(linePattern);
     const quantity = match ? parseLocalizedNumber(match[2]) : null;
     const unitPrice = match ? parseLocalizedNumber(match[4]) : null;
-    const sourceName = match?.[1]?.trim().replace(/[:：-]\s*$/, '') ?? '';
+    const sourceName = cleanExtractedItemName(match?.[1]?.trim().replace(/[:：-]\s*$/, '') ?? '');
 
     if (!match || !sourceName || !/[\p{L}]/u.test(sourceName) || quantity === null || quantity <= 0 || unitPrice === null || unitPrice < 0) {
       // 3. Free-form fallback: "اشتريت 3 جرجير سعر الواحده 3.5 جنيه و نص" / "5 كيلو طماطم الكيلو ب 30" / "نص كيلو ثوم ب 40"

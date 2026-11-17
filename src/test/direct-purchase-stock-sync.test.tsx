@@ -133,4 +133,48 @@ describe('Direct & Smart Purchase Immediate Stock Sync', () => {
       ],
     });
   });
+
+  it('DirectMultiPurchaseDialog detects existing catalog item when typing a synonymous new item name', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(true);
+
+    render(
+      <DirectMultiPurchaseDialog
+        open={true}
+        onOpenChange={() => {}}
+        items={[
+          {
+            id: 'item-cab',
+            name: 'كابوتشا',
+            code: 'CAB-01',
+            purchaseUnit: 'piece',
+            usageUnit: 'piece',
+            conversionFactor: 1,
+            lastPrice: 9,
+            averageCost: 9,
+          },
+        ]}
+        suppliers={[]}
+        authenticatedAccountName="Yassen"
+        onSubmit={onSubmit}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /\+ تعريف كصنف جديد غير مسجل/ }));
+    const newNameInput = screen.getByPlaceholderText('مثال: صوص ديمي جلاس');
+    fireEvent.change(newNameInput, { target: { value: 'كابوتشا ال' } });
+
+    const useExistingBtn = await screen.findByRole('button', { name: 'استخدام «كابوتشا»' });
+    fireEvent.click(useExistingBtn);
+
+    const submitBtn = screen.getByRole('button', {
+      name: /حفظ الفاتورة وإضافة الأصناف للمخزون فوراً/,
+    });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0].lines[0]).toMatchObject({
+      itemId: 'item-cab',
+      unitCost: 9,
+    });
+  });
 });

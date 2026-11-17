@@ -10,7 +10,14 @@ import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 import type { InventoryCategory, InventoryUnit } from '@/types/inventory';
 import { INVENTORY_CATEGORY_LABELS } from '@/types/inventory';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { parseSmartPurchaseMessage, unitMatchesInventory, type SmartPurchaseCatalogItem, type SmartPurchaseLine } from '@/lib/smartPurchaseImport';
+import {
+  matchCatalogItem,
+  matchesSmartItemQuery,
+  parseSmartPurchaseMessage,
+  unitMatchesInventory,
+  type SmartPurchaseCatalogItem,
+  type SmartPurchaseLine,
+} from '@/lib/smartPurchaseImport';
 import { convertInvoiceLineToPurchaseUnit } from '@/lib/procurementUnits';
 import { extractImageFromClipboardEvent, smartReadImage } from '@/lib/ocrImage';
 import AiVisionStatusControl from '@/components/AiVisionStatusControl';
@@ -249,6 +256,17 @@ export default function SmartPurchaseImportDialog({
     setLines((current) => current.map((line) => {
       if (line.id !== id) return line;
       const next = { ...line, ...update };
+      // Re-match against catalog automatically when the user edits the extracted name
+      if (update.sourceName !== undefined && update.itemId === undefined) {
+        const rematched = matchCatalogItem(update.sourceName, inventoryItems);
+        next.itemId = rematched.id;
+        next.matchConfidence = rematched.confidence;
+        const matchedItem = rematched.id ? selectedItems.get(rematched.id) ?? null : null;
+        next.confirmedUnit = unitMatchesInventory(next.sourceUnit, matchedItem);
+        if (matchedItem) {
+          next.category = matchedItem.category;
+        }
+      }
       // Auto-fill the category from the linked catalog item.
       if (update.itemId) {
         const linked = selectedItems.get(update.itemId);
@@ -467,8 +485,10 @@ export default function SmartPurchaseImportDialog({
                         onChange={(event) => updateLine(line.id, { sourceName: event.target.value })}
                         dir="auto"
                       />
-                      {line.itemId && line.matchConfidence < 1 && (
-                        <p className="text-xs font-medium text-amber-600">مطابقة تقريبية — راجع الصنف المختار قبل التسجيل</p>
+                      {line.itemId && line.matchConfidence < 1 && item && (
+                        <p className="text-xs font-medium text-emerald-700">
+                          تم التعرف تلقائياً على الصنف المسجل «{item.name}» لمنع التكرار — راجع لو مختلف
+                        </p>
                       )}
                     </div>
                     <div className="space-y-1">
@@ -629,11 +649,8 @@ function ItemCombobox({ id, items, categories, value, onChange }: {
   const selected = items.find((item) => item.id === value);
 
   const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return items;
-    return items.filter((item) =>
-      item.name.toLowerCase().includes(normalized) || (item.sku ?? '').toLowerCase().includes(normalized),
-    );
+    if (!query.trim()) return items;
+    return items.filter((item) => matchesSmartItemQuery(query, item));
   }, [items, query]);
 
   return (

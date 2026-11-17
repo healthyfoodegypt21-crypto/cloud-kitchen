@@ -26,6 +26,11 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
 import { formatCleanUnitLabel } from '@/lib/procurementEngine';
+import {
+  cleanExtractedItemName,
+  matchCatalogItem,
+  matchesSmartItemQuery,
+} from '@/lib/smartPurchaseImport';
 import { INVENTORY_CATEGORY_LABELS, INVENTORY_UNIT_LABELS, type InventoryUnit } from '@/types/inventory';
 import { cn, formatEGPCurrency } from '@/lib/utils';
 
@@ -251,7 +256,7 @@ export default function DirectMultiPurchaseDialog({
         autoReceive,
         lines: lines.map((row) => ({
           itemId: row.mode === 'existing' ? row.itemId : '',
-          newItemName: row.mode === 'new' ? row.newItemName.trim() : undefined,
+          newItemName: row.mode === 'new' ? cleanExtractedItemName(row.newItemName) : undefined,
           newItemCategory: row.mode === 'new' ? row.newItemCategory : undefined,
           newItemUnit: row.mode === 'new' ? row.newItemUnit : undefined,
           quantity: Number(row.quantity),
@@ -373,12 +378,19 @@ export default function DirectMultiPurchaseDialog({
             {lines.map((row, idx) => {
               const selectedItem = row.mode === 'existing' ? itemMap.get(row.itemId) : undefined;
               const filteredOptions = row.searchQuery.trim()
-                ? items.filter(
-                    (it) =>
-                      it.name.toLowerCase().includes(row.searchQuery.trim().toLowerCase()) ||
-                      it.code.toLowerCase().includes(row.searchQuery.trim().toLowerCase()),
-                  )
+                ? items.filter((it) => matchesSmartItemQuery(row.searchQuery, it))
                 : items;
+              const smartExistingMatch =
+                row.mode === 'new' && row.newItemName.trim().length >= 2
+                  ? matchCatalogItem(
+                      row.newItemName,
+                      items.map((it) => ({ id: it.id, name: it.name, sku: it.code })),
+                    )
+                  : { id: '', confidence: 0 };
+              const matchedCatalogItem =
+                smartExistingMatch.id && smartExistingMatch.confidence >= 0.7
+                  ? itemMap.get(smartExistingMatch.id)
+                  : undefined;
               const unitInfo = formatCleanUnitLabel(selectedItem?.purchaseUnit ?? row.newItemUnit);
               const lineTotal = (Number(row.quantity) || 0) * (Number(row.unitCost) || 0);
 
@@ -564,6 +576,37 @@ export default function DirectMultiPurchaseDialog({
                           onChange={(e) => updateRow(row.rowId, { unitCost: e.target.value })}
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {row.mode === 'new' && matchedCatalogItem && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50/80 px-3 py-2 text-xs">
+                      <span className="font-semibold text-amber-950">
+                        تم التعرف تلقائياً على صنف مسجل في المخزن باسم «{matchedCatalogItem.name}» لمنع تكرار الصنف باسمين.
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+                        onClick={() => {
+                          const factor =
+                            matchedCatalogItem.conversionFactor > 0
+                              ? matchedCatalogItem.conversionFactor
+                              : 1;
+                          const fallbackCost =
+                            matchedCatalogItem.lastPrice ||
+                            Math.round(matchedCatalogItem.averageCost * factor * 100) / 100;
+                          updateRow(row.rowId, {
+                            mode: 'existing',
+                            itemId: matchedCatalogItem.id,
+                            newItemName: '',
+                            unitCost:
+                              row.unitCost || (fallbackCost > 0 ? String(fallbackCost) : ''),
+                          });
+                        }}
+                      >
+                        استخدام «{matchedCatalogItem.name}»
+                      </Button>
                     </div>
                   )}
 

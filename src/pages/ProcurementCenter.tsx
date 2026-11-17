@@ -74,6 +74,7 @@ import {
   type UserIdentityDirectoryEntry,
 } from '@/lib/procurementEngine';
 import { suggestPurchaseQuantity } from '@/lib/procurementUnits';
+import { cleanExtractedItemName, matchCatalogItem } from '@/lib/smartPurchaseImport';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import { cn, formatEGPCurrency } from '@/lib/utils';
 
@@ -922,6 +923,9 @@ export default function ProcurementCenter({
                   : c === 'finished_product'
                     ? 'finished_products'
                     : c || 'other';
+      const dynamicCatalog: Array<{ id: string; name: string; sku?: string }> = items.map(
+        (it) => ({ id: it.id, name: it.name, sku: it.code }),
+      );
       const existingItemByKey = new Map(items.map((it) => [normKey(it.name), it.id]));
       const createdInInvoice = new Map<string, string>();
       const resolvedLines: Array<{
@@ -937,8 +941,13 @@ export default function ProcurementCenter({
       for (const line of submission.lines) {
         let targetItemId = line.itemId;
         if (!targetItemId && line.newItemName) {
-          const k = normKey(line.newItemName);
-          const alreadyId = existingItemByKey.get(k) ?? createdInInvoice.get(k);
+          const cleanedName = cleanExtractedItemName(line.newItemName);
+          const k = normKey(cleanedName);
+          const smartMatch = matchCatalogItem(cleanedName, dynamicCatalog);
+          const alreadyId =
+            existingItemByKey.get(k) ??
+            createdInInvoice.get(k) ??
+            (smartMatch.id && smartMatch.confidence >= 0.75 ? smartMatch.id : undefined);
           if (alreadyId) {
             targetItemId = alreadyId;
           } else {
@@ -948,10 +957,10 @@ export default function ProcurementCenter({
               {
                 _brand_id: brandId,
                 _item_code:
-                  line.newItemName.replace(/\s+/g, '-').slice(0, 10).toUpperCase() +
+                  cleanedName.replace(/\s+/g, '-').slice(0, 10).toUpperCase() +
                   '-' +
                   Date.now().toString().slice(-5),
-                _name: line.newItemName,
+                _name: cleanedName,
                 _category: normCat(line.newItemCategory),
                 _purchase_unit: unit,
                 _usage_unit: unit,
@@ -964,10 +973,11 @@ export default function ProcurementCenter({
               },
             );
             if (createErr || !newId) {
-              throw new Error(createErr?.message || `تعذر تعريف الصنف الجديد "${line.newItemName}"`);
+              throw new Error(createErr?.message || `تعذر تعريف الصنف الجديد "${cleanedName}"`);
             }
             targetItemId = String(newId);
             createdInInvoice.set(k, targetItemId);
+            dynamicCatalog.push({ id: targetItemId, name: cleanedName });
           }
         }
 

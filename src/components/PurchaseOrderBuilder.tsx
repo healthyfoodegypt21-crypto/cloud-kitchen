@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import type { InventoryCategoryRecord, InventoryLocation, OperationalInventoryItem } from '@/types/operationalInventory';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 import { suggestPurchaseQuantity } from '@/lib/procurementUnits';
+import { cleanExtractedItemName, matchCatalogItem } from '@/lib/smartPurchaseImport';
 
 export type PurchaseOrderLine = {
   itemId: string;
@@ -75,18 +76,38 @@ export default function PurchaseOrderBuilder({ items, categories, locations, ini
     setExistingItemId('');
   };
   const addNewItem = async () => {
+    const cleanedName = cleanExtractedItemName(newItem.name);
+    if (!cleanedName) {
+      toast.error('أدخل اسم الصنف');
+      return;
+    }
+    const existingMatch = matchCatalogItem(
+      cleanedName,
+      items.filter((it) => it.status === 'active').map((it) => ({ id: it.id, name: it.name, sku: it.code })),
+    );
+    if (existingMatch.id && existingMatch.confidence >= 0.8) {
+      const matchedItem = items.find((it) => it.id === existingMatch.id);
+      if (matchedItem) {
+        if (!selectedIds.has(matchedItem.id)) {
+          setLines((current) => [...current, suggestedLine(matchedItem, locations)]);
+        }
+        setNewItem(blankNewItem);
+        toast.success(`تم التعرف على الصنف الموجود «${matchedItem.name}» وإضافته للأمر لمنع التكرار`);
+        return;
+      }
+    }
     const conversionFactor = Number(newItem.conversionFactor);
-    if (!newItem.name.trim() || !newItem.category || !newItem.purchaseUnit || !newItem.usageUnit
+    if (!newItem.category || !newItem.purchaseUnit || !newItem.usageUnit
       || !Number.isFinite(conversionFactor) || conversionFactor <= 0
       || (newItem.purchaseUnit === newItem.usageUnit && conversionFactor !== 1)) {
       toast.error('أدخل اسم الصنف والفئة ووحدتي الشراء والاستخدام ومعامل تحويل صحيحًا');
       return;
     }
     setCreatingItem(true);
-    const created = await onCreateNewItem(newItem);
+    const created = await onCreateNewItem({ ...newItem, name: cleanedName });
     setCreatingItem(false);
     if (!created) return;
-    setLines(current => [...current, { itemId: created.id, itemName: newItem.name.trim(), unit: newItem.purchaseUnit, quantity: '1', unitCost: newItem.unitCost, locationName: locations[0]?.code ?? 'main', notes: 'صنف جديد ضمن أمر الشراء' }]);
+    setLines(current => [...current, { itemId: created.id, itemName: cleanedName, unit: newItem.purchaseUnit, quantity: '1', unitCost: newItem.unitCost, locationName: locations[0]?.code ?? 'main', notes: 'صنف جديد ضمن أمر الشراء' }]);
     setNewItem(blankNewItem);
     toast.success('تمت إضافة الصنف الجديد إلى أمر الشراء');
   };

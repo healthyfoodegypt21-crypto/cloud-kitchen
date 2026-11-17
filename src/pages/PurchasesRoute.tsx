@@ -5,6 +5,7 @@ import SmartPurchaseImportDialog, { type SmartPurchaseSubmission } from '@/compo
 import ProcurementCenter from '@/pages/ProcurementCenter';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { cleanExtractedItemName, matchCatalogItem } from '@/lib/smartPurchaseImport';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 
 const normalizeCatalogKey = (value: string) =>
@@ -149,7 +150,10 @@ export default function PurchasesRoute() {
     }
 
     // Lines not linked to a catalog item are matched against existing items or
-    // deduplicated within this invoice so repeated lines never create duplicate items.
+    // deduplicated within this invoice so repeated/synonymous lines never create duplicate items.
+    const dynamicCatalog: Array<{ id: string; name: string; sku?: string }> = inventoryItems.map(
+      (it) => ({ id: it.id, name: it.name, sku: it.sku }),
+    );
     const createdInBatch = new Map<string, string>();
     const existingByKey = new Map(
       inventoryItems.map((it) => [normalizeCatalogKey(it.name), it.id]),
@@ -160,13 +164,17 @@ export default function PurchasesRoute() {
         resolvedLines.push({ itemId: line.itemId, quantity: line.quantity, unitPrice: line.unitPrice });
         continue;
       }
-      const itemName = line.itemName.trim();
+      const itemName = cleanExtractedItemName(line.itemName);
       if (!itemName) {
         toast.error('اربط كل سطر بصنف أو تأكد من وجود اسم مستخرج');
         return false;
       }
       const key = normalizeCatalogKey(itemName);
-      const alreadyKnownId = existingByKey.get(key) ?? createdInBatch.get(key);
+      const smartMatch = matchCatalogItem(itemName, dynamicCatalog);
+      const alreadyKnownId =
+        existingByKey.get(key) ??
+        createdInBatch.get(key) ??
+        (smartMatch.id && smartMatch.confidence >= 0.75 ? smartMatch.id : undefined);
       if (alreadyKnownId) {
         resolvedLines.push({ itemId: alreadyKnownId, quantity: line.quantity, unitPrice: line.unitPrice });
         continue;
@@ -195,6 +203,7 @@ export default function PurchasesRoute() {
       }
       const createdId = String(newItemId);
       createdInBatch.set(key, createdId);
+      dynamicCatalog.push({ id: createdId, name: itemName });
       resolvedLines.push({ itemId: createdId, quantity: line.quantity, unitPrice: line.unitPrice });
     }
 

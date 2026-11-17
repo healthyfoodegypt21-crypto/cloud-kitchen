@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseSmartPurchaseMessage } from '@/lib/smartPurchaseImport';
+import {
+  cleanExtractedItemName,
+  matchCatalogItem,
+  matchesSmartItemQuery,
+  parseSmartPurchaseMessage,
+} from '@/lib/smartPurchaseImport';
 
 const inventoryItems = [
   { id: 'tomato', name: 'طماطم', sku: 'VEG-01' },
@@ -186,5 +191,33 @@ describe('smart purchase message parsing', () => {
     expect(result.lines).toHaveLength(2);
     expect(result.lines[0]).toMatchObject({ itemId: 'tomato', quantity: 5, unitPrice: 30 });
     expect(result.lines[1]).toMatchObject({ sourceName: 'بصل', quantity: 4, unitPrice: 25 });
+  });
+
+  it('prevents dangling "ال" duplicates like "كابوتشا ال" when catalog already has "كابوتشا"', () => {
+    const catalog = [
+      { id: 'cabucha-1', name: 'كابوتشا', sku: 'CAB-01' },
+      { id: 'chicken-1', name: 'صدور دجاج', sku: 'CHK-01' },
+      { id: 'potato-1', name: 'شكات بطاطس', sku: 'POT-01' },
+      { id: 'cheese-1', name: 'كنده جبنة قريش', sku: 'DAI-01' },
+    ];
+
+    const parsed = parseSmartPurchaseMessage('اشتريت ١٢ كابوتشا ال ١٢ ب ١٠٠ جنيه', catalog);
+    expect(parsed.lines).toHaveLength(1);
+    expect(parsed.lines[0]).toMatchObject({
+      sourceName: 'كابوتشا',
+      itemId: 'cabucha-1',
+      quantity: 12,
+      matchConfidence: 1,
+    });
+
+    expect(matchCatalogItem('كابوتشا ال', catalog)).toEqual({ id: 'cabucha-1', confidence: 1 });
+    expect(matchCatalogItem('الكابوتشا', catalog)).toEqual({ id: 'cabucha-1', confidence: 1 });
+    expect(matchCatalogItem('كابوتشي', catalog)).toEqual({ id: 'cabucha-1', confidence: 1 });
+    expect(matchCatalogItem('فراخ صدور', catalog)).toEqual({ id: 'chicken-1', confidence: 1 });
+    expect(matchCatalogItem('بطاطس', catalog).id).toBe('potato-1');
+    // Distinct item with different core noun must NOT falsely collapse into cottage cheese
+    expect(matchCatalogItem('جبنة فيتا', catalog).id).toBe('');
+    expect(cleanExtractedItemName('كرتونة مشروم مشروم')).toBe('كرتونة مشروم');
+    expect(matchesSmartItemQuery('فراخ', { name: 'صدور دجاج', code: 'CHK-01' })).toBe(true);
   });
 });
