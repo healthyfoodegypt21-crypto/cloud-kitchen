@@ -160,6 +160,7 @@ type ExecutionDraft = {
   paymentMethod: 'cash' | 'bank_transfer' | 'credit';
   notes: string;
   invoiceFile: File | null;
+  autoReceive: boolean;
 };
 
 type InlineReceiptLineDraft = {
@@ -487,7 +488,7 @@ export default function ProcurementCenter({
     setDrafts((current) =>
       Object.fromEntries(
         nextRequests
-          .filter((r) => r.status === 'pending_procurement')
+          .filter((r) => r.status === 'pending_procurement' || r.status === 'pending_store_approval')
           .map((request) => [
             request.id,
             current[request.id] ?? {
@@ -505,6 +506,7 @@ export default function ProcurementCenter({
               paymentMethod: 'cash' as const,
               notes: '',
               invoiceFile: null,
+              autoReceive: true,
             },
           ]),
       ),
@@ -646,7 +648,11 @@ export default function ProcurementCenter({
   );
 
   const pending = useMemo(
-    () => allRequests.filter((request) => request.status === 'pending_procurement'),
+    () =>
+      allRequests.filter(
+        (request) =>
+          request.status === 'pending_procurement' || request.status === 'pending_store_approval',
+      ),
     [allRequests],
   );
 
@@ -856,10 +862,15 @@ export default function ProcurementCenter({
           _paid_amount: paid,
           _payment_method: draft.paymentMethod,
           _invoice_storage_path: storagePath,
+          _auto_receive: draft.autoReceive ?? true,
         },
       );
       if (error) throw new Error(error.message);
-      toast.success('تم تسجيل الشراء والفاتورة وإرسال البنود إلى استلام المخزن');
+      toast.success(
+        draft.autoReceive !== false
+          ? 'تم تنفيذ الشراء وإضافة الكميات إلى رصيد المخزون المتاح فوراً'
+          : 'تم تسجيل الشراء والفاتورة وإرسال البنود إلى استلام المخزن',
+      );
       await load();
     } catch (error) {
       if (storagePath) await supabase.storage.from('supplier-invoices').remove([storagePath]);
@@ -886,7 +897,33 @@ export default function ProcurementCenter({
         }
       }
 
-      // Create any inline new items first
+      // Create any inline new items first (deduplicating repeated names & matching existing catalog)
+      const normKey = (v: string) =>
+        v
+          .normalize('NFKC')
+          .toLowerCase()
+          .replace(/[\u064B-\u065F\u0670]/g, '')
+          .replace(/[أإآ]/g, 'ا')
+          .replace(/ى/g, 'ي')
+          .replace(/ة/g, 'ه')
+          .replace(/\s+/g, ' ')
+          .trim();
+      const normCat = (c?: string) =>
+        c === 'protein'
+          ? 'proteins'
+          : c === 'vegetable'
+            ? 'vegetables'
+            : c === 'carbohydrate'
+              ? 'carbohydrates'
+              : c === 'sauce'
+                ? 'sauces'
+                : c === 'beverage'
+                  ? 'beverages'
+                  : c === 'finished_product'
+                    ? 'finished_products'
+                    : c || 'other';
+      const existingItemByKey = new Map(items.map((it) => [normKey(it.name), it.id]));
+      const createdInInvoice = new Map<string, string>();
       const resolvedLines: Array<{
         item_id: string;
         quantity: number;
@@ -900,31 +937,38 @@ export default function ProcurementCenter({
       for (const line of submission.lines) {
         let targetItemId = line.itemId;
         if (!targetItemId && line.newItemName) {
-          const unit = line.newItemUnit ?? 'kg';
-          const { data: newId, error: createErr } = await asSupabaseLooseClient(supabase).rpc(
-            'inventory_create_item_v2',
-            {
-              _brand_id: brandId,
-              _item_code:
-                line.newItemName.replace(/\s+/g, '-').slice(0, 10).toUpperCase() +
-                '-' +
-                Date.now().toString().slice(-5),
-              _name: line.newItemName,
-              _category: line.newItemCategory || 'other',
-              _purchase_unit: unit,
-              _usage_unit: unit,
-              _conversion_factor: 1,
-              _min_stock: Math.round(line.quantity * 0.2 * 1000) / 1000,
-              _location_name: 'main',
-              _opening_quantity: 0,
-              _opening_unit_cost: line.unitCost,
-              _notes: 'أُنشئ مباشرة من فاتورة شراء مباشر',
-            },
-          );
-          if (createErr || !newId) {
-            throw new Error(createErr?.message || `تعذر تعريف الصنف الجديد "${line.newItemName}"`);
+          const k = normKey(line.newItemName);
+          const alreadyId = existingItemByKey.get(k) ?? createdInInvoice.get(k);
+          if (alreadyId) {
+            targetItemId = alreadyId;
+          } else {
+            const unit = line.newItemUnit ?? 'kg';
+            const { data: newId, error: createErr } = await asSupabaseLooseClient(supabase).rpc(
+              'inventory_create_item_v2',
+              {
+                _brand_id: brandId,
+                _item_code:
+                  line.newItemName.replace(/\s+/g, '-').slice(0, 10).toUpperCase() +
+                  '-' +
+                  Date.now().toString().slice(-5),
+                _name: line.newItemName,
+                _category: normCat(line.newItemCategory),
+                _purchase_unit: unit,
+                _usage_unit: unit,
+                _conversion_factor: 1,
+                _min_stock: Math.round(line.quantity * 0.2 * 1000) / 1000,
+                _location_name: 'main',
+                _opening_quantity: 0,
+                _opening_unit_cost: line.unitCost,
+                _notes: 'أُنشئ مباشرة من فاتورة شراء مباشر',
+              },
+            );
+            if (createErr || !newId) {
+              throw new Error(createErr?.message || `تعذر تعريف الصنف الجديد "${line.newItemName}"`);
+            }
+            targetItemId = String(newId);
+            createdInInvoice.set(k, targetItemId);
           }
-          targetItemId = String(newId);
         }
 
         resolvedLines.push({
@@ -956,10 +1000,15 @@ export default function ProcurementCenter({
           _paid_amount: submission.paidAmount,
           _payment_method: submission.paymentMethod,
           _invoice_storage_path: storagePath,
+          _auto_receive: submission.autoReceive ?? true,
         },
       );
       if (error) throw new Error(error.message);
-      toast.success('تم تسجيل فاتورة الشراء المباشر وإشعار المخزن لاعتماد الاستلام');
+      toast.success(
+        submission.autoReceive !== false
+          ? 'تم حفظ فاتورة الشراء المباشر وإضافة الكميات إلى رصيد المخزون المتاح فوراً'
+          : 'تم تسجيل فاتورة الشراء المباشر وإشعار المخزن لاعتماد الاستلام',
+      );
       await load();
       return true;
     } catch (error) {
@@ -2647,6 +2696,27 @@ export default function ProcurementCenter({
                         }))
                       }
                     />
+                    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 text-right">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 accent-emerald-600"
+                        checked={draft.autoReceive ?? true}
+                        onChange={(event) =>
+                          setDrafts((current) => ({
+                            ...current,
+                            [request.id]: { ...draft, autoReceive: event.target.checked },
+                          }))
+                        }
+                      />
+                      <div className="space-y-0.5 text-xs">
+                        <div className="font-bold text-emerald-950">
+                          إضافة الكميات الفعلية إلى رصيد المخزون المتاح فوراً عند الاعتماد
+                        </div>
+                        <p className="text-emerald-800/90">
+                          يتم إيداع الأصناف في رصيد المخزن المركزي فوراً؛ ألغِ التحديد فقط إذا كانت البضاعة لم تصل بعد للمخزن.
+                        </p>
+                      </div>
+                    </label>
                     <Button
                       className="bg-emerald-600 hover:bg-emerald-700 text-white"
                       disabled={savingId === request.id}
@@ -2657,7 +2727,9 @@ export default function ProcurementCenter({
                       ) : (
                         <CheckCircle2 className="ml-2 h-4 w-4" />
                       )}
-                      اعتماد التنفيذ وإرسال للاستلام بالمخزن
+                      {draft.autoReceive !== false
+                        ? 'اعتماد التنفيذ وإضافة الكميات للمخزون فوراً'
+                        : 'اعتماد التنفيذ وإرسال للاستلام بالمخزن'}
                     </Button>
                   </CardContent>
                 </Card>
@@ -3030,7 +3102,7 @@ function Empty({ text }: { text: string }) {
 
 function Status({ status }: { status: string }) {
   const [label, className] =
-    status === 'pending_procurement'
+    status === 'pending_procurement' || status === 'pending_store_approval'
       ? ['بانتظار التنفيذ', 'bg-amber-50 text-amber-800 border border-amber-200']
       : status === 'purchased_pending_receipt'
         ? ['بانتظار استلام المخزن', 'bg-sky-50 text-sky-800 border border-sky-200']
@@ -3172,7 +3244,7 @@ function FileField({ label, onChange }: { label: string; onChange: (file: File |
 }
 
 function statusLabel(status: string) {
-  if (status === 'pending_procurement') return 'بانتظار التنفيذ';
+  if (status === 'pending_procurement' || status === 'pending_store_approval') return 'بانتظار التنفيذ';
   if (status === 'purchased_pending_receipt') return 'بانتظار استلام المخزن';
   if (status === 'approved') return 'دخلت المخزن';
   if (status === 'rejected') return 'ملغي / مرتجع';

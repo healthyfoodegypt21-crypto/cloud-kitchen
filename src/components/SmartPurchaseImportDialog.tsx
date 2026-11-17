@@ -29,6 +29,7 @@ export type SmartPurchaseSubmission = {
   paidAmount: number;
   paymentMethod: 'cash' | 'bank_transfer' | 'credit';
   invoiceFile: File | null;
+  autoReceive?: boolean;
   lines: Array<{ itemId: string; itemName: string; category: string; sourceUnit: InventoryUnit | null; quantity: number; unitPrice: number }>;
 };
 
@@ -68,6 +69,7 @@ export default function SmartPurchaseImportDialog({
   const [paidAmount, setPaidAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<SmartPurchaseSubmission['paymentMethod']>('cash');
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [autoReceive, setAutoReceive] = useState(true);
   const [lines, setLines] = useState<ReviewLine[]>([]);
   const [ignoredLines, setIgnoredLines] = useState<string[]>([]);
   const [imagePreview, setImagePreview] = useState('');
@@ -258,20 +260,20 @@ export default function SmartPurchaseImportDialog({
 
   const categoryDialogLine = lines.find((line) => line.id === categoryDialogLineId) ?? null;
 
-  // Suggests the most likely category from the item name (Arabic + English keywords).
+  // Suggests the most likely category code matching public.inventory_categories (Arabic + English keywords).
   const suggestCategory = (name: string) => {
     const normalized = name.toLowerCase();
     if (/(مكسرات|كاجو|لوز|بندق|فستق|جوز|nuts?|almond|cashew|walnut|pistachio|peanut)/u.test(normalized)) return 'dry_goods';
-    if (/(فراخ|دجاج|تشيكن|chicken|شيش|طاووق|tawook)/u.test(normalized)) return 'protein';
-    if (/(لحم|بيف|ستيك|beef|steak|kofta|كفتة|كبدة)/u.test(normalized)) return 'protein';
-    if (/(سمك|سالمون|فيش|تونة|fish|salmon|tuna|جمبري|shrimp)/u.test(normalized)) return 'protein';
-    if (/(رز|أرز|ارز|مكرونة|باستا|نودلز|بطاطس|rice|pasta|noodle|potato|quinoa|كينوا)/u.test(normalized)) return 'carbohydrate';
-    if (/(طماطم|بصل|خضار|جرجير|خس|جزر|فلفل|كوسة|بروكلي|سبانخ|vegetable|tomato|onion|carrot|pepper|spinach|broccoli|lettuce)/u.test(normalized)) return 'vegetable';
-    if (/(لبن|جبن|زبادي|قشطة|milk|cheese|yogurt|cream|dairy)/u.test(normalized)) return 'dairy';
-    if (/(صوص|صلصة|مايونيز|كاتشب|sauce|mayo|ketchup|dressing)/u.test(normalized)) return 'sauce';
+    if (/(فراخ|دجاج|تشيكن|chicken|شيش|طاووق|tawook)/u.test(normalized)) return 'proteins';
+    if (/(لحم|لحمه|لحمة|بيف|ستيك|beef|steak|kofta|كفتة|كبدة)/u.test(normalized)) return 'proteins';
+    if (/(سمك|سالمون|فيش|تونة|fish|salmon|tuna|جمبري|shrimp)/u.test(normalized)) return 'proteins';
+    if (/(رز|أرز|ارز|مكرونة|باستا|نودلز|بطاطس|توست|عيش|خبز|rice|pasta|noodle|potato|quinoa|كينوا|toast|bread)/u.test(normalized)) return 'carbohydrates';
+    if (/(طماطم|بصل|خضار|خضره|خضرة|جرجير|كابوتشا|خس|جزر|فلفل|كوسة|بروكلي|سبانخ|مشروم|vegetable|tomato|onion|carrot|pepper|spinach|broccoli|lettuce|mushroom)/u.test(normalized)) return 'vegetables';
+    if (/(لبن|جبن|جبنة|جبنه|قريش|زبادي|قشطة|milk|cheese|yogurt|cream|dairy)/u.test(normalized)) return 'dairy';
+    if (/(صوص|صلصة|مايونيز|كاتشب|sauce|mayo|ketchup|dressing)/u.test(normalized)) return 'sauces';
     if (/(ملح|فلفل|بهار|توابل|كمون|كركم|spice|pepper|salt|cumin|turmeric|oregano)/u.test(normalized)) return 'spices';
-    if (/(زيت|زيتون|سمن|oil|olive|ghee|butter)/u.test(normalized)) return 'oils';
-    if (/(عصير|ماء|مياه|شاي|قهوة|juice|water|tea|coffee|soda)/u.test(normalized)) return 'beverage';
+    if (/(زيت|زيتون|سمن|زبدة|oil|olive|ghee|butter)/u.test(normalized)) return 'oils';
+    if (/(عصير|ماء|مياه|شاي|قهوة|juice|water|tea|coffee|soda)/u.test(normalized)) return 'beverages';
     if (/(علبة|كيس|كرتون|تغليف|عبوة|packaging|box|bag|container|wrap)/u.test(normalized)) return 'packaging';
     return 'other';
   };
@@ -303,6 +305,7 @@ export default function SmartPurchaseImportDialog({
         paidAmount,
         paymentMethod,
         invoiceFile,
+        autoReceive,
         lines: lines.map(({ id, itemId, sourceName, category, sourceUnit, quantity, unitPrice }) => ({
           itemId,
           itemName: sourceName,
@@ -329,6 +332,7 @@ export default function SmartPurchaseImportDialog({
         setPaymentMethod('cash');
         setInvoiceFile(null);
         setImageFile(null);
+        setAutoReceive(true);
       }
     } finally {
       setIsSaving(false);
@@ -551,10 +555,25 @@ export default function SmartPurchaseImportDialog({
           <Textarea id="smart-purchase-notes" rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
         </div>
 
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 text-right">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 accent-emerald-600"
+            checked={autoReceive}
+            onChange={(event) => setAutoReceive(event.target.checked)}
+          />
+          <div className="space-y-0.5 text-xs">
+            <div className="font-bold text-emerald-950">إضافة الكميات إلى رصيد المخزون المتاح فوراً عند الحفظ</div>
+            <p className="text-emerald-800/90">
+              يتم إيداع الأصناف وتحديث الكمية المتاحة ومتوسط التكلفة في المخزن المركزي تلقائياً. ألغِ التحديد فقط إذا كانت البضاعة لم تصل للمخزن بعد.
+            </p>
+          </div>
+        </label>
+
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>إلغاء</Button>
           <Button type="button" onClick={() => void submit()} disabled={!canSubmit || isSaving || isReadingImage}>
-            {isSaving ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" /> جارٍ التسجيل...</> : 'تسجيل الشراء وإرساله للمخزن'}
+            {isSaving ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" /> جارٍ التسجيل...</> : autoReceive ? 'حفظ المشتريات وإضافتها للمخزون فوراً' : 'تسجيل الشراء بانتظار استلام المخزن'}
           </Button>
         </div>
       </DialogContent>

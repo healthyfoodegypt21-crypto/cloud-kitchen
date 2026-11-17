@@ -53,6 +53,7 @@ function rpcNumber(result: unknown, key: string): number | null {
 export default function Inventory({ brands, brandsLoading, hub }: { brands: Brand[]; brandsLoading: boolean; hub: { id: string; name: string; stockBrandId: string; brandIds: string[] } }) {
   const { role, isDemoMode, pagePermissions, user } = useAuth();
   const brandId = hub.stockBrandId;
+  const [activeTab, setActiveTab] = useState('overview');
   const [category, setCategory] = useState('all');
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<DialogMode>(null);
@@ -215,7 +216,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       || submissionLines.some((entry) => !Number.isFinite(number(entry.quantity)) || number(entry.quantity) <= 0 || !Number.isFinite(number(entry.unitCost ?? '0')) || number(entry.unitCost ?? '0') < 0)) { toast.error('أدخل اسم المشتري وكمية وسعرًا صحيحين لكل بند'); return; }
     if (!requireValidLocations(submissionLines.map((entry) => entry.locationName))) return;
     const result = await invoke('inventory_record_store_purchase', { _brand_id: brandId, _supplier_name: supplierName, _purchaser_name: purchaserName, _lines: submissionLines.map((entry) => ({ item_id: entry.itemId, quantity: number(entry.quantity), unit_cost: number(entry.unitCost || '0'), location_name: entry.locationName, notes: entry.reason, batch_no: entry.batchNo, expiry_date: entry.expiryDate || null })), _notes: notes });
-    if (result) { toast.success('تم توثيق الشراء في قسم المشتريات وإرساله للاستلام؛ لن يتغير رصيد المخزون قبل الاستلام'); reset(); }
+    if (result) { toast.success('تم تسجيل الشراء المباشر وإضافة الكمية فوراً إلى الرصيد المتاح بالمخزن'); reset(); }
   };
 
   const submitConsolidatedPurchase = async (orderLines: PurchaseOrderLine[], orderSupplier: string, orderNotes: string) => {
@@ -408,7 +409,7 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       <SheetContent side="left" className="w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader>
           <SheetTitle>شراء مباشر سجله مدير المخزن</SheetTitle>
-          <SheetDescription>يُسجل في المشتريات وينتظر اعتماد الاستلام قبل تحديث المخزون.</SheetDescription>
+          <SheetDescription>تُضاف الكمية فوراً إلى الرصيد المتاح بالمخزن وتُوثق في سجل المشتريات.</SheetDescription>
         </SheetHeader>
         <div className="mt-5 space-y-3">
           <div className="grid gap-3">
@@ -459,12 +460,39 @@ export default function Inventory({ brands, brandsLoading, hub }: { brands: Bran
       </SheetContent>
     </Sheet>
 
-    <Tabs defaultValue="overview" dir="rtl" className="space-y-4">
+    {pendingReceipts > 0 && (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-300 bg-sky-50/70 p-3.5 text-sm">
+        <div className="space-y-0.5">
+          <div className="font-bold text-sky-950">
+            يوجد {pendingReceipts.toLocaleString('en-US')} شحنة مشتريات بانتظار اعتماد الاستلام في المخزن
+          </div>
+          <p className="text-xs text-sky-800">
+            الشحنات الآجلة الاستلام لا تدخل في «المتاح / الرصيد» إلا بعد تأكيد استلامها بالمخزن.
+          </p>
+        </div>
+        {canManage && activeTab !== 'activity' && (
+          <Button
+            size="sm"
+            className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs"
+            onClick={() => setActiveTab('activity')}
+          >
+            مراجعة واستلام الشحنات الآن
+          </Button>
+        )}
+      </div>
+    )}
+
+    <Tabs value={activeTab} onValueChange={setActiveTab} dir="rtl" className="space-y-4">
       <div className="overflow-x-auto pb-1">
         <TabsList className="inline-flex h-auto min-w-full sm:min-w-0 justify-start gap-1 rounded-xl border border-slate-200/80 bg-white p-1">
           <TabsTrigger value="overview" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">نظرة عامة</TabsTrigger>
           <TabsTrigger value="items" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700 tabular-nums">الأصناف ({items.length.toLocaleString('en-US')})</TabsTrigger>
-          <TabsTrigger value="activity" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">الحركات والجرد</TabsTrigger>
+          <TabsTrigger value="activity" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700 gap-1.5">
+            <span>الحركات والجرد</span>
+            {pendingReceipts > 0 && (
+              <Badge className="bg-sky-600 text-white text-[10px] px-1.5 py-0 tabular-nums">{pendingReceipts}</Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="fefo" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">الصلاحية (FEFO)</TabsTrigger>
           <TabsTrigger value="reports" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">التقارير</TabsTrigger>
           <TabsTrigger value="audit" className="rounded-lg text-xs font-semibold data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">سجل التدقيق</TabsTrigger>

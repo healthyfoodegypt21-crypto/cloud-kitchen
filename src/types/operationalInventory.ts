@@ -102,7 +102,7 @@ export type InventoryPurchaseRequest = {
   id: string;
   requestNo: string;
   supplierName: string;
-  status: 'pending_procurement' | 'purchased_pending_receipt' | 'approved' | 'rejected';
+  status: 'pending_procurement' | 'pending_store_approval' | 'purchased_pending_receipt' | 'approved' | 'rejected';
   notes: string;
   createdAt: string;
   lines: PurchaseRequestLine[];

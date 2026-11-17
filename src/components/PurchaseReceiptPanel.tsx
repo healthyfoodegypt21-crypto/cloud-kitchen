@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { useSupabaseRealtimeRefresh } from '@/hooks/useSupabaseRealtimeRefresh';
 
 type ReceiptLine = {
@@ -41,8 +42,16 @@ const records = (value: unknown) => Array.isArray(value) ? value.filter(isRecord
 const numeric = (value: unknown) => Number(value ?? 0);
 
 export default function PurchaseReceiptPanel({ brandId, canManage }: Props) {
+  const { displayName, user } = useAuth();
   const [requests, setRequests] = useState<ReceiptRequest[]>([]);
   const [receiver, setReceiver] = useState('');
+
+  useEffect(() => {
+    const fallbackName = displayName || user?.email || '';
+    if (fallbackName) {
+      setReceiver((prev) => prev || fallbackName);
+    }
+  }, [displayName, user?.email]);
   const [receiptDate, setReceiptDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [drafts, setDrafts] = useState<Record<string, Record<string, Partial<ReceiptLine>>>>({});

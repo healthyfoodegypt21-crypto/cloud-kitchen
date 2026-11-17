@@ -7,6 +7,36 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 
+const normalizeCatalogKey = (value: string) =>
+  value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const normalizeCategoryCode = (code: string | undefined) => {
+  switch (code) {
+    case 'protein':
+      return 'proteins';
+    case 'vegetable':
+      return 'vegetables';
+    case 'carbohydrate':
+      return 'carbohydrates';
+    case 'sauce':
+      return 'sauces';
+    case 'beverage':
+      return 'beverages';
+    case 'finished_product':
+      return 'finished_products';
+    default:
+      return code || 'other';
+  }
+};
+
 export default function PurchasesRoute() {
   const { displayName } = useAuth();
   const [brandId, setBrandId] = useState('');
@@ -118,8 +148,12 @@ export default function PurchasesRoute() {
       return false;
     }
 
-    // Lines not linked to a catalog item are created on the fly under the
-    // extracted name, so the purchase can be recorded without manual setup.
+    // Lines not linked to a catalog item are matched against existing items or
+    // deduplicated within this invoice so repeated lines never create duplicate items.
+    const createdInBatch = new Map<string, string>();
+    const existingByKey = new Map(
+      inventoryItems.map((it) => [normalizeCatalogKey(it.name), it.id]),
+    );
     const resolvedLines: Array<{ itemId: string; quantity: number; unitPrice: number }> = [];
     for (const line of submission.lines) {
       if (line.itemId) {
@@ -131,6 +165,12 @@ export default function PurchasesRoute() {
         toast.error('اربط كل سطر بصنف أو تأكد من وجود اسم مستخرج');
         return false;
       }
+      const key = normalizeCatalogKey(itemName);
+      const alreadyKnownId = existingByKey.get(key) ?? createdInBatch.get(key);
+      if (alreadyKnownId) {
+        resolvedLines.push({ itemId: alreadyKnownId, quantity: line.quantity, unitPrice: line.unitPrice });
+        continue;
+      }
       // The new item inherits the invoice unit and price so it never shows a
       // zero average cost, and gets a starting reorder level (20% of the first
       // purchased quantity) that the store manager can adjust afterwards.
@@ -139,7 +179,7 @@ export default function PurchasesRoute() {
         _brand_id: brandId,
         _item_code: itemName.trim().replace(/\s+/g, '-').slice(0, 10).toUpperCase() + '-' + Date.now().toString().slice(-5),
         _name: itemName,
-        _category: line.category || 'other',
+        _category: normalizeCategoryCode(line.category),
         _purchase_unit: unit,
         _usage_unit: unit,
         _conversion_factor: 1,
@@ -153,7 +193,9 @@ export default function PurchasesRoute() {
         toast.error(createError?.message || `تعذر إنشاء الصنف "${itemName}"`);
         return false;
       }
-      resolvedLines.push({ itemId: String(newItemId), quantity: line.quantity, unitPrice: line.unitPrice });
+      const createdId = String(newItemId);
+      createdInBatch.set(key, createdId);
+      resolvedLines.push({ itemId: createdId, quantity: line.quantity, unitPrice: line.unitPrice });
     }
 
     let storagePath = '';
@@ -212,6 +254,7 @@ export default function PurchasesRoute() {
         _paid_amount: submission.paidAmount,
         _payment_method: submission.paymentMethod,
         _invoice_storage_path: storagePath,
+        _auto_receive: submission.autoReceive ?? true,
       });
 
       if (error) {
@@ -220,7 +263,11 @@ export default function PurchasesRoute() {
         return false;
       }
 
-      toast.success('تم تسجيل الشراء وإشعار المخزن لاعتماد الاستلام وإضافة الكميات');
+      toast.success(
+        submission.autoReceive !== false
+          ? 'تم تسجيل المشتريات وإضافة الكميات إلى رصيد المخزون المتاح فوراً'
+          : 'تم تسجيل الشراء وإشعار المخزن لاعتماد الاستلام عند وصول البضاعة',
+      );
       setRefreshTick((t) => t + 1);
       return true;
     } catch (error) {

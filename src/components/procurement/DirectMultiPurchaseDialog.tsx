@@ -64,6 +64,7 @@ export interface DirectMultiPurchaseSubmission {
   paymentMethod: 'cash' | 'bank_transfer' | 'credit';
   notes: string;
   invoiceFile: File | null;
+  autoReceive?: boolean;
   lines: DirectPurchaseLinePayload[];
 }
 
@@ -128,6 +129,7 @@ export default function DirectMultiPurchaseDialog({
   const [partialPaidAmount, setPartialPaidAmount] = useState('0');
   const [notes, setNotes] = useState('');
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [autoReceive, setAutoReceive] = useState(true);
   const [lines, setLines] = useState<LineDraft[]>(() => [makeRow()]);
   const [saving, setSaving] = useState(false);
 
@@ -191,6 +193,7 @@ export default function DirectMultiPurchaseDialog({
     setPartialPaidAmount('0');
     setNotes('');
     setInvoiceFile(null);
+    setAutoReceive(true);
     setLines([makeRow()]);
   };
 
@@ -245,6 +248,7 @@ export default function DirectMultiPurchaseDialog({
         paymentMethod: effectivePaymentMethod,
         notes: notes.trim(),
         invoiceFile,
+        autoReceive,
         lines: lines.map((row) => ({
           itemId: row.mode === 'existing' ? row.itemId : '',
           newItemName: row.mode === 'new' ? row.newItemName.trim() : undefined,
@@ -280,7 +284,7 @@ export default function DirectMultiPurchaseDialog({
             </span>
           </div>
           <DialogDescription className="text-xs text-slate-500">
-            سجّل فاتورة مورد كاملة بصنف واحد أو عدة أصناف دفعة واحدة، مع حساب تلقائي للإجمالي والمدفوع وإرسالها مباشرة لاعتماد استلام المخزن.
+            سجّل فاتورة مورد كاملة بصنف واحد أو عدة أصناف دفعة واحدة، مع حساب تلقائي للإجمالي وإضافة الكميات مباشرة للرصيد المتاح بالمخزن.
           </DialogDescription>
         </DialogHeader>
 
@@ -696,6 +700,21 @@ export default function DirectMultiPurchaseDialog({
           </div>
         </div>
 
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 text-right">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 accent-emerald-600"
+            checked={autoReceive}
+            onChange={(e) => setAutoReceive(e.target.checked)}
+          />
+          <div className="space-y-0.5 text-xs">
+            <div className="font-bold text-emerald-950">إضافة الأصناف إلى رصيد المخزون المتاح فوراً عند الحفظ</div>
+            <p className="text-emerald-800/90">
+              تُضاف الكميات المشتراة تلقائياً إلى رصيد المخزن المركزي ومتوسط التكلفة؛ ألغِ التحديد فقط إذا كانت البضاعة لم تصل بعد.
+            </p>
+          </div>
+        </label>
+
         <DialogFooter className="gap-2">
           <Button
             type="button"
@@ -717,7 +736,8 @@ export default function DirectMultiPurchaseDialog({
               </>
             ) : (
               <>
-                <CheckCircle2 className="h-4 w-4" /> تسجيل الفاتورة وإشعار المخزن للاستلام
+                <CheckCircle2 className="h-4 w-4" />{' '}
+                {autoReceive ? 'حفظ الفاتورة وإضافة الأصناف للمخزون فوراً' : 'تسجيل الفاتورة بانتظار استلام المخزن'}
               </>
             )}
           </Button>
