@@ -18,6 +18,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOperationalInventory } from '@/hooks/useOperationalInventory';
 import { supabase } from '@/integrations/supabase/client';
 import { hasPageAccess } from '@/lib/permissions';
+import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 import { cleanExtractedItemName, matchCatalogItem, matchesSmartItemQuery } from '@/lib/smartPurchaseImport';
 import { formatEGPCurrency } from '@/lib/utils';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
@@ -737,7 +738,20 @@ function LineEditor({ items, locations, line, setLine, showCost = false, quantit
   </div>;
 }
 function ItemForm({ draft, setDraft, existingItems = [], editingItemId, categories, locations, allowOpeningStock, onSave, submitting = false }: { draft: ItemDraft; setDraft: React.Dispatch<React.SetStateAction<ItemDraft>>; existingItems?: OperationalInventoryItem[]; editingItemId?: string; categories: { code: string; name_ar: string }[]; locations: { code: string; name: string }[]; allowOpeningStock: boolean; onSave: () => void; submitting?: boolean }) {
+  const [categoryManuallySet, setCategoryManuallySet] = useState(Boolean(editingItemId));
   const update = (key: keyof ItemDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+  const handleNameChange = (value: string) => {
+    setDraft((current) => {
+      const next = { ...current, name: value };
+      if (!editingItemId && !categoryManuallySet) {
+        const inferred = inferSmartItemCategory(value, categories);
+        if (categories.some((c) => c.code === inferred)) {
+          next.category = inferred;
+        }
+      }
+      return next;
+    });
+  };
   const duplicateCandidate = useMemo(() => {
     if ( draft.name.trim().length < 2) return null;
     const pool = existingItems
@@ -758,14 +772,14 @@ function ItemForm({ draft, setDraft, existingItems = [], editingItemId, categori
   });
 
   return <div className="grid gap-3 sm:grid-cols-2">
-    <Field label="اسم الصنف" value={draft.name} onChange={(value) => update('name', value)} />
+    <Field label="اسم الصنف" value={draft.name} onChange={handleNameChange} />
     <Field label="كود الصنف (اختياري)" value={draft.code} onChange={(value) => update('code', value)} />
     {duplicateCandidate && (
       <div className="sm:col-span-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
         تنبيه ذكي: يوجد صنف مسجل بالفعل باسم «{duplicateCandidate.name}» (المتاح: {duplicateCandidate.availableQuantity} {duplicateCandidate.unit}) — تَفادَ تسجيل اسمين لنفس الصنف.
       </div>
     )}
-    <div className="space-y-1"><Label>الفئة</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={draft.category} onChange={(event) => update('category', event.target.value)}><option value="">اختر الفئة</option>{categories.map((category) => <option key={category.code} value={category.code}>{category.name_ar}</option>)}</select></div>
+    <div className="space-y-1"><Label>الفئة (تلقائي)</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={draft.category} onChange={(event) => { setCategoryManuallySet(true); update('category', event.target.value); }}><option value="">اختر الفئة</option>{categories.map((category) => <option key={category.code} value={category.code}>{category.name_ar}</option>)}</select></div>
     <UnitField label="وحدة الشراء" value={draft.purchaseUnit} onChange={(value) => updateUnit('purchaseUnit', value)} />
     <UnitField label="وحدة الاستخدام بالمخزون" value={draft.usageUnit} onChange={(value) => updateUnit('usageUnit', value)} />
     <div className="space-y-1"><Label>كمية الاستخدام في وحدة الشراء</Label><Input type="number" min="0.001" step="0.001" value={draft.conversionFactor} onChange={(event) => update('conversionFactor', event.target.value)} /></div>

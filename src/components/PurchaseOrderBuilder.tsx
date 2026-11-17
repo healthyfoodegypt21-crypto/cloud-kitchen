@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import type { InventoryCategoryRecord, InventoryLocation, OperationalInventoryItem } from '@/types/operationalInventory';
 import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 import { suggestPurchaseQuantity } from '@/lib/procurementUnits';
+import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 import { cleanExtractedItemName, matchCatalogItem } from '@/lib/smartPurchaseImport';
 
 export type PurchaseOrderLine = {
@@ -55,6 +56,7 @@ export default function PurchaseOrderBuilder({ items, categories, locations, ini
   const [supplierName, setSupplierName] = useState('');
   const [notes, setNotes] = useState('');
   const [newItem, setNewItem] = useState<NewItemDraft>(blankNewItem);
+  const [newItemCategoryManual, setNewItemCategoryManual] = useState(false);
   const [creatingItem, setCreatingItem] = useState(false);
   const selectedIds = useMemo(() => new Set(lines.map(line => line.itemId)), [lines]);
   const total = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitCost || 0), 0);
@@ -109,6 +111,7 @@ export default function PurchaseOrderBuilder({ items, categories, locations, ini
     if (!created) return;
     setLines(current => [...current, { itemId: created.id, itemName: cleanedName, unit: newItem.purchaseUnit, quantity: '1', unitCost: newItem.unitCost, locationName: locations[0]?.code ?? 'main', notes: 'صنف جديد ضمن أمر الشراء' }]);
     setNewItem(blankNewItem);
+    setNewItemCategoryManual(false);
     toast.success('تمت إضافة الصنف الجديد إلى أمر الشراء');
   };
   const submit = async () => {
@@ -129,9 +132,16 @@ export default function PurchaseOrderBuilder({ items, categories, locations, ini
       <h3 className="flex items-center gap-2 font-semibold"><PackagePlus className="h-5 w-5" />إضافة صنف جديد إلى الأمر</h3>
       <p className="mt-1 text-sm text-muted-foreground">سيُنشأ الصنف في المخزون بدون رصيد، ثم يُضاف لهذا الأمر بالكمية التي تحددها.</p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <TextField label="اسم الصنف الجديد" value={newItem.name} onChange={value => setNewItem(current => ({ ...current, name: value }))} />
+        <TextField label="اسم الصنف الجديد" value={newItem.name} onChange={value => setNewItem(current => {
+          const inferred = inferSmartItemCategory(value, categories);
+          return {
+            ...current,
+            name: value,
+            ...(newItemCategoryManual ? {} : { category: categories.some(c => c.code === inferred) ? inferred : current.category }),
+          };
+        })} />
         <TextField label="كود الصنف (اختياري)" value={newItem.code} onChange={value => setNewItem(current => ({ ...current, code: value }))} />
-        <div className="space-y-1"><Label>الفئة</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={newItem.category} onChange={event => setNewItem(current => ({ ...current, category: event.target.value }))}><option value="">اختر الفئة</option>{categories.map(category => <option key={category.id} value={category.code}>{category.name_ar}</option>)}</select></div>
+        <div className="space-y-1"><Label>الفئة (تلقائي)</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={newItem.category} onChange={event => { setNewItemCategoryManual(true); setNewItem(current => ({ ...current, category: event.target.value })); }}><option value="">اختر الفئة</option>{categories.map(category => <option key={category.id} value={category.code}>{category.name_ar}</option>)}</select></div>
         <UnitField label="وحدة الشراء" value={newItem.purchaseUnit} onChange={value => updateNewItemUnit('purchaseUnit', value)} />
         <UnitField label="وحدة الاستخدام بالمخزون" value={newItem.usageUnit} onChange={value => updateNewItemUnit('usageUnit', value)} />
         <NumberField label="كمية الاستخدام في وحدة الشراء" value={newItem.conversionFactor} onChange={value => setNewItem(current => ({ ...current, conversionFactor: value }))} />

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import SmartPurchaseImportDialog from '@/components/SmartPurchaseImportDialog';
 import DirectMultiPurchaseDialog from '@/components/procurement/DirectMultiPurchaseDialog';
+import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 
 vi.mock('@/components/AiVisionStatusControl', () => ({
   default: () => null,
@@ -160,7 +161,7 @@ describe('Direct & Smart Purchase Immediate Stock Sync', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /\+ تعريف كصنف جديد غير مسجل/ }));
-    const newNameInput = screen.getByPlaceholderText('مثال: صوص ديمي جلاس');
+    const newNameInput = screen.getByPlaceholderText('مثال: كابوتشا / صوص ديمي جلاس');
     fireEvent.change(newNameInput, { target: { value: 'كابوتشا ال' } });
 
     const useExistingBtn = await screen.findByRole('button', { name: 'استخدام «كابوتشا»' });
@@ -175,6 +176,67 @@ describe('Direct & Smart Purchase Immediate Stock Sync', () => {
     expect(onSubmit.mock.calls[0][0].lines[0]).toMatchObject({
       itemId: 'item-cab',
       unitCost: 9,
+    });
+  });
+
+  it('automatically recognizes item categories like كابوتشا -> vegetables across classifier and new-item forms', async () => {
+    const dbCategories = [
+      { code: '01', name: 'مكسرات ' },
+      { code: 'proteins', name: 'البروتينات' },
+      { code: 'vegetables', name: 'الخضروات' },
+      { code: 'carbohydrates', name: 'الكربوهيدرات' },
+      { code: 'dairy', name: 'منتجات الألبان' },
+      { code: 'sauces', name: 'الصوصات' },
+      { code: 'spices', name: 'البهارات والتوابل' },
+      { code: 'cleaning', name: 'المنظفات' },
+      { code: 'packaging', name: 'مواد التعبئة والتغليف' },
+      { code: 'other', name: 'أخرى' },
+    ];
+
+    expect(inferSmartItemCategory('كابوتشا', dbCategories)).toBe('vegetables');
+    expect(inferSmartItemCategory('حزم خضره', dbCategories)).toBe('vegetables');
+    expect(inferSmartItemCategory('مشروم', dbCategories)).toBe('vegetables');
+    expect(inferSmartItemCategory('فلفل ألوان', dbCategories)).toBe('vegetables');
+    expect(inferSmartItemCategory('فلفل أسود مطحون', dbCategories)).toBe('spices');
+    expect(inferSmartItemCategory('ثوم بودر', dbCategories)).toBe('spices');
+    expect(inferSmartItemCategory('ثوم', dbCategories)).toBe('vegetables');
+    expect(inferSmartItemCategory('ريتش بيك توست ردة', dbCategories)).toBe('carbohydrates');
+    expect(inferSmartItemCategory('كاتشب', dbCategories)).toBe('sauces');
+    expect(inferSmartItemCategory('سلك موعين', dbCategories)).toBe('cleaning');
+    expect(inferSmartItemCategory('فلاش', dbCategories)).toBe('cleaning');
+    expect(inferSmartItemCategory('كاجو', dbCategories)).toBe('01');
+    expect(inferSmartItemCategory('علبة تونة', dbCategories)).toBe('proteins');
+    expect(inferSmartItemCategory('علب وجبات بلاستيك', dbCategories)).toBe('packaging');
+
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    render(
+      <DirectMultiPurchaseDialog
+        open={true}
+        onOpenChange={() => {}}
+        items={[]}
+        suppliers={[]}
+        categories={dbCategories}
+        authenticatedAccountName="Yassen"
+        onSubmit={onSubmit}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /\+ تعريف كصنف جديد غير مسجل/ }));
+    fireEvent.change(screen.getByPlaceholderText('مثال: كابوتشا / صوص ديمي جلاس'), {
+      target: { value: 'كابوتشا' },
+    });
+    fireEvent.change(screen.getAllByRole('spinbutton')[1], {
+      target: { value: '9' },
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /حفظ الفاتورة وإضافة الأصناف للمخزون فوراً/ }),
+    );
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0].lines[0]).toMatchObject({
+      newItemName: 'كابوتشا',
+      newItemCategory: 'vegetables',
     });
   });
 });

@@ -10,6 +10,7 @@ import { INVENTORY_UNIT_LABELS } from '@/types/inventory';
 import type { InventoryCategory, InventoryUnit } from '@/types/inventory';
 import { INVENTORY_CATEGORY_LABELS } from '@/types/inventory';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 import {
   matchCatalogItem,
   matchesSmartItemQuery,
@@ -252,6 +253,27 @@ export default function SmartPurchaseImportDialog({
     ocrAbortRef.current?.abort();
   };
 
+  const suggestCategory = (name: string) => inferSmartItemCategory(name, categories);
+
+  const resolveCategoryLabel = (code: string) =>
+    categories.find((c) => c.code === code)?.name ??
+    INVENTORY_CATEGORY_LABELS[code as InventoryCategory] ??
+    (code === 'vegetables'
+      ? 'الخضروات'
+      : code === 'proteins'
+        ? 'البروتينات'
+        : code === 'carbohydrates'
+          ? 'الكربوهيدرات'
+          : code === 'sauces'
+            ? 'الصوصات'
+            : code === 'cleaning'
+              ? 'المنظفات'
+              : code === 'beverages'
+                ? 'المشروبات'
+                : code === 'other'
+                  ? 'أخرى'
+                  : code);
+
   const updateLine = (id: string, update: Partial<ReviewLine>) => {
     setLines((current) => current.map((line) => {
       if (line.id !== id) return line;
@@ -265,6 +287,8 @@ export default function SmartPurchaseImportDialog({
         next.confirmedUnit = unitMatchesInventory(next.sourceUnit, matchedItem);
         if (matchedItem) {
           next.category = matchedItem.category;
+        } else {
+          next.category = suggestCategory(update.sourceName);
         }
       }
       // Auto-fill the category from the linked catalog item.
@@ -277,24 +301,6 @@ export default function SmartPurchaseImportDialog({
   };
 
   const categoryDialogLine = lines.find((line) => line.id === categoryDialogLineId) ?? null;
-
-  // Suggests the most likely category code matching public.inventory_categories (Arabic + English keywords).
-  const suggestCategory = (name: string) => {
-    const normalized = name.toLowerCase();
-    if (/(مكسرات|كاجو|لوز|بندق|فستق|جوز|nuts?|almond|cashew|walnut|pistachio|peanut)/u.test(normalized)) return 'dry_goods';
-    if (/(فراخ|دجاج|تشيكن|chicken|شيش|طاووق|tawook)/u.test(normalized)) return 'proteins';
-    if (/(لحم|لحمه|لحمة|بيف|ستيك|beef|steak|kofta|كفتة|كبدة)/u.test(normalized)) return 'proteins';
-    if (/(سمك|سالمون|فيش|تونة|fish|salmon|tuna|جمبري|shrimp)/u.test(normalized)) return 'proteins';
-    if (/(رز|أرز|ارز|مكرونة|باستا|نودلز|بطاطس|توست|عيش|خبز|rice|pasta|noodle|potato|quinoa|كينوا|toast|bread)/u.test(normalized)) return 'carbohydrates';
-    if (/(طماطم|بصل|خضار|خضره|خضرة|جرجير|كابوتشا|خس|جزر|فلفل|كوسة|بروكلي|سبانخ|مشروم|vegetable|tomato|onion|carrot|pepper|spinach|broccoli|lettuce|mushroom)/u.test(normalized)) return 'vegetables';
-    if (/(لبن|جبن|جبنة|جبنه|قريش|زبادي|قشطة|milk|cheese|yogurt|cream|dairy)/u.test(normalized)) return 'dairy';
-    if (/(صوص|صلصة|مايونيز|كاتشب|sauce|mayo|ketchup|dressing)/u.test(normalized)) return 'sauces';
-    if (/(ملح|فلفل|بهار|توابل|كمون|كركم|spice|pepper|salt|cumin|turmeric|oregano)/u.test(normalized)) return 'spices';
-    if (/(زيت|زيتون|سمن|زبدة|oil|olive|ghee|butter)/u.test(normalized)) return 'oils';
-    if (/(عصير|ماء|مياه|شاي|قهوة|juice|water|tea|coffee|soda)/u.test(normalized)) return 'beverages';
-    if (/(علبة|كيس|كرتون|تغليف|عبوة|packaging|box|bag|container|wrap)/u.test(normalized)) return 'packaging';
-    return 'other';
-  };
 
   const confirmCategory = () => {
     if (!categoryDialogLineId) return;
@@ -508,10 +514,13 @@ export default function SmartPurchaseImportDialog({
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="mt-1 h-8 text-xs"
+                          className="mt-1 h-8 gap-1.5 text-xs border-emerald-200 bg-emerald-50/50 text-emerald-900 hover:bg-emerald-100/60"
                           onClick={() => { setCategoryDialogLineId(line.id); setCategoryDraft(line.category !== 'other' ? line.category : suggestCategory(line.sourceName)); }}
                         >
-                          صنف جديد — حدد الفئة
+                          <Sparkles className="h-3 w-3 text-emerald-600" />
+                          <span>
+                            صنف جديد · الفئة التلقائية: <strong>{resolveCategoryLabel(line.category || suggestCategory(line.sourceName))}</strong> (تعديل)
+                          </span>
                         </Button>
                       )}
                     </div>

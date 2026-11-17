@@ -74,6 +74,7 @@ import {
   type UserIdentityDirectoryEntry,
 } from '@/lib/procurementEngine';
 import { suggestPurchaseQuantity } from '@/lib/procurementUnits';
+import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 import { cleanExtractedItemName, matchCatalogItem } from '@/lib/smartPurchaseImport';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 import { cn, formatEGPCurrency } from '@/lib/utils';
@@ -961,7 +962,10 @@ export default function ProcurementCenter({
                   '-' +
                   Date.now().toString().slice(-5),
                 _name: cleanedName,
-                _category: normCat(line.newItemCategory),
+                _category:
+                  line.newItemCategory && line.newItemCategory !== 'other'
+                    ? normCat(line.newItemCategory)
+                    : inferSmartItemCategory(cleanedName, categories),
                 _purchase_unit: unit,
                 _usage_unit: unit,
                 _conversion_factor: 1,

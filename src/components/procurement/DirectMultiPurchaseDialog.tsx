@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import ProcurementPriceAlert from '@/components/ProcurementPriceAlert';
 import { formatCleanUnitLabel } from '@/lib/procurementEngine';
+import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 import {
   cleanExtractedItemName,
   matchCatalogItem,
@@ -80,6 +81,7 @@ interface LineDraft {
   itemId: string;
   newItemName: string;
   newItemCategory: string;
+  categoryManuallySet?: boolean;
   newItemUnit: InventoryUnit;
   quantity: string;
   unitCost: string;
@@ -257,7 +259,12 @@ export default function DirectMultiPurchaseDialog({
         lines: lines.map((row) => ({
           itemId: row.mode === 'existing' ? row.itemId : '',
           newItemName: row.mode === 'new' ? cleanExtractedItemName(row.newItemName) : undefined,
-          newItemCategory: row.mode === 'new' ? row.newItemCategory : undefined,
+          newItemCategory:
+            row.mode === 'new'
+              ? row.newItemCategory && row.newItemCategory !== 'other'
+                ? row.newItemCategory
+                : inferSmartItemCategory(row.newItemName, categories)
+              : undefined,
           newItemUnit: row.mode === 'new' ? row.newItemUnit : undefined,
           quantity: Number(row.quantity),
           unitCost: Number(row.unitCost),
@@ -513,17 +520,29 @@ export default function DirectMultiPurchaseDialog({
                         </Label>
                         <Input
                           className="h-9 text-xs"
-                          placeholder="مثال: صوص ديمي جلاس"
+                          placeholder="مثال: كابوتشا / صوص ديمي جلاس"
                           value={row.newItemName}
-                          onChange={(e) => updateRow(row.rowId, { newItemName: e.target.value })}
+                          onChange={(e) => {
+                            const nextName = e.target.value;
+                            const autoCat = inferSmartItemCategory(nextName, categories);
+                            updateRow(row.rowId, {
+                              newItemName: nextName,
+                              ...(row.categoryManuallySet ? {} : { newItemCategory: autoCat }),
+                            });
+                          }}
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[11px] font-semibold">الفئة</Label>
+                        <Label className="text-[11px] font-semibold">الفئة (تلقائي)</Label>
                         <select
                           className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
                           value={row.newItemCategory}
-                          onChange={(e) => updateRow(row.rowId, { newItemCategory: e.target.value })}
+                          onChange={(e) =>
+                            updateRow(row.rowId, {
+                              newItemCategory: e.target.value,
+                              categoryManuallySet: true,
+                            })
+                          }
                         >
                           {categories.length > 0
                             ? categories.map((c) => (

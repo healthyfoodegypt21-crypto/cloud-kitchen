@@ -5,6 +5,7 @@ import SmartPurchaseImportDialog, { type SmartPurchaseSubmission } from '@/compo
 import ProcurementCenter from '@/pages/ProcurementCenter';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { inferSmartItemCategory } from '@/lib/smartCategoryClassifier';
 import { cleanExtractedItemName, matchCatalogItem } from '@/lib/smartPurchaseImport';
 import { asSupabaseLooseClient } from '@/lib/supabaseLoose';
 
@@ -187,7 +188,10 @@ export default function PurchasesRoute() {
         _brand_id: brandId,
         _item_code: itemName.trim().replace(/\s+/g, '-').slice(0, 10).toUpperCase() + '-' + Date.now().toString().slice(-5),
         _name: itemName,
-        _category: normalizeCategoryCode(line.category),
+        _category:
+          line.category && line.category !== 'other'
+            ? normalizeCategoryCode(line.category)
+            : inferSmartItemCategory(itemName, categories),
         _purchase_unit: unit,
         _usage_unit: unit,
         _conversion_factor: 1,
